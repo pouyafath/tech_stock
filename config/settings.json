@@ -1,0 +1,20 @@
+{
+  "budget_cad": 3000,
+  "risk_tolerance": "aggressive",
+  "account_type": "wealthsimple_premium_usd",
+  "claude_model": "claude-sonnet-4-6",
+  "min_net_expected_return_pct": 0.5,
+  "max_position_pct": 25,
+  "fee_model": {
+    "commission": 0.0,
+    "fx_spread_pct": 0.0,
+    "bid_ask_megacap_pct": 0.05,
+    "bid_ask_midcap_pct": 0.15,
+    "bid_ask_smallcap_pct": 0.40,
+    "regulatory_per_us_trade_usd": 0.03,
+    "regulatory_per_cad_trade_usd": 0.0
+  },
+  "megacap_tickers": ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA"],
+  "news_lookback_days": 7,
+  "history_months": 3
+}

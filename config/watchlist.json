@@ -1,0 +1,8 @@
+{
+  "_comment": "Stocks to monitor but not yet owned. Grouped by category.",
+  "megacaps": ["MSFT", "AAPL", "GOOGL"],
+  "growth": ["AMD", "CRM", "NVDA"],
+  "aggressive": ["PLTR", "SMCI", "ARM", "IONQ"],
+  "canadian_tech": ["SHOP.TO", "CSU.TO", "OTEX.TO", "KXS.TO"],
+  "all": ["MSFT", "AAPL", "GOOGL", "AMD", "CRM", "NVDA", "PLTR", "SMCI", "ARM", "IONQ", "SHOP.TO", "CSU.TO", "OTEX.TO", "KXS.TO"]
+}

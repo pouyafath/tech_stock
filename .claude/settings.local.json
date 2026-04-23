@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(brew install *)",
+      "Bash(mkdir -p __TRACKED_VAR__/config __TRACKED_VAR__/data/recommendations_log __TRACKED_VAR__/reports __TRACKED_VAR__/src)",
+      "Bash(touch __TRACKED_VAR__/src/__init__.py)"
+    ]
+  }
+}
