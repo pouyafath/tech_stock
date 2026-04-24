@@ -102,62 +102,104 @@ def validate_environment():
 
 
 def interactive_setup() -> dict:
-    """Walk the user through setup questions. Returns config dict."""
+    """Walk the user through setup questions with strict input validation."""
     print(f"\n{C.BOLD}{'=' * 65}{C.RESET}")
     print(f"{C.BOLD}  TECH STOCK ADVISOR{C.RESET}")
     print(f"{C.BOLD}{'=' * 65}{C.RESET}")
 
+    # ── Session type ─────────────────────────────────────────────────────
     hour = datetime.now().hour
     default_session = "morning" if hour < 13 else "afternoon"
     print(f"\n  {C.DIM}Current time: {datetime.now().strftime('%H:%M')} — defaulting to {default_session.upper()} session{C.RESET}")
-    session_input = input(f"  Session type (morning/afternoon) [Enter = {default_session}]: ").strip().lower()
-    session_type = session_input if session_input in ("morning", "afternoon") else default_session
+
+    while True:
+        session_input = input(f"  Session type (morning/afternoon) [Enter = {default_session}]: ").strip().lower()
+        if not session_input:
+            session_type = default_session
+            break
+        if session_input in ("morning", "afternoon"):
+            session_type = session_input
+            break
+        print(f"   {C.YELLOW}↳ Invalid input. Please enter 'morning' or 'afternoon'{C.RESET}")
 
     print()
 
+    # ── USD Budget ───────────────────────────────────────────────────────
     while True:
         raw = input(f"1. How much {C.BOLD}USD{C.RESET} would you like to invest today? $").strip()
         if not raw:
-            budget_usd = 0.0; break
+            budget_usd = 0.0
+            break
         try:
-            budget_usd = float(raw); break
+            budget_usd = float(raw)
+            if budget_usd < 0:
+                print(f"   {C.YELLOW}↳ Please enter a positive number (e.g. 500 or 0){C.RESET}")
+                continue
+            break
         except ValueError:
-            print("   ↳ Please enter a number (e.g. 500 or 0).")
+            print(f"   {C.YELLOW}↳ Invalid input. Please enter a number (e.g. 500 or 0){C.RESET}")
 
+    # ── CAD Budget ───────────────────────────────────────────────────────
     while True:
         raw = input(f"2. How much {C.BOLD}CAD{C.RESET} would you like to invest today? $").strip()
         if not raw:
-            budget_cad = 0.0; break
+            budget_cad = 0.0
+            break
         try:
-            budget_cad = float(raw); break
+            budget_cad = float(raw)
+            if budget_cad < 0:
+                print(f"   {C.YELLOW}↳ Please enter a positive number (e.g. 1000 or 0){C.RESET}")
+                continue
+            break
         except ValueError:
-            print("   ↳ Please enter a number (e.g. 1000 or 0).")
+            print(f"   {C.YELLOW}↳ Invalid input. Please enter a number (e.g. 1000 or 0){C.RESET}")
 
     # ── Holdings CSV (required every time) ────────────────────────────────
-    print(f"\n3. {C.BOLD}Export Holdings CSV from Wealthsimple{C.RESET}")
-    print(f"   {C.DIM}1. Go to Account → Activity{C.RESET}")
-    print(f"   {C.DIM}2. Click 'Export Holdings Report (CSV)'{C.RESET}")
-    print(f"   {C.DIM}3. Drag and drop the file into:{C.RESET}")
-    print(f"   {C.CYAN}{UPLOAD_DIR.resolve()}{C.RESET}")
-    print(f"   {C.YELLOW}(or copy the file path below){C.RESET}\n")
+    holdings_path = None
+    while not holdings_path:
+        print(f"\n3. {C.BOLD}Export Holdings CSV from Wealthsimple{C.RESET}")
+        print(f"   {C.DIM}1. Go to Account → Activity{C.RESET}")
+        print(f"   {C.DIM}2. Click 'Export Holdings Report (CSV)'{C.RESET}")
+        print(f"   {C.DIM}3. Drag and drop the file into:{C.RESET}")
+        print(f"   {C.CYAN}{UPLOAD_DIR.resolve()}{C.RESET}\n")
 
-    holdings_auto = find_latest_csv("holdings-report-*.csv")
-    if holdings_auto:
-        print(f"   {C.GREEN}✓ Found:{C.RESET} {C.CYAN}{holdings_auto.name}{C.RESET}")
-        answer = input(f"   Use this file? (Y/N): ").strip().upper()
-        if answer == "Y":
-            holdings_path = holdings_auto
+        holdings_auto = find_latest_csv("holdings-report-*.csv")
+        if holdings_auto:
+            print(f"   {C.GREEN}✓ Found:{C.RESET} {C.CYAN}{holdings_auto.name}{C.RESET}")
+            while True:
+                answer = input(f"   Use this file? (Y/N): ").strip().upper()
+                if answer in ("Y", "N"):
+                    break
+                print(f"   {C.YELLOW}↳ Please enter 'Y' or 'N'{C.RESET}")
+
+            if answer == "Y":
+                holdings_path = holdings_auto
+            else:
+                while True:
+                    raw = input("   Enter the full path to your Holdings CSV: ").strip()
+                    if not raw:
+                        print(f"   {C.YELLOW}↳ Path cannot be empty. Please provide a valid path.{C.RESET}")
+                        continue
+                    test_path = Path(raw)
+                    if test_path.exists():
+                        holdings_path = test_path
+                        break
+                    print(f"   {C.RED}✗ File not found: {raw}{C.RESET}")
+                    print(f"   {C.YELLOW}↳ Please enter a valid file path{C.RESET}")
         else:
-            raw = input("   Enter the full path to your Holdings CSV: ").strip()
-            holdings_path = Path(raw) if raw else None
-    else:
-        print(f"   {C.YELLOW}No Holdings CSV found in {UPLOAD_DIR}{C.RESET}")
-        raw = input("   Enter the full path to your Holdings CSV: ").strip()
-        holdings_path = Path(raw) if raw else None
-
-    if not holdings_path or not holdings_path.exists():
-        print(f"   {C.RED}✗ ERROR: Holdings CSV is required.{C.RESET}")
-        holdings_path = None
+            print(f"   {C.YELLOW}✗ No Holdings CSV found in {UPLOAD_DIR}{C.RESET}")
+            print(f"   {C.YELLOW}Please drop the CSV file in the path above, then answer below.{C.RESET}\n")
+            while True:
+                raw = input("   Enter the full path to your Holdings CSV: ").strip()
+                if not raw:
+                    print(f"   {C.YELLOW}↳ Path cannot be empty. Please provide a valid path.{C.RESET}")
+                    continue
+                test_path = Path(raw)
+                if test_path.exists():
+                    holdings_path = test_path
+                    break
+                print(f"   {C.RED}✗ File not found: {raw}{C.RESET}")
+                print(f"   {C.YELLOW}↳ Please enter a valid file path{C.RESET}")
 
     # ── Activities CSV (only ask if missing or older than 7 days) ───────
     activities_path = None
@@ -168,42 +210,56 @@ def interactive_setup() -> dict:
         print(f"\n4. {C.BOLD}Trade History (Activities){C.RESET}")
         print(f"   {C.GREEN}✓ Recent Activities CSV found:{C.RESET} {C.CYAN}{activities_auto.name}{C.RESET}")
         print(f"   {C.DIM}(less than 7 days old){C.RESET}")
-        answer = input(f"   Use this file? (Y/N): ").strip().upper()
+        while True:
+            answer = input(f"   Use this file? (Y/N): ").strip().upper()
+            if answer in ("Y", "N"):
+                break
+            print(f"   {C.YELLOW}↳ Please enter 'Y' or 'N'{C.RESET}")
+
         if answer == "Y":
             activities_path = activities_auto
             ask_for_activities = False
-        # else: fall through to ask for new one
 
     if ask_for_activities:
-        if activities_auto:
-            print(f"\n4. {C.BOLD}Trade History (Activities){C.RESET}")
-            print(f"   {C.YELLOW}Note:{C.RESET} Most recent Activities CSV is older than 7 days")
-            answer = input(f"   Export a new Activities CSV? (Y/N): ").strip().upper()
-        else:
+        activities_path = None
+        while not activities_path:
             print(f"\n4. {C.BOLD}Trade History (Activities){C.RESET}")
             print(f"   {C.DIM}1. Go to Account → Activity → Export Activities{C.RESET}")
             print(f"   {C.DIM}2. Select last 3 months{C.RESET}")
-            print(f"   {C.DIM}3. Drag file into: {UPLOAD_DIR.resolve()}{C.RESET}")
-            answer = input(f"   Have you uploaded an Activities CSV? (Y/N): ").strip().upper()
+            print(f"   {C.DIM}3. Drag file into: {UPLOAD_DIR.resolve()}{C.RESET}\n")
 
-        if answer == "Y":
-            activities_auto = find_latest_csv("activities-export-*.csv")
-            if activities_auto:
-                activities_path = activities_auto
+            while True:
+                answer = input(f"   Have you uploaded an Activities CSV? (Y/N): ").strip().upper()
+                if answer in ("Y", "N"):
+                    break
+                print(f"   {C.YELLOW}↳ Please enter 'Y' or 'N'{C.RESET}")
+
+            if answer == "Y":
+                activities_auto = find_latest_csv("activities-export-*.csv")
+                if activities_auto:
+                    activities_path = activities_auto
+                else:
+                    print(f"   {C.RED}✗ Activities CSV not found in {UPLOAD_DIR}{C.RESET}")
+                    print(f"   {C.YELLOW}Please drop the CSV file in the path above and try again.{C.RESET}\n")
             else:
-                raw = input("   Enter the full path to your Activities CSV (or Enter to skip): ").strip()
-                activities_path = Path(raw) if raw else None
-
-    if activities_path and not activities_path.exists():
-        print(f"   {C.YELLOW}WARNING:{C.RESET} Activities CSV not found — skipping trade history.")
-        activities_path = None
+                break  # Skip Activities CSV
 
     # ── Model selection ──────────────────────────────────────────────────
-    print(f"\n5. {C.BOLD}Which model would you like to use?{C.RESET}")
-    for key, (_, name, desc) in MODELS.items():
-        print(f"   [{key}] {name} — {desc}")
-    model_input = input("   Choose (1/2) [Enter = 1]: ").strip()
-    model_id, model_name, _ = MODELS.get(model_input, MODELS["1"])
+    while True:
+        print(f"\n5. {C.BOLD}Which model would you like to use?{C.RESET}")
+        for key, (_, name, desc) in MODELS.items():
+            print(f"   [{key}] {name} — {desc}")
+        model_input = input("   Choose (1/2) [Enter = 1]: ").strip()
+
+        if not model_input:
+            model_id, model_name, _ = MODELS["1"]
+            break
+
+        if model_input in MODELS:
+            model_id, model_name, _ = MODELS[model_input]
+            break
+
+        print(f"   {C.YELLOW}↳ Invalid choice. Please enter '1' or '2'{C.RESET}")
 
     print()
     return {
