@@ -171,6 +171,33 @@ def save_recommendation_log(data: dict, session_type: str) -> Path:
     return path
 
 
+def save_recommendations_csv(recommendation: dict, session_type: str, csv_dir: Path) -> Path:
+    """Save recommendations as CSV with ticker, status, conviction, etc."""
+    import csv
+    csv_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+    csv_path = csv_dir / f"{timestamp}_{session_type}_recommendations.csv"
+
+    recs = recommendation.get("recommendations", [])
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=["Ticker", "Action", "Conviction", "Net Expected %", "Time Horizon", "Thesis"],
+            extrasaction="ignore"
+        )
+        writer.writeheader()
+        for r in recs:
+            writer.writerow({
+                "Ticker": r.get("ticker", ""),
+                "Action": r.get("action", "HOLD"),
+                "Conviction": r.get("conviction", 0),
+                "Net Expected %": f"{r.get('net_expected_pct', 0):+.2f}%",
+                "Time Horizon": r.get("time_horizon", ""),
+                "Thesis": r.get("thesis", ""),
+            })
+    return csv_path
+
+
 def print_summary(recommendation: dict, session_type: str):
     print("\n" + "=" * 65)
     print(f"  TECH STOCK ADVISOR — {session_type.upper()} SESSION")
@@ -284,10 +311,16 @@ def run(
     md_content = generate_markdown(session_type, recommendation, market_data)
     report_path = save_report(md_content, session_type, REPORTS_DIR)
 
+    csv_path = save_recommendations_csv(recommendation, session_type, REPORTS_DIR)
+    print(f"[tech_stock] CSV table saved  → {csv_path.relative_to(ROOT)}")
+
     print_summary(recommendation, session_type)
 
     print("=" * 65)
-    print(f"  Report saved to:\n  {report_path.resolve()}")
+    print(f"  📊 Report saved to:")
+    print(f"  {report_path.resolve()}\n")
+    print(f"  📋 CSV table saved to:")
+    print(f"  {csv_path.resolve()}")
     print("=" * 65 + "\n")
 
 
