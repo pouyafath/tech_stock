@@ -1,6 +1,7 @@
 """
 claude_analyst.py
 Builds the structured prompt, calls the Claude API, and parses the JSON response.
+Prompt caching is applied to the system prompt to reduce costs on repeated runs.
 """
 
 import json
@@ -14,6 +15,13 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 SETTINGS_PATH = Path(__file__).parent.parent / "config" / "settings.json"
+
+# Pricing per 1M tokens (USD) — update when Anthropic changes rates
+MODEL_PRICING = {
+    "claude-sonnet-4-6": {"input": 3.00,  "output": 15.00, "cache_write": 3.75,  "cache_read": 0.30},
+    "claude-opus-4-7":   {"input": 5.00,  "output": 25.00, "cache_write": 6.25,  "cache_read": 0.50},
+    "claude-haiku-4-5":  {"input": 1.00,  "output": 5.00,  "cache_write": 1.25,  "cache_read": 0.10},
+}
 
 
 def load_settings() -> dict:
@@ -108,7 +116,6 @@ def build_user_message(
     ]
 
     if holdings:
-        # Group: USD holdings first, then CAD/CDR
         usd_holdings = [h for h in holdings if not h.get("is_cdr") and h.get("market_currency") == "USD"]
         cad_holdings = [h for h in holdings if h.get("is_cdr") or h.get("market_currency") == "CAD"]
 
@@ -151,7 +158,6 @@ def build_user_message(
     else:
         portfolio_lines.append("No current holdings — all cash.")
 
-    # Market data section
     portfolio_lines.append("\n=== MARKET DATA ===")
     for ticker, d in market_data.items():
         if d.get("error"):
@@ -170,13 +176,11 @@ def build_user_message(
             f"Last 5 closes: {recent_closes}"
         )
 
-    # Recent trade activity section
     if recent_activities:
         from src.activity_loader import format_activities_for_prompt
         portfolio_lines.append("\n=== RECENT TRADE HISTORY (last 90 days) ===")
         portfolio_lines.append(format_activities_for_prompt(recent_activities))
 
-    # Fee snapshot section
     portfolio_lines.append("\n=== FEE SNAPSHOT (round-trip cost per $1000 notional) ===")
     for ticker, fees in fee_snapshot.items():
         portfolio_lines.append(
@@ -185,7 +189,6 @@ def build_user_message(
             f"total=${fees['total_usd']:.3f}"
         )
 
-    # News section
     portfolio_lines.append("\n=== RECENT NEWS (last 7 days) ===")
     for ticker, articles in news_by_ticker.items():
         portfolio_lines.append(f"\n{ticker}:")
@@ -205,6 +208,29 @@ def build_user_message(
     return "\n".join(portfolio_lines)
 
 
+def estimate_cost(usage, model: str) -> dict:
+    """Estimate the USD cost of an API call from usage statistics."""
+    pricing = MODEL_PRICING.get(model, MODEL_PRICING["claude-sonnet-4-6"])
+    M = 1_000_000
+
+    input_cost    = (getattr(usage, "input_tokens", 0) / M) * pricing["input"]
+    output_cost   = (getattr(usage, "output_tokens", 0) / M) * pricing["output"]
+    cache_w_cost  = (getattr(usage, "cache_creation_input_tokens", 0) / M) * pricing["cache_write"]
+    cache_r_cost  = (getattr(usage, "cache_read_input_tokens", 0) / M) * pricing["cache_read"]
+    total_cost    = input_cost + output_cost + cache_w_cost + cache_r_cost
+
+    return {
+        "input_tokens":        getattr(usage, "input_tokens", 0),
+        "output_tokens":       getattr(usage, "output_tokens", 0),
+        "cache_write_tokens":  getattr(usage, "cache_creation_input_tokens", 0),
+        "cache_read_tokens":   getattr(usage, "cache_read_input_tokens", 0),
+        "total_tokens":        (getattr(usage, "input_tokens", 0)
+                                + getattr(usage, "output_tokens", 0)),
+        "cost_usd":            round(total_cost, 4),
+        "cache_hit":           getattr(usage, "cache_read_input_tokens", 0) > 0,
+    }
+
+
 def call_claude(
     session_type: str,
     portfolio: dict,
@@ -213,9 +239,9 @@ def call_claude(
     fee_snapshot: dict,
     recent_activities: list = None,
     settings_override: dict = None,
-) -> dict:
+) -> tuple[dict, dict]:
     """
-    Call Claude API and return the parsed JSON recommendation.
+    Call Claude API and return (recommendation, usage_stats).
     Raises ValueError if response cannot be parsed as valid JSON.
     settings_override: merged on top of settings.json (used by interactive mode).
     """
@@ -231,10 +257,19 @@ def call_claude(
 
     client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
+    # Cache the system prompt with 1h TTL — saves ~90% on repeated runs within an hour.
+    # For short system prompts (<2048 tokens on Sonnet) the API silently skips caching
+    # with no error — still worth adding for the day we expand the prompt.
     response = client.messages.create(
         model=model,
         max_tokens=8192,
-        system=SYSTEM_PROMPT,
+        system=[
+            {
+                "type": "text",
+                "text": SYSTEM_PROMPT,
+                "cache_control": {"type": "ephemeral", "ttl": "1h"},
+            }
+        ],
         messages=[{"role": "user", "content": user_message}],
     )
 
@@ -246,8 +281,11 @@ def call_claude(
         raw_text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
 
     try:
-        return json.loads(raw_text)
+        recommendation = json.loads(raw_text)
     except json.JSONDecodeError as e:
         raise ValueError(
             f"Claude returned non-JSON response. Parse error: {e}\n\nRaw response:\n{raw_text[:500]}"
         )
+
+    usage_stats = estimate_cost(response.usage, model)
+    return recommendation, usage_stats
