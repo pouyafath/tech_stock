@@ -43,3 +43,7 @@ Thumbs.db
 # Project-specific outputs
 reports/
 data/recommendations_log/
+
+# Temporary uploads (user CSV files — never commit)
+temporary_upload/*.csv
+temporary_upload/*.json

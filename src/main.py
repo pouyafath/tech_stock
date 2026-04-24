@@ -34,7 +34,7 @@ CONFIG_DIR  = ROOT / "config"
 DATA_DIR    = ROOT / "data"
 REPORTS_DIR = ROOT / "reports"
 RECS_LOG_DIR = DATA_DIR / "recommendations_log"
-DOWNLOADS_DIR = Path.home() / "Downloads"
+UPLOAD_DIR  = ROOT / "temporary_upload"
 
 SKIP_MARKET_DATA = {"CASH"}
 
@@ -74,8 +74,18 @@ def load_json(path: Path) -> dict:
 
 
 def find_latest_csv(pattern: str) -> Path | None:
-    candidates = sorted(DOWNLOADS_DIR.glob(pattern), reverse=True)
+    """Find the most recently modified CSV file matching pattern in UPLOAD_DIR."""
+    candidates = sorted(UPLOAD_DIR.glob(pattern), reverse=True)
     return candidates[0] if candidates else None
+
+
+def is_file_older_than_days(path: Path, days: int) -> bool:
+    """Check if a file is older than N days. Returns True if old, False if recent."""
+    if not path.exists():
+        return True
+    from time import time
+    age_seconds = time() - path.stat().st_mtime
+    return age_seconds > (days * 86400)
 
 
 def validate_environment():
@@ -123,41 +133,75 @@ def interactive_setup() -> dict:
         except ValueError:
             print("   ↳ Please enter a number (e.g. 1000 or 0).")
 
-    holdings_auto = find_latest_csv("holdings-report-*.csv")
-    holdings_hint = str(holdings_auto) if holdings_auto else f"{DOWNLOADS_DIR}/holdings-report-YYYY-MM-DD.csv"
-    print(f"\n3. Holdings CSV detected:\n   {C.CYAN}{holdings_hint}{C.RESET}")
-    answer = input("   Is this correct? (Y/N): ").strip().upper()
+    # ── Holdings CSV (required every time) ────────────────────────────────
+    print(f"\n3. {C.BOLD}Export Holdings CSV from Wealthsimple{C.RESET}")
+    print(f"   {C.DIM}1. Go to Account → Activity{C.RESET}")
+    print(f"   {C.DIM}2. Click 'Export Holdings Report (CSV)'{C.RESET}")
+    print(f"   {C.DIM}3. Drag and drop the file into:{C.RESET}")
+    print(f"   {C.CYAN}{UPLOAD_DIR.resolve()}{C.RESET}")
+    print(f"   {C.YELLOW}(or copy the file path below){C.RESET}\n")
 
-    if answer == "Y" and holdings_auto:
-        holdings_path = holdings_auto
+    holdings_auto = find_latest_csv("holdings-report-*.csv")
+    if holdings_auto:
+        print(f"   {C.GREEN}✓ Found:{C.RESET} {C.CYAN}{holdings_auto.name}{C.RESET}")
+        answer = input(f"   Use this file? (Y/N): ").strip().upper()
+        if answer == "Y":
+            holdings_path = holdings_auto
+        else:
+            raw = input("   Enter the full path to your Holdings CSV: ").strip()
+            holdings_path = Path(raw) if raw else None
     else:
+        print(f"   {C.YELLOW}No Holdings CSV found in {UPLOAD_DIR}{C.RESET}")
         raw = input("   Enter the full path to your Holdings CSV: ").strip()
         holdings_path = Path(raw) if raw else None
 
     if not holdings_path or not holdings_path.exists():
-        print(f"   ↳ {C.YELLOW}WARNING:{C.RESET} Holdings CSV not found. Will fall back to config/portfolio.json")
+        print(f"   {C.RED}✗ ERROR: Holdings CSV is required.{C.RESET}")
         holdings_path = None
 
+    # ── Activities CSV (only ask if missing or older than 7 days) ───────
+    activities_path = None
     activities_auto = find_latest_csv("activities-export-*.csv")
-    activities_hint = str(activities_auto) if activities_auto else f"{DOWNLOADS_DIR}/activities-export-YYYY-MM-DD.csv"
-    print(f"\n4. Activities CSV detected:\n   {C.CYAN}{activities_hint}{C.RESET}")
-    answer = input("   Is this correct? (Y/N, or Enter to skip): ").strip().upper()
 
-    if answer == "Y" and activities_auto:
-        activities_path = activities_auto
-    elif answer == "N":
-        raw = input("   Enter the full path to your Activities CSV (or Enter to skip): ").strip()
-        activities_path = Path(raw) if raw else None
-    else:
-        activities_path = None
+    ask_for_activities = True
+    if activities_auto and not is_file_older_than_days(activities_auto, 7):
+        print(f"\n4. {C.BOLD}Trade History (Activities){C.RESET}")
+        print(f"   {C.GREEN}✓ Recent Activities CSV found:{C.RESET} {C.CYAN}{activities_auto.name}{C.RESET}")
+        print(f"   {C.DIM}(less than 7 days old){C.RESET}")
+        answer = input(f"   Use this file? (Y/N): ").strip().upper()
+        if answer == "Y":
+            activities_path = activities_auto
+            ask_for_activities = False
+        # else: fall through to ask for new one
+
+    if ask_for_activities:
+        if activities_auto:
+            print(f"\n4. {C.BOLD}Trade History (Activities){C.RESET}")
+            print(f"   {C.YELLOW}Note:{C.RESET} Most recent Activities CSV is older than 7 days")
+            answer = input(f"   Export a new Activities CSV? (Y/N): ").strip().upper()
+        else:
+            print(f"\n4. {C.BOLD}Trade History (Activities){C.RESET}")
+            print(f"   {C.DIM}1. Go to Account → Activity → Export Activities{C.RESET}")
+            print(f"   {C.DIM}2. Select last 3 months{C.RESET}")
+            print(f"   {C.DIM}3. Drag file into: {UPLOAD_DIR.resolve()}{C.RESET}")
+            answer = input(f"   Have you uploaded an Activities CSV? (Y/N): ").strip().upper()
+
+        if answer == "Y":
+            activities_auto = find_latest_csv("activities-export-*.csv")
+            if activities_auto:
+                activities_path = activities_auto
+            else:
+                raw = input("   Enter the full path to your Activities CSV (or Enter to skip): ").strip()
+                activities_path = Path(raw) if raw else None
 
     if activities_path and not activities_path.exists():
-        print(f"   ↳ {C.YELLOW}WARNING:{C.RESET} Activities CSV not found — skipping trade history.")
+        print(f"   {C.YELLOW}WARNING:{C.RESET} Activities CSV not found — skipping trade history.")
         activities_path = None
 
-    print(f"\n5. Which model would you like to use?")
+    # ── Model selection ──────────────────────────────────────────────────
+    print(f"\n5. {C.BOLD}Which model would you like to use?{C.RESET}")
     for key, (_, name, desc) in MODELS.items():
-        print(f"   [{key}] {C.BOLD}{name}{C.RESET} — {desc}")
+        print(f"   [{key}] {name} — {desc}")
     model_input = input("   Choose (1/2) [Enter = 1]: ").strip()
     model_id, model_name, _ = MODELS.get(model_input, MODELS["1"])
 
