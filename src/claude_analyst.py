@@ -79,11 +79,20 @@ def build_user_message(
 ) -> str:
     """Construct the full user message with all context."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    budget_cad = settings.get("budget_cad", 3000)
+    budget_cad = settings.get("budget_cad", 0)
+    budget_usd = settings.get("budget_usd", 0)
 
     holdings = portfolio.get("holdings", [])
     cash_cad = portfolio.get("cash_cad", 0)
     exported_at = portfolio.get("exported_at", "")
+
+    budget_lines = []
+    if budget_usd:
+        budget_lines.append(f"Available to invest (USD): ${budget_usd:,.2f}")
+    if budget_cad:
+        budget_lines.append(f"Available to invest (CAD): ${budget_cad:,.2f}")
+    if not budget_lines:
+        budget_lines.append("Available to invest: $0 (observation only — no new capital this session)")
 
     portfolio_lines = [
         f"SESSION TYPE: {session_type.upper()}",
@@ -92,7 +101,7 @@ def build_user_message(
         f"=== PORTFOLIO ===",
         f"Portfolio snapshot: {exported_at}" if exported_at else "",
         f"Cash (CASH ETF): ${cash_cad:,.2f} CAD",
-        f"Budget: ${budget_cad:,.2f} CAD",
+    ] + budget_lines + [
         f"Risk tolerance: {settings.get('risk_tolerance', 'aggressive')}",
         f"Account: {settings.get('account_type', 'wealthsimple_premium_usd')}",
         f"",
@@ -203,12 +212,16 @@ def call_claude(
     news_by_ticker: dict,
     fee_snapshot: dict,
     recent_activities: list = None,
+    settings_override: dict = None,
 ) -> dict:
     """
     Call Claude API and return the parsed JSON recommendation.
     Raises ValueError if response cannot be parsed as valid JSON.
+    settings_override: merged on top of settings.json (used by interactive mode).
     """
     settings = load_settings()
+    if settings_override:
+        settings.update(settings_override)
     model = settings.get("claude_model", "claude-sonnet-4-6")
 
     user_message = build_user_message(
@@ -220,7 +233,7 @@ def call_claude(
 
     response = client.messages.create(
         model=model,
-        max_tokens=4096,
+        max_tokens=8192,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_message}],
     )
