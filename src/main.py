@@ -80,9 +80,47 @@ def is_file_older_than_days(path: Path, days: int) -> bool:
     """Check if a file is older than N days. Returns True if old, False if recent."""
     if not path.exists():
         return True
-    from time import time
-    age_seconds = time() - path.stat().st_mtime
+    age_seconds = datetime.now().timestamp() - path.stat().st_mtime
     return age_seconds > (days * 86400)
+
+
+def _prompt_positive_float(label: str, example: int) -> float:
+    """Prompt for a non-negative number; blank → 0.0; loop until valid."""
+    while True:
+        raw = input(f"   How much {C.BOLD}{label}{C.RESET} would you like to invest today? $").strip()
+        if not raw:
+            return 0.0
+        try:
+            val = float(raw)
+            if val < 0:
+                print(f"   {C.YELLOW}↳ Please enter a positive number (e.g. {example} or 0){C.RESET}")
+                continue
+            return val
+        except ValueError:
+            print(f"   {C.YELLOW}↳ Invalid input. Please enter a number (e.g. {example} or 0){C.RESET}")
+
+
+def _prompt_for_existing_path(prompt_label: str = "Enter the full path to your Holdings CSV: ") -> Path:
+    """Prompt for a path that must exist on disk; loop until valid."""
+    while True:
+        raw = input(f"   {prompt_label}").strip()
+        if not raw:
+            print(f"   {C.YELLOW}↳ Path cannot be empty. Please provide a valid path.{C.RESET}")
+            continue
+        test_path = Path(raw)
+        if test_path.exists():
+            return test_path
+        print(f"   {C.RED}✗ File not found: {raw}{C.RESET}")
+        print(f"   {C.YELLOW}↳ Please enter a valid file path{C.RESET}")
+
+
+def _prompt_yes_no(prompt: str) -> str:
+    """Prompt for Y/N answer; loop until valid; returns 'Y' or 'N'."""
+    while True:
+        answer = input(f"   {prompt}").strip().upper()
+        if answer in ("Y", "N"):
+            return answer
+        print(f"   {C.YELLOW}↳ Please enter 'Y' or 'N'{C.RESET}")
 
 
 def validate_environment():
@@ -121,125 +159,56 @@ def interactive_setup() -> dict:
 
     print()
 
-    # ── USD Budget ───────────────────────────────────────────────────────
-    while True:
-        raw = input(f"1. How much {C.BOLD}USD{C.RESET} would you like to invest today? $").strip()
-        if not raw:
-            budget_usd = 0.0
-            break
-        try:
-            budget_usd = float(raw)
-            if budget_usd < 0:
-                print(f"   {C.YELLOW}↳ Please enter a positive number (e.g. 500 or 0){C.RESET}")
-                continue
-            break
-        except ValueError:
-            print(f"   {C.YELLOW}↳ Invalid input. Please enter a number (e.g. 500 or 0){C.RESET}")
-
-    # ── CAD Budget ───────────────────────────────────────────────────────
-    while True:
-        raw = input(f"2. How much {C.BOLD}CAD{C.RESET} would you like to invest today? $").strip()
-        if not raw:
-            budget_cad = 0.0
-            break
-        try:
-            budget_cad = float(raw)
-            if budget_cad < 0:
-                print(f"   {C.YELLOW}↳ Please enter a positive number (e.g. 1000 or 0){C.RESET}")
-                continue
-            break
-        except ValueError:
-            print(f"   {C.YELLOW}↳ Invalid input. Please enter a number (e.g. 1000 or 0){C.RESET}")
+    # ── USD / CAD Budget ─────────────────────────────────────────────────
+    print(f"1. Investment budget for this session:")
+    budget_usd = _prompt_positive_float("USD", 500)
+    print(f"2. Investment budget for this session:")
+    budget_cad = _prompt_positive_float("CAD", 1000)
 
     # ── Holdings CSV (required every time) ────────────────────────────────
-    holdings_path = None
-    while not holdings_path:
-        print(f"\n3. {C.BOLD}Export Holdings CSV from Wealthsimple{C.RESET}")
-        print(f"   {C.DIM}1. Go to Account → Activity{C.RESET}")
-        print(f"   {C.DIM}2. Click 'Export Holdings Report (CSV)'{C.RESET}")
-        print(f"   {C.DIM}3. Drag and drop the file into:{C.RESET}")
-        print(f"   {C.CYAN}{UPLOAD_DIR.resolve()}{C.RESET}\n")
+    print(f"\n3. {C.BOLD}Export Holdings CSV from Wealthsimple{C.RESET}")
+    print(f"   {C.DIM}1. Go to Account → Activity{C.RESET}")
+    print(f"   {C.DIM}2. Click 'Export Holdings Report (CSV)'{C.RESET}")
+    print(f"   {C.DIM}3. Drag and drop the file into:{C.RESET}")
+    print(f"   {C.CYAN}{UPLOAD_DIR.resolve()}{C.RESET}\n")
 
-        holdings_auto = find_latest_csv("holdings-report-*.csv")
-        if holdings_auto:
-            print(f"   {C.GREEN}✓ Found:{C.RESET} {C.CYAN}{holdings_auto.name}{C.RESET}")
-            while True:
-                answer = input(f"   Use this file? (Y/N): ").strip().upper()
-                if answer in ("Y", "N"):
-                    break
-                print(f"   {C.YELLOW}↳ Please enter 'Y' or 'N'{C.RESET}")
-
-            if answer == "Y":
-                holdings_path = holdings_auto
-            else:
-                while True:
-                    raw = input("   Enter the full path to your Holdings CSV: ").strip()
-                    if not raw:
-                        print(f"   {C.YELLOW}↳ Path cannot be empty. Please provide a valid path.{C.RESET}")
-                        continue
-                    test_path = Path(raw)
-                    if test_path.exists():
-                        holdings_path = test_path
-                        break
-                    print(f"   {C.RED}✗ File not found: {raw}{C.RESET}")
-                    print(f"   {C.YELLOW}↳ Please enter a valid file path{C.RESET}")
+    holdings_auto = find_latest_csv("holdings-report-*.csv")
+    if holdings_auto:
+        print(f"   {C.GREEN}✓ Found:{C.RESET} {C.CYAN}{holdings_auto.name}{C.RESET}")
+        if _prompt_yes_no("Use this file? (Y/N): ") == "Y":
+            holdings_path = holdings_auto
         else:
-            print(f"   {C.YELLOW}✗ No Holdings CSV found in {UPLOAD_DIR}{C.RESET}")
-            print(f"   {C.YELLOW}Please drop the CSV file in the path above, then answer below.{C.RESET}\n")
-            while True:
-                raw = input("   Enter the full path to your Holdings CSV: ").strip()
-                if not raw:
-                    print(f"   {C.YELLOW}↳ Path cannot be empty. Please provide a valid path.{C.RESET}")
-                    continue
-                test_path = Path(raw)
-                if test_path.exists():
-                    holdings_path = test_path
-                    break
-                print(f"   {C.RED}✗ File not found: {raw}{C.RESET}")
-                print(f"   {C.YELLOW}↳ Please enter a valid file path{C.RESET}")
+            holdings_path = _prompt_for_existing_path()
+    else:
+        print(f"   {C.YELLOW}✗ No Holdings CSV found in {UPLOAD_DIR}{C.RESET}")
+        print(f"   {C.YELLOW}Please drop the CSV file in the path above, then answer below.{C.RESET}\n")
+        holdings_path = _prompt_for_existing_path()
 
     # ── Activities CSV (only ask if missing or older than 7 days) ───────
     activities_path = None
     activities_auto = find_latest_csv("activities-export-*.csv")
 
-    ask_for_activities = True
     if activities_auto and not is_file_older_than_days(activities_auto, 7):
         print(f"\n4. {C.BOLD}Trade History (Activities){C.RESET}")
         print(f"   {C.GREEN}✓ Recent Activities CSV found:{C.RESET} {C.CYAN}{activities_auto.name}{C.RESET}")
         print(f"   {C.DIM}(less than 7 days old){C.RESET}")
-        while True:
-            answer = input(f"   Use this file? (Y/N): ").strip().upper()
-            if answer in ("Y", "N"):
-                break
-            print(f"   {C.YELLOW}↳ Please enter 'Y' or 'N'{C.RESET}")
-
-        if answer == "Y":
+        if _prompt_yes_no("Use this file? (Y/N): ") == "Y":
             activities_path = activities_auto
-            ask_for_activities = False
 
-    if ask_for_activities:
-        activities_path = None
-        while not activities_path:
-            print(f"\n4. {C.BOLD}Trade History (Activities){C.RESET}")
-            print(f"   {C.DIM}1. Go to Account → Activity → Export Activities{C.RESET}")
-            print(f"   {C.DIM}2. Select last 3 months{C.RESET}")
-            print(f"   {C.DIM}3. Drag file into: {UPLOAD_DIR.resolve()}{C.RESET}\n")
-
-            while True:
-                answer = input(f"   Have you uploaded an Activities CSV? (Y/N): ").strip().upper()
-                if answer in ("Y", "N"):
-                    break
-                print(f"   {C.YELLOW}↳ Please enter 'Y' or 'N'{C.RESET}")
-
-            if answer == "Y":
-                activities_auto = find_latest_csv("activities-export-*.csv")
-                if activities_auto:
-                    activities_path = activities_auto
-                else:
-                    print(f"   {C.RED}✗ Activities CSV not found in {UPLOAD_DIR}{C.RESET}")
-                    print(f"   {C.YELLOW}Please drop the CSV file in the path above and try again.{C.RESET}\n")
+    if activities_path is None:
+        print(f"\n4. {C.BOLD}Trade History (Activities){C.RESET}")
+        print(f"   {C.DIM}1. Go to Account → Activity → Export Activities{C.RESET}")
+        print(f"   {C.DIM}2. Select last 3 months{C.RESET}")
+        print(f"   {C.DIM}3. Drag file into: {UPLOAD_DIR.resolve()}{C.RESET}\n")
+        while activities_path is None:
+            if _prompt_yes_no("Have you uploaded an Activities CSV? (Y/N): ") == "N":
+                break  # Skip Activities CSV — optional
+            activities_auto = find_latest_csv("activities-export-*.csv")
+            if activities_auto:
+                activities_path = activities_auto
             else:
-                break  # Skip Activities CSV
+                print(f"   {C.RED}✗ Activities CSV not found in {UPLOAD_DIR}{C.RESET}")
+                print(f"   {C.YELLOW}Please drop the CSV file in the path above and try again.{C.RESET}\n")
 
     # ── Model selection ──────────────────────────────────────────────────
     while True:
