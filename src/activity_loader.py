@@ -13,6 +13,8 @@ import csv
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from src._utils import clean_csv_row, safe_float
+
 
 # Minimum columns we need from the Wealthsimple Activities CSV.
 REQUIRED_ACTIVITIES_COLUMNS = {
@@ -82,7 +84,7 @@ def parse_activities_csv(
         )
 
     for row in reader:
-        row = {k.strip().strip('"'): v.strip().strip('"') for k, v in row.items()}
+        row = clean_csv_row(row)
 
         date_str = row.get("transaction_date", "").strip()
         if not date_str:
@@ -99,12 +101,6 @@ def parse_activities_csv(
         activity_type = row.get("activity_type", "").strip()
         if activity_types and activity_type not in activity_types:
             continue
-
-        def safe_float(v):
-            try:
-                return float(v) if v and v.strip() else None
-            except ValueError:
-                return None
 
         ticker = row.get("symbol", "").strip()
         quantity = safe_float(row.get("quantity", ""))

@@ -9,11 +9,9 @@ self-correct (and into the markdown report so the user sees it).
 """
 
 import json
-import re
 from pathlib import Path
 
-# Filename pattern: 20260423_2101_morning.json
-_FILENAME_RE = re.compile(r"^\d{8}_\d{4}_(morning|afternoon)\.json$")
+from src._utils import parse_session_filename
 
 
 def get_previous_session(log_dir: str | Path) -> dict | None:
@@ -28,7 +26,7 @@ def get_previous_session(log_dir: str | Path) -> dict | None:
         return None
 
     files = sorted(
-        [p for p in log_dir.glob("*.json") if _FILENAME_RE.match(p.name)],
+        [p for p in log_dir.glob("*.json") if parse_session_filename(p.name) is not None],
         key=lambda p: p.name,
         reverse=True,
     )
@@ -158,7 +156,7 @@ if __name__ == "__main__":
     import sys
     log_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("data/recommendations_log")
     files = sorted(
-        [p for p in log_dir.glob("*.json") if _FILENAME_RE.match(p.name)],
+        [p for p in log_dir.glob("*.json") if parse_session_filename(p.name) is not None],
         key=lambda p: p.name,
         reverse=True,
     )

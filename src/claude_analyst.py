@@ -14,9 +14,9 @@ import anthropic
 import jsonschema
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).parent.parent / ".env")
+from src.config import load_settings
 
-SETTINGS_PATH = Path(__file__).parent.parent / "config" / "settings.json"
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 # Pricing per 1M tokens (USD) — update when Anthropic changes rates
 MODEL_PRICING = {
@@ -24,11 +24,6 @@ MODEL_PRICING = {
     "claude-opus-4-7":   {"input": 5.00,  "output": 25.00, "cache_write": 6.25,  "cache_read": 0.50},
     "claude-haiku-4-5":  {"input": 1.00,  "output": 5.00,  "cache_write": 1.25,  "cache_read": 0.10},
 }
-
-
-def load_settings() -> dict:
-    with open(SETTINGS_PATH) as f:
-        return json.load(f)
 
 
 SYSTEM_PROMPT = """You are a disciplined, fee-aware portfolio advisor for a Canadian retail investor using Wealthsimple Premium with a USD account.
@@ -291,10 +286,6 @@ def build_user_message(
         change_1mo = d.get("change_pct_1mo")
         pct_high = d.get("pct_from_52w_high")
 
-        base = (
-            f"{ticker}: ${d.get('current_price', 'N/A')} {d.get('currency', '')} | "
-            f"1d={change_1d:+.1f}% | " if change_1d is not None else f"{ticker}: ${d.get('current_price', 'N/A')} | "
-        )
         # Build summary string safely
         parts = [f"{ticker}: ${d.get('current_price', 'N/A')} {d.get('currency', '')}"]
         if change_1d is not None:

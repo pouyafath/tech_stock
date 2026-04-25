@@ -12,10 +12,10 @@ own conviction scores over time.
 
 import csv
 import json
-import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from src._utils import parse_session_filename, safe_float
 from src.market_data import price_at
 
 # Approximate horizon windows in calendar days.
@@ -28,16 +28,10 @@ HORIZON_DAYS = {
 # Conviction buckets we report on (6 = threshold for trading recs).
 CONVICTION_BUCKETS = [6, 7, 8, 9, 10]
 
-# Filename pattern: 20260423_2101_morning.json → 2026-04-23
-_FILENAME_RE = re.compile(r"^(\d{8})_\d{4}_(morning|afternoon)\.json$")
-
 
 def _session_date_from_filename(filename: str) -> str | None:
-    m = _FILENAME_RE.match(filename)
-    if not m:
-        return None
-    raw = m.group(1)
-    return f"{raw[:4]}-{raw[4:6]}-{raw[6:8]}"
+    parsed = parse_session_filename(filename)
+    return parsed[0] if parsed else None
 
 
 def load_all_recommendations(log_dir: str | Path) -> list[dict]:
@@ -97,8 +91,8 @@ def load_trade_history(csv_path: str | Path) -> list[dict]:
                     "date": row["date"].strip(),
                     "ticker": row["ticker"].strip(),
                     "action": row.get("action", "").strip().upper(),
-                    "shares": _safe_float(row.get("shares", "")),
-                    "price_cad": _safe_float(row.get("price_cad", "")),
+                    "shares": safe_float(row.get("shares", "")),
+                    "price_cad": safe_float(row.get("price_cad", "")),
                     "followed_recommendation": row.get("followed_recommendation", "").strip().lower() in ("y", "yes", "true", "1"),
                     "notes": row.get("notes", "").strip(),
                 })
@@ -106,13 +100,6 @@ def load_trade_history(csv_path: str | Path) -> list[dict]:
         return []
 
     return trades
-
-
-def _safe_float(v: str) -> float | None:
-    try:
-        return float(v) if v and v.strip() else None
-    except (ValueError, AttributeError):
-        return None
 
 
 def _horizon_days(horizon: str) -> int:

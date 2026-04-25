@@ -8,9 +8,8 @@ Resilience:
   - pickle cache in data/.cache/news/ (default TTL 1h)
 """
 
-import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
-from pathlib import Path
 
 import yfinance as yf
 from tenacity import (
@@ -21,8 +20,7 @@ from tenacity import (
 )
 
 from src.cache import cached
-
-SETTINGS_PATH = Path(__file__).parent.parent / "config" / "settings.json"
+from src.config import load_settings
 
 # VADER is lazy-loaded — instantiating the analyzer is ~50ms, skip if disabled
 _vader_analyzer = None
@@ -80,11 +78,6 @@ def aggregate_sentiment(articles: list[dict]) -> dict:
         "bearish_count": bearish,
         "neutral_count": neutral,
     }
-
-
-def load_settings() -> dict:
-    with open(SETTINGS_PATH) as f:
-        return json.load(f)
 
 
 @retry(
@@ -169,14 +162,28 @@ def get_news(ticker: str, lookback_days: int = 7, max_articles: int = 5) -> list
 
 
 def get_news_for_tickers(tickers: list, lookback_days: int = None) -> dict:
-    """Fetch news for multiple tickers. Returns {ticker: [articles]}."""
+    """Fetch news for multiple tickers in parallel. Returns {ticker: [articles]}."""
     settings = load_settings()
     if lookback_days is None:
         lookback_days = settings.get("news_lookback_days", 7)
 
     result = {}
-    for ticker in tickers:
-        result[ticker] = get_news(ticker, lookback_days)
+    max_workers = min(8, len(tickers)) if tickers else 1
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(get_news, t, lookback_days): t for t in tickers}
+        for future in as_completed(futures):
+            ticker = futures[future]
+            try:
+                result[ticker] = future.result()
+            except Exception:
+                result[ticker] = [{
+                    "title": "Error fetching news",
+                    "publisher": "",
+                    "published_at": "",
+                    "summary": "",
+                    "link": "",
+                }]
 
     return result
 

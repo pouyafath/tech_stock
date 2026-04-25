@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT))
 from src.activity_loader import parse_activities_csv
 from src.backtester import run_backtest
 from src.claude_analyst import call_claude
+from src.constants import DEDUP_PAIRS, SKIP_MARKET_DATA
 from src.drift_tracker import compute_drift, get_previous_session
 from src.fee_calculator import build_fee_snapshot
 from src.market_data import get_market_data
@@ -37,12 +38,6 @@ DATA_DIR    = ROOT / "data"
 REPORTS_DIR = ROOT / "reports"
 RECS_LOG_DIR = DATA_DIR / "recommendations_log"
 UPLOAD_DIR  = ROOT / "temporary_upload"
-
-SKIP_MARKET_DATA = {"CASH"}
-
-# Pairs where one is a share class / near-duplicate of the other.
-# When both appear, keep only the first in each pair for market data.
-DEDUP_PAIRS = [("GOOGL", "GOOG"), ("BRK.A", "BRK.B")]
 
 MODELS = {
     "1": ("claude-sonnet-4-6", "Sonnet 4.6", "~$0.09/run — fast, recommended"),
@@ -276,23 +271,8 @@ def interactive_setup() -> dict:
 
 
 def watchlist_tickers(watchlist: dict) -> list:
-    """
-    Extract tickers from watchlist supporting both schemas:
-      - new: {"entries": [{"ticker": "...", "target_entry_price": ...}]}
-      - old: {"all": ["TICKER", ...], "megacaps": [...]}
-    """
-    out = set()
-    entries = watchlist.get("entries")
-    if isinstance(entries, list):
-        for e in entries:
-            if isinstance(e, dict) and e.get("ticker"):
-                out.add(e["ticker"])
-            elif isinstance(e, str):
-                out.add(e)
-    if not out:
-        for t in watchlist.get("all", []) or []:
-            out.add(t)
-    return sorted(out)
+    """Extract tickers from watchlist entries."""
+    return sorted({e["ticker"] for e in watchlist.get("entries", []) if e.get("ticker")})
 
 
 def get_all_tickers(portfolio: dict, watchlist: dict) -> list:

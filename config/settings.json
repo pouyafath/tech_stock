@@ -15,6 +15,7 @@
     "regulatory_per_cad_trade_usd": 0.0
   },
   "megacap_tickers": ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA"],
+  "smallcap_tickers": ["PLTR", "SMCI", "ARM", "IONQ", "SHOP", "CSU", "OTEX", "KXS"],
   "news_lookback_days": 7,
   "history_months": 10,
   "cache_enabled": true,

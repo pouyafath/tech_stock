@@ -11,10 +11,9 @@ Resilience:
     never kills the whole run.
 """
 
-import json
 import math
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
-from pathlib import Path
 
 import pandas as pd
 import yfinance as yf
@@ -26,13 +25,7 @@ from tenacity import (
 )
 
 from src.cache import cached
-
-SETTINGS_PATH = Path(__file__).parent.parent / "config" / "settings.json"
-
-
-def load_settings() -> dict:
-    with open(SETTINGS_PATH) as f:
-        return json.load(f)
+from src.config import load_settings
 
 
 # ── Technical indicators ────────────────────────────────────────────────────
@@ -237,15 +230,24 @@ def get_ticker_data(ticker: str, history_months: int = 10) -> dict:
 
 
 def get_market_data(tickers: list, history_months: int = None) -> dict:
-    """Fetch data for a list of tickers. Returns {ticker: data_dict}."""
+    """Fetch data for a list of tickers in parallel. Returns {ticker: data_dict}."""
     settings = load_settings()
     if history_months is None:
         history_months = settings.get("history_months", 10)
 
     result = {}
-    for ticker in tickers:
-        print(f"  Fetching {ticker}...", flush=True)
-        result[ticker] = get_ticker_data(ticker, history_months)
+    max_workers = min(8, len(tickers)) if tickers else 1
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(get_ticker_data, t, history_months): t for t in tickers}
+        for future in as_completed(futures):
+            ticker = futures[future]
+            try:
+                result[ticker] = future.result()
+                print(f"  ✓ {ticker}", flush=True)
+            except Exception as e:
+                result[ticker] = {"ticker": ticker, "error": str(e)}
+                print(f"  ✗ {ticker}: {e}", flush=True)
 
     return result
 

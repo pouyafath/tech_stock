@@ -17,8 +17,8 @@ import csv
 import json
 from pathlib import Path
 
-
-CDR_EXCHANGES = {"XTSE", "TSX"}  # Toronto Stock Exchange = CDR or CAD-listed
+from src._utils import clean_csv_row, safe_float
+from src.constants import CDR_EXCHANGES
 
 # Minimum columns we need from the Wealthsimple Holdings CSV.
 # If any of these are missing, parsing will produce garbage — fail loudly.
@@ -31,13 +31,6 @@ REQUIRED_HOLDINGS_COLUMNS = {
     "Market Value",
     "Market Unrealized Returns",
 }
-
-
-def _safe_float(val: str) -> float | None:
-    try:
-        return float(val.strip()) if val and val.strip() else None
-    except ValueError:
-        return None
 
 
 def parse_holdings_csv(csv_path: str | Path) -> dict:
@@ -109,7 +102,7 @@ def parse_holdings_csv(csv_path: str | Path) -> dict:
 
     # Normalize column names (strip quotes and spaces)
     for row in reader:
-        row = {k.strip().strip('"'): v.strip().strip('"') for k, v in row.items()}
+        row = clean_csv_row(row)
 
         symbol = row.get("Symbol", "").strip()
         if not symbol:
@@ -119,18 +112,18 @@ def parse_holdings_csv(csv_path: str | Path) -> dict:
         mic = row.get("MIC", "").strip()
         name = row.get("Name", "").strip()
         security_type = row.get("Security Type", "").strip()
-        quantity = _safe_float(row.get("Quantity", ""))
-        market_price = _safe_float(row.get("Market Price", ""))
+        quantity = safe_float(row.get("Quantity", ""))
+        market_price = safe_float(row.get("Market Price", ""))
         market_currency = row.get("Market Price Currency", "USD").strip()
 
-        book_value_cad = _safe_float(row.get("Book Value (CAD)", ""))
-        book_value_market = _safe_float(row.get("Book Value (Market)", ""))
+        book_value_cad = safe_float(row.get("Book Value (CAD)", ""))
+        book_value_market = safe_float(row.get("Book Value (Market)", ""))
         book_currency_market = row.get("Book Value Currency (Market)", market_currency).strip()
 
-        market_value = _safe_float(row.get("Market Value", ""))
+        market_value = safe_float(row.get("Market Value", ""))
         market_value_currency = row.get("Market Value Currency", market_currency).strip()
 
-        unrealized = _safe_float(row.get("Market Unrealized Returns", ""))
+        unrealized = safe_float(row.get("Market Unrealized Returns", ""))
         unrealized_currency = row.get("Market Unrealized Returns Currency", market_currency).strip()
 
         if quantity is None or quantity == 0:

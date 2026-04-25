@@ -14,6 +14,7 @@ Adds workflow-polish sections (Phase 5):
 from datetime import datetime
 from pathlib import Path
 
+from src.constants import LEVERAGED_ETFS
 
 ACTION_EMOJI = {
     "BUY": "🟢",
@@ -29,13 +30,6 @@ CONVICTION_BAR = {
     range(6, 8): "▓▓▓▓▓▓░░░░",
     range(8, 10): "▓▓▓▓▓▓▓▓░░",
     range(10, 11): "▓▓▓▓▓▓▓▓▓▓",
-}
-
-# Daily-reset 2x/3x leveraged ETFs — should not be held > ~14 days due to decay.
-LEVERAGED_ETFS = {
-    "SOXL", "SOXS", "TQQQ", "SQQQ", "UPRO", "UVXY", "TMF", "TZA", "SPXL",
-    "LABU", "LABD", "TSLL", "NVDL", "TMV", "UDOW", "SDOW", "FAS", "FAZ",
-    "TNA", "TZA", "YINN", "YANG",
 }
 
 

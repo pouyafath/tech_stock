@@ -4,25 +4,18 @@ Wealthsimple Premium + USD account fee model.
 Zero commission, zero FX spread (USD account), tiered bid-ask, small regulatory fee.
 """
 
-import json
-from pathlib import Path
-
-SETTINGS_PATH = Path(__file__).parent.parent / "config" / "settings.json"
-
-
-def load_settings() -> dict:
-    with open(SETTINGS_PATH) as f:
-        return json.load(f)
+from src.config import load_settings
 
 
 def get_bid_ask_pct(ticker: str, settings: dict) -> float:
     """Return estimated bid-ask spread (one-way) based on ticker liquidity tier."""
     megacaps = [t.upper() for t in settings.get("megacap_tickers", [])]
+    smallcaps = [t.upper() for t in settings.get("smallcap_tickers", [])]
     ticker_upper = ticker.upper().replace(".TO", "")
 
     if ticker_upper in megacaps:
         return settings["fee_model"]["bid_ask_megacap_pct"]
-    elif ticker_upper in ["PLTR", "SMCI", "ARM", "IONQ", "SHOP", "CSU", "OTEX", "KXS"]:
+    elif ticker_upper in smallcaps:
         return settings["fee_model"]["bid_ask_smallcap_pct"]
     else:
         return settings["fee_model"]["bid_ask_midcap_pct"]
