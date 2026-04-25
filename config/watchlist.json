@@ -1,5 +1,21 @@
 {
-  "_comment": "Stocks to monitor but not yet owned. Grouped by category.",
+  "_comment": "Stocks to monitor but not yet owned. The 'entries' list supports per-ticker target entry/exit prices that trigger alerts in the report. The 'all' / category lists remain for backward compatibility.",
+  "entries": [
+    {"ticker": "MSFT",    "category": "megacaps",      "target_entry_price": 380.0,  "target_exit_price": null},
+    {"ticker": "AAPL",    "category": "megacaps",      "target_entry_price": 200.0,  "target_exit_price": null},
+    {"ticker": "GOOGL",   "category": "megacaps",      "target_entry_price": null,   "target_exit_price": null},
+    {"ticker": "AMD",     "category": "growth",        "target_entry_price": 250.0,  "target_exit_price": 320.0},
+    {"ticker": "CRM",     "category": "growth",        "target_entry_price": 180.0,  "target_exit_price": null},
+    {"ticker": "NVDA",    "category": "growth",        "target_entry_price": null,   "target_exit_price": null},
+    {"ticker": "PLTR",    "category": "aggressive",    "target_entry_price": 125.0,  "target_exit_price": null},
+    {"ticker": "SMCI",    "category": "aggressive",    "target_entry_price": null,   "target_exit_price": null},
+    {"ticker": "ARM",     "category": "aggressive",    "target_entry_price": null,   "target_exit_price": null},
+    {"ticker": "IONQ",    "category": "aggressive",    "target_entry_price": null,   "target_exit_price": null},
+    {"ticker": "SHOP.TO", "category": "canadian_tech", "target_entry_price": null,   "target_exit_price": null},
+    {"ticker": "CSU.TO",  "category": "canadian_tech", "target_entry_price": null,   "target_exit_price": null},
+    {"ticker": "OTEX.TO", "category": "canadian_tech", "target_entry_price": null,   "target_exit_price": null},
+    {"ticker": "KXS.TO",  "category": "canadian_tech", "target_entry_price": null,   "target_exit_price": null}
+  ],
   "megacaps": ["MSFT", "AAPL", "GOOGL"],
   "growth": ["AMD", "CRM", "NVDA"],
   "aggressive": ["PLTR", "SMCI", "ARM", "IONQ"],

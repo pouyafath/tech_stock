@@ -20,6 +20,18 @@ from pathlib import Path
 
 CDR_EXCHANGES = {"XTSE", "TSX"}  # Toronto Stock Exchange = CDR or CAD-listed
 
+# Minimum columns we need from the Wealthsimple Holdings CSV.
+# If any of these are missing, parsing will produce garbage — fail loudly.
+REQUIRED_HOLDINGS_COLUMNS = {
+    "Symbol",
+    "Quantity",
+    "Market Price",
+    "Market Price Currency",
+    "Book Value (Market)",
+    "Market Value",
+    "Market Unrealized Returns",
+}
+
 
 def _safe_float(val: str) -> float | None:
     try:
@@ -78,6 +90,22 @@ def parse_holdings_csv(csv_path: str | Path) -> dict:
             data_lines.append(line)
 
     reader = csv.DictReader(data_lines)
+
+    # ── Validate CSV schema — fail loudly if Wealthsimple changed the format ─
+    if reader.fieldnames:
+        actual_cols = {c.strip().strip('"') for c in reader.fieldnames}
+        missing = REQUIRED_HOLDINGS_COLUMNS - actual_cols
+        if missing:
+            raise ValueError(
+                f"Holdings CSV is missing required columns: {sorted(missing)}. "
+                f"Wealthsimple may have changed the export format. "
+                f"Got columns: {sorted(actual_cols)}. "
+                f"Update REQUIRED_HOLDINGS_COLUMNS in portfolio_loader.py if this is intentional."
+            )
+    else:
+        raise ValueError(
+            f"Holdings CSV has no header row. Expected columns: {sorted(REQUIRED_HOLDINGS_COLUMNS)}"
+        )
 
     # Normalize column names (strip quotes and spaces)
     for row in reader:
@@ -162,6 +190,62 @@ def save_portfolio_json(portfolio: dict, output_path: str | Path):
     """Save parsed portfolio to JSON (useful for inspection)."""
     with open(output_path, "w") as f:
         json.dump(portfolio, f, indent=2)
+
+
+def compute_sector_exposure(holdings: list, market_data: dict) -> dict:
+    """
+    Compute sector-level exposure from holdings.
+
+    Uses `sector` from market_data[ticker]["sector"] (yfinance .info.sector).
+    Tickers without sector info are grouped under "Unknown".
+    Cash and CASH ETF are excluded.
+
+    Returns:
+        {
+          "<sector>": {
+            "value_cad": float,
+            "pct": float,       # of total non-cash portfolio
+            "tickers": [str, ...]
+          },
+          ...
+        }
+    """
+    sector_totals = {}
+    total_cad = 0.0
+
+    for h in holdings:
+        ticker = h.get("ticker", "")
+        if not ticker or ticker == "CASH":
+            continue
+        if h.get("quantity", 0) == 0:
+            continue
+
+        # Prefer book_value_cad (always in CAD); fall back to market_value if currency is CAD
+        value_cad = h.get("book_value_cad")
+        if value_cad is None:
+            mv = h.get("market_value")
+            if mv and h.get("market_value_currency") == "CAD":
+                value_cad = mv
+        if not value_cad:
+            continue
+
+        md = market_data.get(ticker, {}) if market_data else {}
+        sector = (md.get("sector") if md else None) or "Unknown"
+
+        if sector not in sector_totals:
+            sector_totals[sector] = {"value_cad": 0.0, "pct": 0.0, "tickers": []}
+        sector_totals[sector]["value_cad"] += value_cad
+        if ticker not in sector_totals[sector]["tickers"]:
+            sector_totals[sector]["tickers"].append(ticker)
+        total_cad += value_cad
+
+    # Compute percentages
+    for sector, data in sector_totals.items():
+        data["value_cad"] = round(data["value_cad"], 2)
+        data["pct"] = round((data["value_cad"] / total_cad * 100), 2) if total_cad > 0 else 0.0
+
+    # Sort by pct descending
+    return dict(sorted(sector_totals.items(), key=lambda x: -x[1]["pct"]))
 
 
 if __name__ == "__main__":

@@ -14,6 +14,17 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 
+# Minimum columns we need from the Wealthsimple Activities CSV.
+REQUIRED_ACTIVITIES_COLUMNS = {
+    "transaction_date",
+    "activity_type",
+    "symbol",
+    "quantity",
+    "unit_price",
+    "net_cash_amount",
+}
+
+
 def parse_activities_csv(
     csv_path: str | Path,
     days: int = 90,
@@ -53,6 +64,22 @@ def parse_activities_csv(
         lines = [l for l in f.read().splitlines() if l.strip() and not l.strip().strip('"').startswith("As of")]
 
     reader = csv.DictReader(lines)
+
+    # ── Validate CSV schema ─────────────────────────────────────────────
+    if reader.fieldnames:
+        actual_cols = {c.strip().strip('"') for c in reader.fieldnames}
+        missing = REQUIRED_ACTIVITIES_COLUMNS - actual_cols
+        if missing:
+            raise ValueError(
+                f"Activities CSV is missing required columns: {sorted(missing)}. "
+                f"Wealthsimple may have changed the export format. "
+                f"Got columns: {sorted(actual_cols)}. "
+                f"Update REQUIRED_ACTIVITIES_COLUMNS in activity_loader.py if intentional."
+            )
+    else:
+        raise ValueError(
+            f"Activities CSV has no header row. Expected columns: {sorted(REQUIRED_ACTIVITIES_COLUMNS)}"
+        )
 
     for row in reader:
         row = {k.strip().strip('"'): v.strip().strip('"') for k, v in row.items()}

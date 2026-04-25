@@ -23,12 +23,14 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 from src.activity_loader import parse_activities_csv
+from src.backtester import run_backtest
 from src.claude_analyst import call_claude
+from src.drift_tracker import compute_drift, get_previous_session
 from src.fee_calculator import build_fee_snapshot
 from src.market_data import get_market_data
 from src.news_fetcher import get_news_for_tickers
-from src.portfolio_loader import parse_holdings_csv
-from src.report_generator import generate_markdown, save_report
+from src.portfolio_loader import compute_sector_exposure, parse_holdings_csv
+from src.report_generator import generate_markdown, save_report, watchlist_price_alerts
 
 CONFIG_DIR  = ROOT / "config"
 DATA_DIR    = ROOT / "data"
@@ -273,6 +275,26 @@ def interactive_setup() -> dict:
     }
 
 
+def watchlist_tickers(watchlist: dict) -> list:
+    """
+    Extract tickers from watchlist supporting both schemas:
+      - new: {"entries": [{"ticker": "...", "target_entry_price": ...}]}
+      - old: {"all": ["TICKER", ...], "megacaps": [...]}
+    """
+    out = set()
+    entries = watchlist.get("entries")
+    if isinstance(entries, list):
+        for e in entries:
+            if isinstance(e, dict) and e.get("ticker"):
+                out.add(e["ticker"])
+            elif isinstance(e, str):
+                out.add(e)
+    if not out:
+        for t in watchlist.get("all", []) or []:
+            out.add(t)
+    return sorted(out)
+
+
 def get_all_tickers(portfolio: dict, watchlist: dict) -> list:
     """Combine portfolio + watchlist tickers, deduplicated. Excludes CDRs, CAD ETFs, CASH."""
     tickers = set()
@@ -288,7 +310,7 @@ def get_all_tickers(portfolio: dict, watchlist: dict) -> list:
         if ticker:
             tickers.add(ticker)
 
-    for t in watchlist.get("all", []):
+    for t in watchlist_tickers(watchlist):
         if t not in SKIP_MARKET_DATA:
             tickers.add(t)
 
@@ -456,6 +478,28 @@ def run(
     print(f"{C.DIM}[tech_stock] Calculating fees...{C.RESET}")
     fee_snapshot = build_fee_snapshot(tickers)
 
+    # ── Sector exposure ───────────────────────────────────────────────────
+    sector_exposure = compute_sector_exposure(portfolio.get("holdings", []), market_data)
+
+    # ── Watchlist price alerts ────────────────────────────────────────────
+    price_alerts = watchlist_price_alerts(watchlist, market_data)
+    if price_alerts:
+        print(f"{C.DIM}[tech_stock] {len(price_alerts)} watchlist price alert(s){C.RESET}")
+
+    # ── Drift vs previous session ─────────────────────────────────────────
+    print(f"{C.DIM}[tech_stock] Computing drift vs previous session...{C.RESET}")
+    previous_session = get_previous_session(RECS_LOG_DIR)
+
+    # ── Backtest summary (fed back into prompt for self-calibration) ──────
+    print(f"{C.DIM}[tech_stock] Running backtest on past recommendations...{C.RESET}")
+    backtest_summary = run_backtest(RECS_LOG_DIR)
+    if backtest_summary.get("n_samples", 0) > 0:
+        print(
+            f"{C.DIM}[tech_stock] Track record: {backtest_summary['n_samples']} samples, "
+            f"avg {backtest_summary['overall']['avg_return_pct']:+.2f}%, "
+            f"win {backtest_summary['overall']['hit_rate']:.0%}{C.RESET}"
+        )
+
     display_model = model_name or settings.get("claude_model", "claude-sonnet-4-6")
     print(f"{C.DIM}[tech_stock] Calling Claude ({display_model}) for recommendations...{C.RESET}")
 
@@ -468,13 +512,37 @@ def run(
             fee_snapshot=fee_snapshot,
             recent_activities=recent_activities,
             settings_override=settings,
+            sector_exposure=sector_exposure,
+            backtest_summary=backtest_summary,
+            price_alerts=price_alerts,
+            drift=None,  # drift compares vs previous, not vs self — computed below
         )
     except ValueError as e:
         print(f"{C.RED}[ERROR]{C.RESET} Claude response parsing failed: {e}")
         sys.exit(1)
 
+    # ── Compute drift between this run and the previous session ───────────
+    drift = compute_drift(
+        recommendation,
+        previous_session,
+        conviction_delta_threshold=settings.get("drift_conviction_delta", 2),
+    )
+    if drift:
+        recommendation["drift_vs_previous"] = drift  # persist into log
+
     log_path = save_recommendation_log(recommendation, session_type)
-    md_content = generate_markdown(session_type, recommendation, market_data)
+    md_content = generate_markdown(
+        session_type,
+        recommendation,
+        market_data,
+        portfolio=portfolio,
+        sector_exposure=sector_exposure,
+        backtest_summary=backtest_summary,
+        drift=drift,
+        price_alerts=price_alerts,
+        recent_activities=recent_activities,
+        settings=settings,
+    )
     report_path = save_report(md_content, session_type, REPORTS_DIR)
     csv_path = save_recommendations_csv(recommendation, session_type, REPORTS_DIR)
 

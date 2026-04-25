@@ -16,5 +16,15 @@
   },
   "megacap_tickers": ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA"],
   "news_lookback_days": 7,
-  "history_months": 3
+  "history_months": 10,
+  "cache_enabled": true,
+  "cache_ttl_seconds": 3600,
+  "historical_price_cache_ttl_seconds": 2592000,
+  "enable_indicators": true,
+  "enable_sentiment": true,
+  "sector_concentration_threshold_pct": 40,
+  "tax_loss_threshold_pct": -15,
+  "leveraged_etf_max_hold_days": 14,
+  "drift_conviction_delta": 2,
+  "backtest_lookback_weeks": 26
 }
