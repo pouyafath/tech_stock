@@ -57,7 +57,9 @@ Session type (morning/afternoon) [Enter = morning]:
 3. Holdings CSV detected: /Users/you/Downloads/holdings-report-2026-04-24.csv
    Is this correct? (Y/N): Y
 4. Activities CSV detected: (Skip for now, just press Enter)
-5. Which model? [1] Sonnet 4.6 (recommended, cheap)
+5. Which model? 
+   [1] Sonnet 4.6 (recommended, ~$0.09/run, fast)
+   [2] Opus 4.7 (deeper analysis, ~$0.45/run)
    Choose (1/2) [Enter = 1]:
 ```
 

@@ -4,7 +4,7 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-tech--stock-blue)](https://github.com/pouyafath/tech_stock)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-green)]()
-[![Claude API](https://img.shields.io/badge/API-Claude%20Sonnet%20%26%20Opus-orange)]()
+[![Claude API](https://img.shields.io/badge/API-Sonnet%204.6%20%26%20Opus%204.7-orange)]()
 [![License](https://img.shields.io/badge/License-MIT-lightgrey)]()
 
 ---
@@ -28,7 +28,8 @@
 ✅ **Recent News** — Pulls last 7 days of headlines per ticker from Yahoo Finance  
 ✅ **Trade History Context** — Loads your recent Wealthsimple trades to avoid whipsawing  
 ✅ **Dual Output** — Markdown report + CSV table + JSON log for backtesting  
-✅ **Model Choice** — Pick Sonnet (~$0.09/run, fast) or Opus (~$0.45/run, deeper analysis) per session  
+✅ **Model Choice** — Pick Sonnet 4.6 (~$0.09/run, fast) or Opus 4.7 (~$0.45/run, deeper analysis) per session  
+✅ **Fast Parallel Fetching** — Concurrent yfinance requests (18 tickers in ~10s vs ~60s serial)  
 
 ---
 
@@ -76,8 +77,8 @@ Session type (morning/afternoon) [Enter = morning]:
 4. Activities CSV detected: /Users/you/Downloads/activities-export-2026-04-24.csv
    Is this correct? (Y/N, or Enter to skip): Y
 5. Which model would you like to use?
-   [1] Sonnet 4.6 — ~$0.09/run (recommended)
-   [2] Opus 4.7   — ~$0.45/run (deeper analysis)
+   [1] Sonnet 4.6 — ~$0.09/run (recommended for daily use)
+   [2] Opus 4.7   — ~$0.45/run (deeper analysis, better for complex portfolios)
    Choose (1/2) [Enter = 1]:
 ```
 
@@ -256,15 +257,15 @@ Raw machine-readable format for:
 
 ### `config/watchlist.json`
 
-Add tickers to monitor (not yet held):
+Tickers to monitor (not yet held). Each entry can include target entry/exit prices for alerts:
 
 ```json
 {
-  "all": [
-    "MSFT", "AAPL", "GOOGL",
-    "AMD", "CRM", "NVDA",
-    "PLTR", "SMCI", "ARM", "IONQ",
-    "SHOP.TO", "CSU.TO", "OTEX.TO", "KXS.TO"
+  "_comment": "Each entry: ticker, optional category, optional target prices.",
+  "entries": [
+    {"ticker": "MSFT",    "category": "megacaps",      "target_entry_price": 380.0,  "target_exit_price": null},
+    {"ticker": "AMD",     "category": "growth",        "target_entry_price": 250.0,  "target_exit_price": 320.0},
+    {"ticker": "PLTR",    "category": "aggressive",    "target_entry_price": 125.0,  "target_exit_price": null}
   ]
 }
 ```
@@ -322,37 +323,55 @@ Wealthsimple CSVs
 [Portfolio Loader] → Holdings dict
 [Activity Loader] → Recent trades
     ↓
-[Market Data] ← yfinance → prices, history, PE, news
-[News Fetcher] ← yfinance → headlines
-[Fee Calculator] → round-trip costs
+[Market Data]      ┐ (parallel fetching via ThreadPoolExecutor)
+[News Fetcher]     ├→ yfinance → prices, history, PE, headlines, news
+[Fee Calculator]   ┘
     ↓
-[Claude Analyst] → JSON recommendations
+[Claude Analyst] (with Config & Constants loaded) → JSON recommendations
     ↓
-[Report Generator] → markdown + CSV
+[Report Generator] → markdown + CSV + JSON log
 ```
+
+**Performance:** ~18 tickers in ~10 seconds on cold cache (vs ~60s with serial fetching)
 
 ### Module Overview
 
+**Shared Utilities** (centralized, single source of truth):
+
 | Module | Purpose |
 |--------|---------|
-| `main.py` | CLI entry point, interactive setup, orchestration |
+| `config.py` | Load and manage settings from `config/settings.json` |
+| `constants.py` | Shared constants: LEVERAGED_ETFS, DEDUP_PAIRS, SKIP_MARKET_DATA, CDR_EXCHANGES |
+| `_utils.py` | Helper functions: `safe_float()`, `clean_csv_row()`, `parse_session_filename()` |
+
+**Data Loading & Calculation**:
+
+| Module | Purpose |
+|--------|---------|
 | `portfolio_loader.py` | Parse Wealthsimple Holdings CSV |
 | `activity_loader.py` | Parse Wealthsimple Activities CSV (trade history) |
-| `market_data.py` | Fetch live prices, history, PE via yfinance |
-| `news_fetcher.py` | Fetch recent news headlines |
+| `market_data.py` | Fetch live prices, history, PE via yfinance (parallel fetching with ThreadPoolExecutor) |
+| `news_fetcher.py` | Fetch recent news headlines (parallel fetching with ThreadPoolExecutor) |
 | `fee_calculator.py` | Model Wealthsimple fees + bid-ask spreads |
+
+**Analysis & Output**:
+
+| Module | Purpose |
+|--------|---------|
 | `claude_analyst.py` | Build prompt, call Claude API, parse JSON response |
 | `report_generator.py` | Format recommendations as markdown + CSV |
+| `main.py` | CLI entry point, interactive setup, orchestration |
 
 ### Claude System Prompt
 
 Claude gets:
-1. **Portfolio snapshot** — all holdings with cost basis and P&L
-2. **Market data** — current price, 1d/5d/1mo changes, PE, 52w highs/lows, last 5 closes
-3. **Recent news** — last 7 days of headlines per ticker
-4. **Fee snapshot** — one-way and round-trip costs per ticker
-5. **Recent trades** — your trading activity last 90 days
+1. **Portfolio snapshot** — all holdings with cost basis and P&L (from portfolio_loader)
+2. **Market data** — current price, 1d/5d/1mo changes, PE, 52w highs/lows, last 5 closes (via parallel fetching from market_data)
+3. **Recent news** — last 7 days of headlines per ticker (via parallel fetching from news_fetcher)
+4. **Fee snapshot** — one-way and round-trip costs per ticker (from fee_calculator)
+5. **Recent trades** — your trading activity last 90 days (from activity_loader, if provided)
 6. **Session type** — "morning" (pre-open setup) or "afternoon" (intraday + EOD positioning)
+7. **Watchlist alerts** — target entry/exit prices for monitored tickers (from config/watchlist.json)
 
 Claude then outputs structured JSON with:
 - Action: BUY, ADD, HOLD, TRIM, SELL
@@ -439,10 +458,13 @@ tech_stock/
 ├── src/
 │   ├── __init__.py
 │   ├── main.py                  ← Entry point (CLI + interactive)
+│   ├── config.py                ← Load settings (single source of truth)
+│   ├── constants.py             ← Shared constants
+│   ├── _utils.py                ← Helper functions (safe_float, clean_csv_row, etc.)
 │   ├── portfolio_loader.py      ← Parse Holdings CSV
 │   ├── activity_loader.py       ← Parse Activities CSV
-│   ├── market_data.py           ← Fetch prices via yfinance
-│   ├── news_fetcher.py          ← Fetch headlines
+│   ├── market_data.py           ← Fetch prices via yfinance (parallel)
+│   ├── news_fetcher.py          ← Fetch headlines (parallel)
 │   ├── fee_calculator.py        ← Wealthsimple fee model
 │   ├── claude_analyst.py        ← Claude API + prompt
 │   └── report_generator.py      ← Format markdown + CSV
@@ -499,6 +521,6 @@ For issues or questions:
 
 ---
 
-**Last updated:** April 24, 2026  
-**Version:** 1.0.0  
-**Status:** Production-ready
+**Last updated:** April 24, 2026 (Phases A-D cleanup: shared modules, deduplication, watchlist schema, parallel fetching)  
+**Version:** 1.1.0  
+**Status:** Production-ready with optimizations
