@@ -188,6 +188,16 @@ RECOMMENDATION_SCHEMA = {
 }
 
 
+def normalize_recommendation(recommendation: dict) -> dict:
+    """Normalize model output before it is logged or rendered."""
+    for rec in recommendation.get("recommendations", []) or []:
+        low = rec.get("price_target_low_pct")
+        high = rec.get("price_target_high_pct")
+        if low is not None and high is not None and low > high:
+            rec["price_target_low_pct"], rec["price_target_high_pct"] = high, low
+    return recommendation
+
+
 def _format_indicators_line(ind: dict) -> str:
     """Format technical indicators dict as a single readable line."""
     if not ind:
@@ -496,7 +506,7 @@ def call_claude(
     # Cache the system prompt with 1h TTL — saves ~90% on repeated runs within an hour.
     response = client.messages.create(
         model=model,
-        max_tokens=8192,
+        max_tokens=settings.get("claude_max_tokens", 20000),
         system=[
             {
                 "type": "text",
@@ -529,6 +539,8 @@ def call_claude(
         raise ValueError(
             f"Claude response failed schema validation at {path}: {e.message}"
         )
+
+    recommendation = normalize_recommendation(recommendation)
 
     usage_stats = estimate_cost(response.usage, model)
     return recommendation, usage_stats
