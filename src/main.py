@@ -404,18 +404,31 @@ def save_recommendations_csv(recommendation: dict, session_type: str, csv_dir: P
     with open(csv_path, "w", newline="") as f:
         writer = csv.DictWriter(
             f,
-            fieldnames=["Ticker", "Action", "Conviction", "Net Expected %", "Time Horizon", "Thesis"],
+            fieldnames=[
+                "Ticker", "Action", "Hold Tier", "Conviction",
+                "Invest USD", "Net Expected %",
+                "Time Horizon", "Exit Target", "Price Range Low%", "Price Range High%",
+                "Earnings Alert", "Thesis",
+            ],
             extrasaction="ignore",
         )
         writer.writeheader()
         for r in recs:
+            lo = r.get("price_target_low_pct")
+            hi = r.get("price_target_high_pct")
             writer.writerow({
-                "Ticker":          r.get("ticker", ""),
-                "Action":          r.get("action", "HOLD"),
-                "Conviction":      r.get("conviction", 0),
-                "Net Expected %":  f"{r.get('net_expected_pct', 0):+.2f}%",
-                "Time Horizon":    r.get("time_horizon", ""),
-                "Thesis":          r.get("thesis", ""),
+                "Ticker":           r.get("ticker", ""),
+                "Action":           r.get("action", "HOLD"),
+                "Hold Tier":        r.get("hold_tier", ""),
+                "Conviction":       r.get("conviction", 0),
+                "Invest USD":       f"${r['invest_amount_usd']:,.0f}" if r.get("invest_amount_usd") else "",
+                "Net Expected %":   f"{r.get('net_expected_pct', 0):+.2f}%",
+                "Time Horizon":     r.get("time_horizon", ""),
+                "Exit Target":      r.get("target_exit_date", ""),
+                "Price Range Low%": f"{lo:+.0f}%" if lo is not None else "",
+                "Price Range High%":f"{hi:+.0f}%" if hi is not None else "",
+                "Earnings Alert":   "⚠️ YES" if r.get("earnings_alert") else "",
+                "Thesis":           r.get("thesis", ""),
             })
     return csv_path
 

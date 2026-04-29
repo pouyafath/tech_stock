@@ -17,11 +17,17 @@ from pathlib import Path
 from src.constants import LEVERAGED_ETFS
 
 ACTION_EMOJI = {
-    "BUY": "🟢",
-    "ADD": "🟡",
+    "BUY":  "🟢",
+    "ADD":  "🟡",
     "HOLD": "⚪",
     "TRIM": "🟠",
     "SELL": "🔴",
+}
+
+HOLD_TIER_LABEL = {
+    "watch":       "⚠️ HOLD-WATCH",
+    "keep":        "✅ HOLD-KEEP",
+    "add_on_dip":  "💡 HOLD (add on dip)",
 }
 
 CONVICTION_BAR = {
@@ -313,6 +319,36 @@ def _render_track_record_section(backtest_summary: dict) -> list[str]:
     return lines
 
 
+def _render_priority_actions_section(priority_actions: list) -> list[str]:
+    """Render the 'Do This Today' ordered action plan at the top of the report."""
+    if not priority_actions:
+        return []
+    lines = [
+        "## 🎯 Priority Actions — Do This Today",
+        "",
+        "| # | Ticker | Action | Amount | Rationale |",
+        "|---|--------|--------|--------|-----------|",
+    ]
+    for pa in sorted(priority_actions, key=lambda x: x.get("order", 99)):
+        ticker = pa.get("ticker", "")
+        action = pa.get("action", "")
+        emoji  = ACTION_EMOJI.get(action, "⚪")
+        amount = pa.get("invest_amount_usd")
+        shares = pa.get("shares")
+        if amount:
+            size_str = f"${amount:,.0f} USD"
+        elif shares:
+            size_str = f"{shares} sh"
+        else:
+            size_str = "—"
+        rationale = pa.get("rationale", "")
+        lines.append(
+            f"| {pa.get('order', '–')} | **{ticker}** | {emoji} {action} | {size_str} | {rationale} |"
+        )
+    lines += ["", "---", ""]
+    return lines
+
+
 def _render_leveraged_etf_section(warnings: list) -> list[str]:
     if not warnings:
         return []
@@ -384,6 +420,9 @@ def generate_markdown(
         ]
     lines += ["", "---", ""]
 
+    # ── Priority actions (do-this-today list) ─────────────────────────────
+    lines += _render_priority_actions_section(recommendation.get("priority_actions") or [])
+
     # ── New sections (Phase 4 + 5) ─────────────────────────────────────────
     threshold_pct = settings.get("sector_concentration_threshold_pct", 40)
     lines += _render_sector_section(sector_exposure or {}, threshold_pct)
@@ -408,33 +447,36 @@ def generate_markdown(
         lines.append("_No recommendations this session._")
     else:
         for rec in recs:
-            ticker = rec.get("ticker", "")
-            action = rec.get("action", "HOLD")
+            ticker     = rec.get("ticker", "")
+            action     = rec.get("action", "HOLD")
             conviction = rec.get("conviction", 0)
-            emoji = ACTION_EMOJI.get(action, "⚪")
+            emoji      = ACTION_EMOJI.get(action, "⚪")
+            hold_tier  = rec.get("hold_tier")
+            earnings   = rec.get("earnings_alert")
 
-            lines += [
-                f"### {emoji} {ticker} — {action}",
-                "",
-                f"**Conviction:** {conviction}/10  {conviction_bar(conviction)}",
-                "",
-                f"**Thesis:** {rec.get('thesis', 'N/A')}",
-                "",
-            ]
+            # Build header line — HOLD gets sub-label, earnings get badge
+            action_label = action
+            if action == "HOLD" and hold_tier:
+                action_label = HOLD_TIER_LABEL.get(hold_tier, action)
+
+            header = f"### {emoji} {ticker} — {action_label}"
+            if earnings:
+                header += "   ⚠️ _EARNINGS THIS WEEK_"
+            lines += [header, ""]
+
+            lines += [f"**Conviction:** {conviction}/10  {conviction_bar(conviction)}", ""]
+
+            lines += [f"**Thesis:** {rec.get('thesis', 'N/A')}", ""]
+
             if rec.get("technical_basis"):
                 lines += [f"**Technical basis:** {rec['technical_basis']}", ""]
-            lines += [
-                f"**Invalidation:** {rec.get('risk_or_invalidation', 'N/A')}",
-                "",
-            ]
+
+            lines += [f"**Invalidation:** {rec.get('risk_or_invalidation', 'N/A')}", ""]
 
             md = market_data.get(ticker, {})
             if md and not md.get("error"):
-                lines += [
-                    f"| | |",
-                    f"|---|---|",
-                    f"| Current Price | ${md.get('current_price', 'N/A')} {md.get('currency', '')} |",
-                ]
+                lines += ["| | |", "|---|---|",
+                          f"| Current Price | ${md.get('current_price', 'N/A')} {md.get('currency', '')} |"]
                 if md.get("change_pct_1d") is not None:
                     lines.append(f"| 1-Day Change | {md['change_pct_1d']:+.1f}% |")
                 if md.get("pct_from_52w_high") is not None:
@@ -450,17 +492,33 @@ def generate_markdown(
                     lines.append(f"| Liquidity Tier | {rec['liquidity_tier']} |")
                 if rec.get("target_entry_or_exit"):
                     lines.append(f"| Target Entry/Exit | ${rec['target_entry_or_exit']:.2f} |")
-                if rec.get("shares"):
+                # Invest amount for buys; shares for sells/trims
+                if rec.get("invest_amount_usd") and action in ("BUY", "ADD"):
+                    lines.append(f"| **Invest** | **${rec['invest_amount_usd']:,.0f} USD** (fractional ok) |")
+                elif rec.get("shares"):
                     lines.append(f"| Suggested Shares | {rec['shares']} |")
                 lines.append("")
 
+            # Bottom table: expected move + exit plan
+            target_exit = rec.get("target_exit_date", "")
+            lo = rec.get("price_target_low_pct")
+            hi = rec.get("price_target_high_pct")
+            range_str = (
+                f"{lo:+.0f}% / {hi:+.0f}%"
+                if lo is not None and hi is not None
+                else "N/A"
+            )
+            exit_str = target_exit if target_exit else "—"
+
             lines += [
-                f"| Expected Move | Fee Hurdle | Net Expected | Time Horizon |",
-                f"|---|---|---|---|",
+                "| Expected Move | Fee Hurdle | Net Expected | Time Horizon | Exit Target | Price Range |",
+                "|---|---|---|---|---|---|",
                 f"| {rec.get('expected_move_pct', 0):+.2f}% | "
                 f"{rec.get('fee_hurdle_pct', 0):.3f}% | "
                 f"**{rec.get('net_expected_pct', 0):+.2f}%** | "
-                f"{rec.get('time_horizon', 'N/A')} |",
+                f"{rec.get('time_horizon', 'N/A')} | "
+                f"{exit_str} | "
+                f"{range_str} |",
                 "",
                 "---",
                 "",
