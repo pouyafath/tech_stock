@@ -184,6 +184,7 @@ def build_user_message(
     backtest_summary: dict = None,
     price_alerts: list = None,
     drift: list = None,
+    enriched: dict = None,
 ) -> str:
     """Construct the full user message with all context."""
     from src.news_fetcher import aggregate_sentiment
@@ -370,10 +371,18 @@ def build_user_message(
             if a.get("summary"):
                 lines.append(f"    {a['summary'][:200]}")
 
+    # ── Enriched intelligence (Finnhub, Polygon, FRED, CoinGecko, etc.) ──────
+    if enriched:
+        from src.enriched_data import format_enrichment_for_prompt
+        enrichment_block = format_enrichment_for_prompt(enriched)
+        if enrichment_block:
+            lines.append(enrichment_block)
+
     lines.append(
         f"\n\nNow provide your recommendation JSON. Remember: only recommend trading if "
         f"net_expected_pct > {settings.get('min_net_expected_return_pct', 0.5)}% and conviction >= 6. "
-        f"Use the TECHNICAL INDICATORS and TRACK RECORD above to calibrate."
+        f"Use the TECHNICAL INDICATORS, ANALYST CONSENSUS, OPTIONS FLOW, MACRO CONTEXT, "
+        f"and TRACK RECORD above to calibrate."
     )
 
     return "\n".join(lines)
@@ -414,6 +423,7 @@ def call_claude(
     backtest_summary: dict = None,
     price_alerts: list = None,
     drift: list = None,
+    enriched: dict = None,
 ) -> tuple[dict, dict]:
     """
     Call Claude API and return (recommendation, usage_stats).
@@ -432,6 +442,7 @@ def call_claude(
         backtest_summary=backtest_summary,
         price_alerts=price_alerts,
         drift=drift,
+        enriched=enriched,
     )
 
     client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))

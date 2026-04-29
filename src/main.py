@@ -27,6 +27,7 @@ from src.backtester import run_backtest
 from src.claude_analyst import call_claude
 from src.constants import DEDUP_PAIRS, SKIP_MARKET_DATA
 from src.drift_tracker import compute_drift, get_previous_session
+from src.enriched_data import enrich
 from src.fee_calculator import build_fee_snapshot
 from src.market_data import get_market_data
 from src.news_fetcher import get_news_for_tickers
@@ -501,6 +502,13 @@ def run(
     print(f"{C.DIM}[tech_stock] Fetching news...{C.RESET}")
     news_by_ticker = get_news_for_tickers(tickers)
 
+    print(f"{C.DIM}[tech_stock] Fetching enriched intelligence (Finnhub, Polygon, FRED, CoinGecko)...{C.RESET}")
+    enriched = enrich(tickers)
+    if enriched.get("sources_active"):
+        print(f"{C.DIM}[tech_stock] Enrichment sources: {', '.join(enriched['sources_active'])}{C.RESET}")
+    else:
+        print(f"{C.DIM}[tech_stock] Enrichment: no external sources active (add API keys to .env){C.RESET}")
+
     print(f"{C.DIM}[tech_stock] Calculating fees...{C.RESET}")
     fee_snapshot = build_fee_snapshot(tickers)
 
@@ -542,6 +550,7 @@ def run(
             backtest_summary=backtest_summary,
             price_alerts=price_alerts,
             drift=None,  # drift compares vs previous, not vs self — computed below
+            enriched=enriched,
         )
     except ValueError as e:
         print(f"{C.RED}[ERROR]{C.RESET} Claude response parsing failed: {e}")

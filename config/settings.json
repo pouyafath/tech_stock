@@ -27,5 +27,14 @@
   "tax_loss_threshold_pct": -15,
   "leveraged_etf_max_hold_days": 14,
   "drift_conviction_delta": 2,
-  "backtest_lookback_weeks": 26
+  "backtest_lookback_weeks": 26,
+
+  "_comment_enrichment": "External API enrichment — set enable_enrichment to false to disable all sources",
+  "enable_enrichment": true,
+  "finnhub_cache_ttl_seconds": 21600,
+  "alpha_vantage_cache_ttl_seconds": 14400,
+  "twelve_data_cache_ttl_seconds": 3600,
+  "polygon_cache_ttl_seconds": 3600,
+  "fred_cache_ttl_seconds": 14400,
+  "coingecko_cache_ttl_seconds": 1800
 }
