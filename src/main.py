@@ -196,16 +196,51 @@ def copy_csv_to_temp(csv_path: Path) -> Path:
     return dest_path
 
 
-def validate_environment():
-    """Fail fast if the API key is missing — before wasting 60s on market data."""
+def _load_api_keys_from_file():
+    """Load API keys from API_KEYS.txt (user-friendly) or .env (advanced)."""
+    # Try API_KEYS.txt first (user-visible, easy to find)
+    api_keys_file = ROOT / "API_KEYS.txt"
+    if api_keys_file.exists():
+        try:
+            with open(api_keys_file) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#') or line.startswith('='):
+                        continue
+                    if '=' in line:
+                        key, val = line.split('=', 1)
+                        key = key.strip()
+                        val = val.strip()
+                        # Only set if it looks like a real key (not the example template)
+                        if val and not val.startswith('Get it from') and val != 'sk-ant-api03-xxx...':
+                            os.environ[key] = val
+        except Exception:
+            pass
+
+    # Also try .env (for CI/Docker/advanced users with hidden files)
     from dotenv import load_dotenv
     load_dotenv(ROOT / ".env", override=True)
 
+
+def validate_environment():
+    """Fail fast if the API key is missing — before wasting 60s on market data."""
+    _load_api_keys_from_file()
+
     if not os.environ.get("ANTHROPIC_API_KEY"):
         print(f"\n{C.RED}[ERROR]{C.RESET} ANTHROPIC_API_KEY is not set.")
-        print("  1. Copy the template:  cp .env.example .env")
-        print("  2. Open .env and paste your API key from https://console.anthropic.com/")
-        print("  3. Or export it:       export ANTHROPIC_API_KEY=sk-ant-api03-...")
+        print()
+        print(f"  {C.YELLOW}EASY WAY (recommended):{C.RESET}")
+        print("    1. Copy the template file:")
+        print("       cp API_KEYS.template.txt API_KEYS.txt")
+        print()
+        print("    2. Open API_KEYS.txt and paste your API keys:")
+        print("       - Anthropic: https://console.anthropic.com/api/keys")
+        print("       - (Other APIs listed inside the file)")
+        print()
+        print("    3. Save the file and run this program again")
+        print()
+        print(f"  {C.YELLOW}ADVANCED (for Docker/CI):{C.RESET}")
+        print("    - Use .env file: cp .env.example .env && nano .env")
         sys.exit(1)
 
 

@@ -16,6 +16,7 @@ Get tech_stock running in **5 minutes**.
 
 ```bash
 # 1. Clone the repo
+git clone https://github.com/pouyafath/tech_stock.git
 cd tech_stock
 
 # 2. Create virtual environment
@@ -25,10 +26,38 @@ source .venv/bin/activate
 # 3. Install dependencies
 pip install -r requirements.txt
 
-# 4. Set up API key
-cp .env.example .env
-# Open .env in your editor and paste your ANTHROPIC_API_KEY
+# 4. Set up API keys (CHOOSE ONE METHOD):
 ```
+
+### Option A: Easy Way (Recommended) 📄
+
+```bash
+# Copy the template to create your API_KEYS.txt
+cp API_KEYS.template.txt API_KEYS.txt
+
+# Open API_KEYS.txt and paste your keys:
+# Mac:     open API_KEYS.txt
+# Windows: notepad API_KEYS.txt
+# Linux:   nano API_KEYS.txt
+```
+
+Then paste these keys (you'll sign up for free accounts on each):
+- **Anthropic:** https://console.anthropic.com/api/keys
+- **Finnhub:** https://finnhub.io/dashboard/api-keys
+- **Alpha Vantage:** https://www.alphavantage.co/support/#api-key
+- **Twelve Data:** https://twelvedata.com/account/api-keys
+- **Polygon:** https://polygon.io/dashboard/api-keys
+- **FRED:** https://fred.stlouisfed.org/docs/api/fred/
+- **CoinGecko:** https://www.coingecko.com/en/api
+
+### Option B: Advanced (.env file) 🔧
+
+```bash
+cp .env.example .env
+nano .env  # or your preferred editor
+```
+
+Save and you're done!
 
 ---
 
@@ -45,8 +74,10 @@ cp .env.example .env
 
 ```bash
 source .venv/bin/activate
-ANTHROPIC_API_KEY=your_key_here python src/main.py
+python src/main.py
 ```
+
+(Your API keys are read from `API_KEYS.txt` or `.env` automatically)
 
 ### Step 3: Answer 5 questions
 
@@ -106,16 +137,17 @@ Create a simple script (macOS/Linux):
 #!/bin/bash
 cd /path/to/tech_stock
 source .venv/bin/activate
-ANTHROPIC_API_KEY=your_key python src/main.py
+python src/main.py
 ```
 
-Then use `cron` to run at 10 AM and 3 PM:
+Save as `run_daily.sh`, then use `cron` to run at 10 AM and 3 PM:
 
 ```bash
+chmod +x run_daily.sh
 crontab -e
-# Add:
-# 0 10 * * * /path/to/script.sh  # 10 AM
-# 0 15 * * * /path/to/script.sh  # 3 PM
+# Add these lines:
+# 0 10 * * * /path/to/tech_stock/run_daily.sh  # 10 AM
+# 0 15 * * * /path/to/tech_stock/run_daily.sh  # 3 PM
 ```
 
 ### Track Your Trades
@@ -132,8 +164,9 @@ date,ticker,action,shares,price_cad,followed_recommendation,notes
 
 ## 🆘 Troubleshooting
 
-### "API key not found"
-→ Make sure `.env` has `ANTHROPIC_API_KEY=sk-ant-api...` (no spaces)
+### "ANTHROPIC_API_KEY is not set"
+→ Make sure you created `API_KEYS.txt` from `API_KEYS.template.txt` and pasted your key  
+→ OR if using `.env`: make sure it has `ANTHROPIC_API_KEY=sk-ant-api...` (no spaces)
 
 ### "Holdings CSV not found"
 → Answer "N" when prompted and provide the full path, OR move the CSV to `~/Downloads/`

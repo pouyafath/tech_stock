@@ -25,9 +25,10 @@ wheels/
 .installed.cfg
 *.egg
 
-# Environment variables
+# Environment variables & API keys
 .env
 .env.local
+API_KEYS.txt
 
 # IDE
 .vscode/

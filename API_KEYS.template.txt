@@ -1,0 +1,44 @@
+================================================================================
+PASTE YOUR API KEYS HERE
+================================================================================
+
+IMPORTANT:
+- Double-click this file to open it
+- Copy-paste your API keys from each provider below
+- DO NOT share this file with anyone
+- DO NOT upload this file to GitHub (it's automatically ignored for safety)
+
+================================================================================
+
+ANTHROPIC_API_KEY=
+Get it from: https://console.anthropic.com/api/keys
+
+
+FINNHUB_API_KEY=
+Get it from: https://finnhub.io/dashboard/api-keys
+
+
+ALPHA_VANTAGE_API_KEY=
+Get it from: https://www.alphavantage.co/support/#api-key
+
+
+TWELVE_DATA_API_KEY=
+Get it from: https://twelvedata.com/account/api-keys
+
+
+POLYGON_API_KEY=
+Get it from: https://polygon.io/dashboard/api-keys
+
+
+FRED_API_KEY=
+Get it from: https://fred.stlouisfed.org/docs/api/fred/
+
+
+COINGECKO_API_KEY=
+Get it from: https://www.coingecko.com/en/api
+
+================================================================================
+EXAMPLE (DO NOT USE THESE - GET YOUR OWN):
+ANTHROPIC_API_KEY=sk-ant-api03-xxx...
+FINNHUB_API_KEY=d7p40ohr01qr68pb...
+================================================================================
