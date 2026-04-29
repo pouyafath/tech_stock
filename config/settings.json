@@ -31,6 +31,8 @@
 
   "_comment_enrichment": "External API enrichment — set enable_enrichment to false to disable all sources",
   "enable_enrichment": true,
+  "_comment_alpha_vantage": "Alpha Vantage free tier: only 25 req/day (very limited). Set false to disable.",
+  "alpha_vantage_enabled": false,
   "finnhub_cache_ttl_seconds": 21600,
   "alpha_vantage_cache_ttl_seconds": 14400,
   "twelve_data_cache_ttl_seconds": 3600,

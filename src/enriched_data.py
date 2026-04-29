@@ -6,8 +6,8 @@ injected into the Claude prompt.
 
 Architecture:
   Phase 1 (parallel): Finnhub, Polygon, Twelve Data, FRED, CoinGecko
-  Phase 2 (sequential): Alpha Vantage — 5 req/min limit means parallel threads
-    would just queue behind the same lock; serial is cleaner and avoids pileup.
+  Phase 2 (sequential): Alpha Vantage — optional (disabled by default due to 25 req/day limit).
+    Can be enabled in settings.json if using a paid plan. Free tier is not recommended.
 
 Any individual source that fails is simply omitted — the run continues.
 The key contract: enrich(tickers) always returns a dict, never raises.
@@ -175,14 +175,15 @@ def enrich(tickers: list[str]) -> dict:
                     warnings.warn(f"[enrich] _enrich_ticker_fast({ticker}): {type(e).__name__}: {e}")
                     out["per_ticker"][ticker] = {}
 
-    # ── Phase 2: Sequential Alpha Vantage (5 req/min) ────────────────────────
-    for ticker in tickers:
-        try:
-            av_sent = av_sentiment(ticker, limit=10)
-            if av_sent:
-                out["per_ticker"].setdefault(ticker, {})["av_sentiment"] = av_sent
-        except Exception as e:
-            warnings.warn(f"[enrich] av_sentiment({ticker}): {type(e).__name__}: {e}")
+    # ── Phase 2: Sequential Alpha Vantage (free tier: only 25 req/day) ────────
+    if settings.get("alpha_vantage_enabled", False):
+        for ticker in tickers:
+            try:
+                av_sent = av_sentiment(ticker, limit=10)
+                if av_sent:
+                    out["per_ticker"].setdefault(ticker, {})["av_sentiment"] = av_sent
+            except Exception as e:
+                warnings.warn(f"[enrich] av_sentiment({ticker}): {type(e).__name__}: {e}")
 
     # ── Tally active sources ──────────────────────────────────────────────────
     sources = set()
