@@ -1,17 +1,22 @@
 """
 enriched_data.py
 Orchestrates all enrichment API calls (Finnhub, Alpha Vantage, Twelve Data,
-Polygon, FRED, CoinGecko) in parallel and returns a unified data structure
-ready to be injected into the Claude prompt.
+Polygon, FRED, CoinGecko) and returns a unified data structure ready to be
+injected into the Claude prompt.
+
+Architecture:
+  Phase 1 (parallel): Finnhub, Polygon, Twelve Data, FRED, CoinGecko
+  Phase 2 (sequential): Alpha Vantage — 5 req/min limit means parallel threads
+    would just queue behind the same lock; serial is cleaner and avoids pileup.
 
 Any individual source that fails is simply omitted — the run continues.
 The key contract: enrich(tickers) always returns a dict, never raises.
 """
 
+import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
-from src.alpha_vantage_client import earnings_calendar as av_earnings
 from src.alpha_vantage_client import news_sentiment as av_sentiment
 from src.coingecko_client import crypto_context
 from src.config import load_settings
@@ -28,8 +33,12 @@ from src.twelve_data_client import earnings as td_earnings
 from src.twelve_data_client import quote as td_quote
 
 
-def _enrich_ticker(ticker: str) -> dict:
-    """Gather all per-ticker enrichment. Any failure → key is omitted."""
+def _enrich_ticker_fast(ticker: str) -> dict:
+    """
+    Per-ticker enrichment from fast sources (Finnhub, Polygon, Twelve Data).
+    Alpha Vantage is excluded here — it's rate-limited to 5/min and handled
+    sequentially in enrich() after the parallel phase completes.
+    """
     result: dict = {}
 
     # Finnhub
@@ -37,70 +46,69 @@ def _enrich_ticker(ticker: str) -> dict:
         rec = recommendation_trends(ticker)
         if rec:
             result["analyst_consensus"] = rec
-    except Exception:
-        pass
+    except Exception as e:
+        warnings.warn(f"[enrich] finnhub.recommendation_trends({ticker}): {type(e).__name__}: {e}")
 
     try:
         ec = earnings_calendar(ticker, days_ahead=45)
         if ec:
             result["upcoming_earnings"] = ec
-    except Exception:
-        pass
+    except Exception as e:
+        warnings.warn(f"[enrich] finnhub.earnings_calendar({ticker}): {type(e).__name__}: {e}")
 
     try:
         es = earnings_surprises(ticker, limit=4)
         if es:
             result["earnings_history"] = es
-    except Exception:
-        pass
+    except Exception as e:
+        warnings.warn(f"[enrich] finnhub.earnings_surprises({ticker}): {type(e).__name__}: {e}")
 
     try:
         ins = insider_summary(ticker, days=90)
         if ins:
             result["insider_activity"] = ins
-    except Exception:
-        pass
+    except Exception as e:
+        warnings.warn(f"[enrich] finnhub.insider_summary({ticker}): {type(e).__name__}: {e}")
 
     try:
         fh_sent = finnhub_sentiment(ticker)
         if fh_sent:
             result["finnhub_sentiment"] = fh_sent
-    except Exception:
-        pass
+    except Exception as e:
+        warnings.warn(f"[enrich] finnhub.news_sentiment({ticker}): {type(e).__name__}: {e}")
 
-    # Polygon stock snapshot (free tier: VWAP, volume, after-hours)
+    # Polygon — previous-day OHLCV + VWAP signal
     try:
         snap = stock_snapshot(ticker)
         if snap:
             result["polygon_snapshot"] = snap
-    except Exception:
-        pass
+    except Exception as e:
+        warnings.warn(f"[enrich] polygon.stock_snapshot({ticker}): {type(e).__name__}: {e}")
 
-    # Twelve Data — mainly useful for Canadian tickers where yfinance gaps
+    # Twelve Data — Canadian tickers get better coverage here
     try:
         td_q = td_quote(ticker)
         if td_q:
             result["td_quote"] = td_q
+    except Exception as e:
+        warnings.warn(f"[enrich] twelve_data.quote({ticker}): {type(e).__name__}: {e}")
+
+    try:
         td_e = td_earnings(ticker)
         if td_e:
             result["td_earnings"] = td_e
-    except Exception:
-        pass
-
-    # Alpha Vantage sentiment (rate-limited: only run if AV key present)
-    try:
-        av_sent = av_sentiment(ticker, limit=10)
-        if av_sent:
-            result["av_sentiment"] = av_sent
-    except Exception:
-        pass
+    except Exception as e:
+        warnings.warn(f"[enrich] twelve_data.earnings({ticker}): {type(e).__name__}: {e}")
 
     return result
 
 
 def enrich(tickers: list[str]) -> dict:
     """
-    Fetch enrichment data for all tickers in parallel, plus macro/crypto context.
+    Fetch enrichment data for all tickers, plus macro/crypto context.
+
+    Phase 1: parallel fetch of Finnhub, Polygon, Twelve Data, FRED, CoinGecko.
+    Phase 2: sequential Alpha Vantage calls (5 req/min limit).
 
     Returns:
         {
@@ -110,9 +118,9 @@ def enrich(tickers: list[str]) -> dict:
                     "upcoming_earnings": {...},
                     "earnings_history": [...],
                     "insider_activity": {...},
-                    "options": {...},
-                    "unusual_options_alert": {...},
                     "finnhub_sentiment": {...},
+                    "polygon_snapshot": {...},
+                    "td_quote": {...},
                     "av_sentiment": {...},
                 },
                 ...
@@ -139,21 +147,20 @@ def enrich(tickers: list[str]) -> dict:
         return {"per_ticker": {}, "macro": None, "crypto": None, "sources_active": []}
 
     out: dict = {
-        "per_ticker": {},
+        "per_ticker": {t: {} for t in tickers},
         "macro": None,
         "crypto": None,
         "fetched_at": datetime.now().isoformat(timespec="seconds"),
         "sources_active": [],
     }
 
+    # ── Phase 1: Parallel fast sources ───────────────────────────────────────
     max_workers = min(8, len(tickers) + 2) if tickers else 2
 
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        # Per-ticker futures
-        ticker_futures = {ex.submit(_enrich_ticker, t): t for t in tickers}
-        # Global context futures
-        macro_future  = ex.submit(_safe(macro_context))
-        crypto_future = ex.submit(_safe(crypto_context))
+        ticker_futures = {ex.submit(_enrich_ticker_fast, t): t for t in tickers}
+        macro_future   = ex.submit(_safe(macro_context))
+        crypto_future  = ex.submit(_safe(crypto_context))
 
         for future in as_completed(list(ticker_futures) + [macro_future, crypto_future]):
             if future is macro_future:
@@ -164,10 +171,20 @@ def enrich(tickers: list[str]) -> dict:
                 ticker = ticker_futures[future]
                 try:
                     out["per_ticker"][ticker] = future.result()
-                except Exception:
+                except Exception as e:
+                    warnings.warn(f"[enrich] _enrich_ticker_fast({ticker}): {type(e).__name__}: {e}")
                     out["per_ticker"][ticker] = {}
 
-    # Record which sources actually returned data
+    # ── Phase 2: Sequential Alpha Vantage (5 req/min) ────────────────────────
+    for ticker in tickers:
+        try:
+            av_sent = av_sentiment(ticker, limit=10)
+            if av_sent:
+                out["per_ticker"].setdefault(ticker, {})["av_sentiment"] = av_sent
+        except Exception as e:
+            warnings.warn(f"[enrich] av_sentiment({ticker}): {type(e).__name__}: {e}")
+
+    # ── Tally active sources ──────────────────────────────────────────────────
     sources = set()
     for ticker_data in out["per_ticker"].values():
         if ticker_data.get("analyst_consensus"):
@@ -192,7 +209,8 @@ def _safe(fn):
     def wrapper():
         try:
             return fn()
-        except Exception:
+        except Exception as e:
+            warnings.warn(f"[enrich] {fn.__name__}(): {type(e).__name__}: {e}")
             return None
     return wrapper
 

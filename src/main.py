@@ -199,7 +199,7 @@ def copy_csv_to_temp(csv_path: Path) -> Path:
 def validate_environment():
     """Fail fast if the API key is missing — before wasting 60s on market data."""
     from dotenv import load_dotenv
-    load_dotenv(ROOT / ".env")
+    load_dotenv(ROOT / ".env", override=True)
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
         print(f"\n{C.RED}[ERROR]{C.RESET} ANTHROPIC_API_KEY is not set.")

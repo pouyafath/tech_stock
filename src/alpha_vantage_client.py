@@ -15,6 +15,7 @@ All functions return None on error or missing API key — never raise.
 """
 
 import os
+import threading
 import time
 
 import requests
@@ -30,7 +31,8 @@ from src.config import load_settings
 
 BASE_URL = "https://www.alphavantage.co/query"
 
-# Rate-limit state — free tier allows 5 calls/min
+# Thread-safe rate-limit guard — free tier: 5 calls/min
+_rate_lock = threading.Lock()
 _last_call_time: float = 0.0
 _MIN_CALL_INTERVAL = 12.5  # seconds between calls (5/min → one per 12s)
 
@@ -51,14 +53,15 @@ def _request(params: dict) -> dict | None:
     if not key:
         return None
 
-    # Honour free-tier rate limit
-    elapsed = time.monotonic() - _last_call_time
-    if elapsed < _MIN_CALL_INTERVAL:
-        time.sleep(_MIN_CALL_INTERVAL - elapsed)
+    # Acquire lock so only one thread measures + sleeps at a time
+    with _rate_lock:
+        elapsed = time.monotonic() - _last_call_time
+        if elapsed < _MIN_CALL_INTERVAL:
+            time.sleep(_MIN_CALL_INTERVAL - elapsed)
+        _last_call_time = time.monotonic()
 
     params = {**params, "apikey": key}
     r = requests.get(BASE_URL, params=params, timeout=15)
-    _last_call_time = time.monotonic()
 
     if r.status_code >= 400:
         return None
