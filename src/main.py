@@ -70,6 +70,57 @@ def load_json(path: Path) -> dict:
         return json.load(f)
 
 
+def _get_downloads_dir() -> Path:
+    """Get the Downloads folder path (cross-platform: macOS, Windows, Linux)."""
+    home = Path.home()
+    if sys.platform == "win32":
+        # Windows: typically C:\Users\YourName\Downloads
+        downloads = home / "Downloads"
+    else:
+        # macOS and Linux: ~/Downloads
+        downloads = home / "Downloads"
+    return downloads if downloads.exists() else home
+
+
+def find_csv_by_date(pattern_prefix: str, max_results: int = 1) -> Path | None:
+    r"""
+    Search for a CSV file by today's date.
+
+    Pattern: pattern_prefix-YYYY-MM-DD.csv (e.g., "holdings-report-2026-04-29.csv")
+
+    Search order:
+    1. Check temp UPLOAD_DIR first (highest priority)
+    2. Check Downloads folder (macOS ~/Downloads, Windows C:\Users\...\Downloads)
+    3. Search entire home directory
+
+    Returns the first match or None.
+    """
+    today = datetime.now().strftime("%Y-%m-%d")
+    target_pattern = f"{pattern_prefix}-{today}.csv"
+
+    # 1. Check UPLOAD_DIR first (highest priority)
+    candidate = UPLOAD_DIR / target_pattern
+    if candidate.exists():
+        return candidate
+
+    # 2. Check Downloads folder
+    downloads = _get_downloads_dir()
+    candidate = downloads / target_pattern
+    if candidate.exists():
+        return candidate
+
+    # 3. Search home directory recursively (slower, last resort)
+    home = Path.home()
+    try:
+        matches = list(home.glob(f"**/{target_pattern}"))
+        if matches:
+            return matches[0]
+    except (PermissionError, OSError):
+        pass
+
+    return None
+
+
 def find_latest_csv(pattern: str) -> Path | None:
     """Find the most recently modified CSV file matching pattern in UPLOAD_DIR."""
     candidates = sorted(UPLOAD_DIR.glob(pattern), reverse=True)
@@ -123,6 +174,27 @@ def _prompt_yes_no(prompt: str) -> str:
         print(f"   {C.YELLOW}↳ Please enter 'Y' or 'N'{C.RESET}")
 
 
+def copy_csv_to_temp(csv_path: Path) -> Path:
+    """
+    Copy a CSV file to the temp UPLOAD_DIR if it's not already there.
+    Returns the path in UPLOAD_DIR (either newly copied or already present).
+    """
+    if not csv_path:
+        return None
+
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+    # If already in UPLOAD_DIR, return as-is
+    if csv_path.parent == UPLOAD_DIR:
+        return csv_path
+
+    # Copy to UPLOAD_DIR with the original filename
+    import shutil
+    dest_path = UPLOAD_DIR / csv_path.name
+    shutil.copy2(csv_path, dest_path)
+    return dest_path
+
+
 def validate_environment():
     """Fail fast if the API key is missing — before wasting 60s on market data."""
     from dotenv import load_dotenv
@@ -166,49 +238,46 @@ def interactive_setup() -> dict:
     budget_cad = _prompt_positive_float("CAD", 1000)
 
     # ── Holdings CSV (required every time) ────────────────────────────────
-    print(f"\n3. {C.BOLD}Export Holdings CSV from Wealthsimple{C.RESET}")
-    print(f"   {C.DIM}1. Go to Account → Activity{C.RESET}")
-    print(f"   {C.DIM}2. Click 'Export Holdings Report (CSV)'{C.RESET}")
-    print(f"   {C.DIM}3. Drag and drop the file into:{C.RESET}")
-    print(f"   {C.CYAN}{UPLOAD_DIR.resolve()}{C.RESET}\n")
+    print(f"\n3. {C.BOLD}Holdings CSV{C.RESET}")
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    print(f"   {C.DIM}Looking for: holdings-report-{today_str}.csv{C.RESET}")
 
-    holdings_auto = find_latest_csv("holdings-report-*.csv")
+    holdings_auto = find_csv_by_date("holdings-report")
+    holdings_path = None
+
     if holdings_auto:
-        print(f"   {C.GREEN}✓ Found:{C.RESET} {C.CYAN}{holdings_auto.name}{C.RESET}")
+        print(f"   {C.GREEN}✓ Found:{C.RESET} {C.CYAN}{holdings_auto.resolve()}{C.RESET}")
         if _prompt_yes_no("Use this file? (Y/N): ") == "Y":
             holdings_path = holdings_auto
         else:
-            holdings_path = _prompt_for_existing_path()
+            print(f"\n   {C.BOLD}Provide the correct Holdings CSV path:{C.RESET}")
+            holdings_path = _prompt_for_existing_path("   Full path to Holdings CSV: ")
     else:
-        print(f"   {C.YELLOW}✗ No Holdings CSV found in {UPLOAD_DIR}{C.RESET}")
-        print(f"   {C.YELLOW}Please drop the CSV file in the path above, then answer below.{C.RESET}\n")
-        holdings_path = _prompt_for_existing_path()
+        print(f"   {C.YELLOW}✗ No Holdings CSV found for today ({today_str}){C.RESET}")
+        print(f"   {C.YELLOW}Checked: temp folder, Downloads, home directory{C.RESET}")
+        print(f"\n   {C.YELLOW}To use today's export, either:{C.RESET}")
+        print(f"   {C.DIM}  • Export from Wealthsimple (it auto-includes today's date){C.RESET}")
+        print(f"   {C.DIM}  • Place in Downloads or any folder{C.RESET}")
+        print(f"   {C.DIM}  • Provide the full path below{C.RESET}\n")
+        holdings_path = _prompt_for_existing_path("   Full path to Holdings CSV: ")
 
-    # ── Activities CSV (only ask if missing or older than 7 days) ───────
+    # ── Activities CSV (optional; helps avoid whipsawing) ──────────────────
     activities_path = None
-    activities_auto = find_latest_csv("activities-export-*.csv")
+    print(f"\n4. {C.BOLD}Trade History (Activities){C.RESET} {C.DIM}(optional, for context){C.RESET}")
+    print(f"   {C.DIM}Looking for: activities-export-{today_str}.csv{C.RESET}")
 
-    if activities_auto and not is_file_older_than_days(activities_auto, 7):
-        print(f"\n4. {C.BOLD}Trade History (Activities){C.RESET}")
-        print(f"   {C.GREEN}✓ Recent Activities CSV found:{C.RESET} {C.CYAN}{activities_auto.name}{C.RESET}")
-        print(f"   {C.DIM}(less than 7 days old){C.RESET}")
+    activities_auto = find_csv_by_date("activities-export")
+
+    if activities_auto:
+        print(f"   {C.GREEN}✓ Found:{C.RESET} {C.CYAN}{activities_auto.resolve()}{C.RESET}")
         if _prompt_yes_no("Use this file? (Y/N): ") == "Y":
             activities_path = activities_auto
-
-    if activities_path is None:
-        print(f"\n4. {C.BOLD}Trade History (Activities){C.RESET}")
-        print(f"   {C.DIM}1. Go to Account → Activity → Export Activities{C.RESET}")
-        print(f"   {C.DIM}2. Select last 3 months{C.RESET}")
-        print(f"   {C.DIM}3. Drag file into: {UPLOAD_DIR.resolve()}{C.RESET}\n")
-        while activities_path is None:
-            if _prompt_yes_no("Have you uploaded an Activities CSV? (Y/N): ") == "N":
-                break  # Skip Activities CSV — optional
-            activities_auto = find_latest_csv("activities-export-*.csv")
-            if activities_auto:
-                activities_path = activities_auto
-            else:
-                print(f"   {C.RED}✗ Activities CSV not found in {UPLOAD_DIR}{C.RESET}")
-                print(f"   {C.YELLOW}Please drop the CSV file in the path above and try again.{C.RESET}\n")
+        else:
+            if _prompt_yes_no("Provide a different Activities CSV? (Y/N): ") == "Y":
+                activities_path = _prompt_for_existing_path("   Full path to Activities CSV: ")
+    else:
+        if _prompt_yes_no("Do you have an Activities CSV to include? (Y/N): ") == "Y":
+            activities_path = _prompt_for_existing_path("   Full path to Activities CSV: ")
 
     # ── Model selection ──────────────────────────────────────────────────
     while True:
@@ -228,6 +297,14 @@ def interactive_setup() -> dict:
         print(f"   {C.YELLOW}↳ Invalid choice. Please enter '1' or '2'{C.RESET}")
 
     print()
+
+    # Copy CSV files to temp folder if they're not already there
+    # (consolidates all input files in one place for easier management)
+    if holdings_path:
+        holdings_path = copy_csv_to_temp(holdings_path)
+    if activities_path:
+        activities_path = copy_csv_to_temp(activities_path)
+
     return {
         "session_type":    session_type,
         "budget_usd":      budget_usd,

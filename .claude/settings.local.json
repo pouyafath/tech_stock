@@ -3,7 +3,32 @@
     "allow": [
       "Bash(brew install *)",
       "Bash(mkdir -p __TRACKED_VAR__/config __TRACKED_VAR__/data/recommendations_log __TRACKED_VAR__/reports __TRACKED_VAR__/src)",
-      "Bash(touch __TRACKED_VAR__/src/__init__.py)"
+      "Bash(touch __TRACKED_VAR__/src/__init__.py)",
+      "Bash(gh repo *)",
+      "Bash(gh auth *)",
+      "Skill(claude-api)",
+      "Skill(claude-api:*)",
+      "Bash(chmod +x \"/Users/pouya/Library/CloudStorage/OneDrive-Queen'sUniversity/tech_stock/run.sh\")",
+      "Bash(.venv/bin/pip install *)",
+      "Bash(.venv/bin/python -c ' *)",
+      "Bash(.venv/bin/python -c \"import jsonschema, tenacity, vaderSentiment; print\\('all deps OK'\\)\")",
+      "Bash(python -c \"from src.main import run; from src.claude_analyst import call_claude; from src.backtester import run_backtest; print\\('✓ All imports OK'\\)\")",
+      "Bash(.venv/bin/python -c \"from src.main import run; from src.claude_analyst import call_claude; from src.backtester import run_backtest; print\\('✓ All imports OK'\\)\")",
+      "Bash(.venv/bin/python3)",
+      "Bash(timeout 30 .venv/bin/python3 -c ' *)",
+      "Bash(.venv/bin/python3 -c ' *)",
+      "Bash(.venv/bin/python3 -m py_compile src/config.py src/constants.py src/_utils.py src/claude_analyst.py src/market_data.py src/news_fetcher.py src/fee_calculator.py)",
+      "Bash(python3 -c \"import json; w=json.load\\(open\\('config/watchlist.json'\\)\\); print\\(set\\(w.keys\\(\\)\\)\\)\")",
+      "Bash(python3 -c \"import json; w=json.load\\(open\\('config/watchlist.json'\\)\\); print\\(f'keys={set\\(w.keys\\(\\)\\)}, entries_count={len\\(w.get\\(\\\\\"entries\\\\\", []\\)\\)}'\\)\")",
+      "Bash(.venv/bin/python -m py_compile src/main.py)",
+      "Bash(.venv/bin/python -m py_compile src/main.py src/claude_analyst.py src/market_data.py src/news_fetcher.py src/fee_calculator.py src/portfolio_loader.py src/activity_loader.py src/backtester.py src/drift_tracker.py src/report_generator.py src/config.py src/constants.py src/_utils.py)",
+      "WebSearch",
+      "Bash(.venv/bin/python3 src/market_data.py)",
+      "Read(//private/tmp/**)",
+      "Bash('/Users/pouya/Library/CloudStorage/OneDrive-Queen'\\\\''sUniversity/tech_stock/.venv/bin/python3' -c ' *)",
+      "Bash(python3 -c ' *)",
+      "Bash(grep -E \"README|readme|CHANGELOG|changelog|USAGE|usage|\\\\.md$\")",
+      "Bash(python3)"
     ]
   }
 }
