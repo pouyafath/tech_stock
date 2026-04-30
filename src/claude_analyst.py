@@ -48,7 +48,7 @@ RULES YOU MUST FOLLOW:
 11. LEVERAGED ETF DECAY: SOXL, TQQQ, SQQQ, UPRO, UVXY, TMF, TZA, SPXL, LABU, LABD, TSLL, NVDL, SOXS, TMV, UDOW, SDOW — never hold >2 weeks. Always include decay warning if held.
 12. INDICATOR SANITY: RSI>70 = bias against BUY/ADD. RSI<30 = mean-reversion candidate. Price < SMA(200) = not a long-term uptrend. MACD hist turning positive = bullish trigger.
 13. SENTIMENT CHECK: Strongly negative news (<-0.3 avg) + wanting BUY = thesis must explain why market is wrong. Strong positive news + weak technicals = crowded-trade warning.
-14. TRACK RECORD CALIBRATION: Use provided track record to calibrate conviction. If past conviction-9 averaged +2.8% but conviction-7 averaged +0.3%, reflect that in scoring.
+14. TRACK RECORD CALIBRATION: Use provided track record to calibrate conviction. If a conviction bucket has n>=3 and avg_return_pct<=0 or hit_rate<50%, cap similar new recommendations at one conviction point lower. If the action bucket has negative average return, lower confidence by 1 or use HOLD. Do not assign conviction 8-10 unless similar past action/ticker evidence was positive or today has a verified new catalyst.
 15. EARNINGS ALERT: If enrichment data shows a ticker has earnings within 7 days, set earnings_alert=true and lead the thesis with "⚠️ EARNINGS [DATE] [BMO/AMC]". Earnings change the risk profile — do not ADD into earnings without explicitly stating why you expect a beat.
 16. ETF SECTOR CLASSIFICATION: ARK ETFs (ARKF, ARKK, ARKQ, ARKG) = ~90% technology — count toward tech concentration. VGRO/XEQT/VEQT/VCNS = balanced multi-sector, count separately. SOXL = 3× semiconductors. TQQQ = 3× QQQ tech-heavy. Use these when calculating real sector concentration.
 17. ENRICHMENT CITATION: When analyst_consensus is available, cite it in the thesis (e.g., "66 analysts: STRONG BUY"). When earnings_history shows 3+ consecutive beats, say "beat estimates X quarters in a row". When insider_activity shows net buying/selling of significance, mention it. Do not silently ignore enrichment data.
@@ -257,6 +257,7 @@ def normalize_recommendation(recommendation: dict) -> dict:
         low = rec.get("price_target_low_pct")
         high = rec.get("price_target_high_pct")
         if low is not None and high is not None and low > high:
+            rec["range_was_normalized"] = True
             rec["price_target_low_pct"], rec["price_target_high_pct"] = high, low
         controls = rec.get("risk_controls")
         if not isinstance(controls, dict):
@@ -525,6 +526,10 @@ def build_user_message(
             parts.append(f"prev_close=${d['previous_close']:.2f}")
         if change_1d is not None:
             parts.append(f"1d={change_1d:+.1f}%")
+        if d.get("pre_market_change_pct") is not None:
+            parts.append(f"premarket={d['pre_market_change_pct']:+.1f}%")
+        if d.get("post_market_change_pct") is not None:
+            parts.append(f"afterhours={d['post_market_change_pct']:+.1f}%")
         if change_5d is not None:
             parts.append(f"5d={change_5d:+.1f}%")
         if change_1mo is not None:
@@ -539,6 +544,14 @@ def build_user_message(
             parts.append(f"P/S={d['price_to_sales']}")
         if d.get("enterprise_to_ebitda") is not None:
             parts.append(f"EV/EBITDA={d['enterprise_to_ebitda']}")
+        if d.get("free_cashflow_yield_pct") is not None:
+            parts.append(f"FCF_yield={d['free_cashflow_yield_pct']:+.1f}%")
+        if d.get("gross_margin_pct") is not None:
+            parts.append(f"gross_margin={d['gross_margin_pct']:.1f}%")
+        if d.get("operating_margin_pct") is not None:
+            parts.append(f"operating_margin={d['operating_margin_pct']:.1f}%")
+        if d.get("ex_dividend_date"):
+            parts.append(f"ex_dividend={d['ex_dividend_date'][:10]}")
         if d.get("sector"):
             parts.append(f"sector={d['sector']}")
         if d.get("quote_timestamp_utc"):
@@ -612,6 +625,20 @@ def build_user_message(
             for conv in sorted(by_conv.keys()):
                 stats = by_conv[conv]
                 lines.append(f"    conviction={conv}  n={stats['n']:3d}  avg={stats['avg_return_pct']:+.2f}%  win_rate={stats['hit_rate']:.0%}")
+        by_ticker = backtest_summary.get("avg_return_by_ticker", {})
+        if by_ticker:
+            lines.append("  Avg actual return by ticker:")
+            for ticker, stats in list(by_ticker.items())[:10]:
+                lines.append(f"    {ticker:8s} n={stats['n']:3d} avg={stats['avg_return_pct']:+.2f}% win_rate={stats['hit_rate']:.0%}")
+        examples = backtest_summary.get("recent_realized_examples", [])
+        if examples:
+            lines.append("  Recent realized examples to calibrate today's recommendations:")
+            for row in examples[:5]:
+                lines.append(
+                    f"    {row.get('session_date')} {row.get('ticker')} {row.get('action')} "
+                    f"conv={row.get('conviction')} expected={row.get('expected_pct'):+.2f}% "
+                    f"actual={row.get('actual_pct'):+.2f}% hit={row.get('hit')}"
+                )
         lines.append("  ↳ Use this to calibrate conviction scores this session.")
 
     # ── Drift from previous session ────────────────────────────────────────
@@ -726,20 +753,46 @@ def _parse_validate_recommendation(raw_text: str) -> dict:
     return normalize_recommendation(recommendation)
 
 
+def _response_text(response) -> str:
+    """Extract text blocks from an Anthropic response, ignoring thinking blocks."""
+    texts = []
+    for block in getattr(response, "content", []) or []:
+        if getattr(block, "type", None) == "text" and getattr(block, "text", None):
+            texts.append(block.text)
+        elif getattr(block, "text", None):
+            texts.append(block.text)
+    return "\n".join(texts)
+
+
+def _cacheable_text_block(text: str) -> dict:
+    """Attach an Anthropic ephemeral cache breakpoint to a repeated user block."""
+    return {
+        "type": "text",
+        "text": text,
+        "cache_control": {"type": "ephemeral", "ttl": "1h"},
+    }
+
+
 def _create_message(client, model: str, settings: dict, messages: list[dict]):
     """Call Anthropic with the cacheable system prompt."""
-    return client.messages.create(
-        model=model,
-        max_tokens=settings.get("claude_max_tokens", 20000),
-        system=[
+    max_tokens = settings.get("claude_max_tokens", 20000)
+    kwargs = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "system": [
             {
                 "type": "text",
                 "text": SYSTEM_PROMPT,
                 "cache_control": {"type": "ephemeral", "ttl": "1h"},
             }
         ],
-        messages=messages,
-    )
+        "messages": messages,
+    }
+    if "opus" in model.lower() and settings.get("enable_opus_extended_thinking", True):
+        budget = min(int(settings.get("opus_thinking_budget_tokens", 4096)), max_tokens - 1024)
+        if budget >= 1024:
+            kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
+    return client.messages.create(**kwargs)
 
 
 def _combine_usage_stats(first: dict, second: dict | None) -> dict:
@@ -857,9 +910,9 @@ def call_claude(
         client,
         model,
         settings,
-        [{"role": "user", "content": user_message}],
+        [{"role": "user", "content": [_cacheable_text_block(user_message)]}],
     )
-    first_recommendation = _parse_validate_recommendation(first_response.content[0].text)
+    first_recommendation = _parse_validate_recommendation(_response_text(first_response))
     first_usage = estimate_cost(first_response.usage, model)
 
     first_drift = compute_drift(
@@ -888,11 +941,11 @@ def call_claude(
         model,
         settings,
         [
-            {"role": "user", "content": user_message},
+            {"role": "user", "content": [_cacheable_text_block(user_message)]},
             {"role": "user", "content": review_message},
         ],
     )
-    recommendation = _parse_validate_recommendation(second_response.content[0].text)
+    recommendation = _parse_validate_recommendation(_response_text(second_response))
     second_usage = estimate_cost(second_response.usage, model)
 
     final_drift = compute_drift(

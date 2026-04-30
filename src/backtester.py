@@ -231,6 +231,8 @@ def summarize(results: list[dict]) -> dict:
             "n_samples": 0,
             "avg_return_by_action": {},
             "avg_return_by_conviction": {},
+            "avg_return_by_ticker": {},
+            "recent_realized_examples": [],
             "overall": {"n": 0, "avg_return_pct": 0.0, "hit_rate": 0.0},
         }
 
@@ -246,10 +248,30 @@ def summarize(results: list[dict]) -> dict:
         if rows:
             by_conv[conv] = _avg_and_hit_rate(rows)
 
+    by_ticker = {}
+    for ticker in sorted({r.get("ticker") for r in results if r.get("ticker")}):
+        rows = [r for r in results if r.get("ticker") == ticker]
+        if rows:
+            by_ticker[ticker] = _avg_and_hit_rate(rows)
+    by_ticker = dict(
+        sorted(
+            by_ticker.items(),
+            key=lambda item: (-item[1]["n"], item[0]),
+        )
+    )
+
+    recent_examples = sorted(
+        results,
+        key=lambda row: (row.get("session_date") or "", row.get("ticker") or ""),
+        reverse=True,
+    )[:8]
+
     return {
         "n_samples": len(results),
         "avg_return_by_action": by_action,
         "avg_return_by_conviction": by_conv,
+        "avg_return_by_ticker": by_ticker,
+        "recent_realized_examples": recent_examples,
         "overall": _avg_and_hit_rate(results),
     }
 

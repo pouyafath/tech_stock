@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from src.market_data import _fetch_options_implied_move, compute_indicators
+from src.market_data import _fetch_options_implied_move, _safe_float, compute_indicators
 
 
 def test_compute_indicators_includes_atr_volatility_and_sma_cross():
@@ -44,3 +44,7 @@ def test_options_implied_move_uses_atm_straddle_mid_prices():
     assert move["atm_strike"] == 100
     assert move["straddle_price"] == 13
     assert move["implied_move_pct"] == 12.87
+
+
+def test_safe_float_preserves_negative_values_for_derived_metrics():
+    assert _safe_float(-4.25) == -4.25

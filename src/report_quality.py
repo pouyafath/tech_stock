@@ -5,8 +5,10 @@ Deterministic quality checks and safety gates for generated recommendations.
 
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from dataclasses import asdict, dataclass
+from datetime import datetime
 
 from src.backtester import HORIZON_DAYS
 from src.portfolio_analytics import aggregate_company_exposure, aggregate_positions, company_key
@@ -38,6 +40,39 @@ def _news_has_catalyst(news_by_ticker: dict, ticker: str) -> bool:
 
 def _enrichment_for(enriched: dict, ticker: str) -> dict:
     return ((enriched or {}).get("per_ticker") or {}).get(ticker) or {}
+
+
+def _parse_iso_date(value: str | None):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return None
+
+
+def _days_until_earnings(enrich: dict) -> int | None:
+    earnings = (enrich or {}).get("upcoming_earnings") or (enrich or {}).get("td_earnings") or {}
+    if isinstance(earnings, list):
+        earnings = earnings[0] if earnings else {}
+    date_value = earnings.get("date") or earnings.get("earnings_date")
+    earnings_date = _parse_iso_date(date_value)
+    if not earnings_date:
+        return None
+    return (earnings_date - datetime.now().date()).days
+
+
+def _has_decision_tree(rec: dict) -> bool:
+    text = " ".join([
+        str(rec.get("thesis") or ""),
+        str(rec.get("risk_or_invalidation") or ""),
+    ]).lower()
+    if not text:
+        return False
+    action_words = r"(then|do|buy|add|hold|keep|trim|sell|reduce|exit|wait)"
+    if len(re.findall(rf"\bif\b[^.;]*\b{action_words}\b", text)) >= 2:
+        return True
+    return bool(re.search(rf"\bif\b.+?;\s*\bif\b.+?\b{action_words}\b", text))
 
 
 def evaluate(
@@ -116,7 +151,7 @@ def evaluate(
 
         low = rec.get("price_target_low_pct")
         high = rec.get("price_target_high_pct")
-        if low is not None and high is not None and low > high:
+        if rec.get("range_was_normalized") or (low is not None and high is not None and low > high):
             warnings.append(_warn(
                 "medium", "reversed_price_range", ticker,
                 "Bear/bull price range is reversed.",
@@ -130,11 +165,22 @@ def evaluate(
                 f"Unsupported time horizon: {rec.get('time_horizon')}",
                 "Use one of the configured horizon strings.",
             ))
-        if horizon in {"intraday", "next session"} and high is not None and abs(high) > 15:
+        max_abs_range = max(
+            [abs(v) for v in (low, high) if isinstance(v, (int, float))],
+            default=0,
+        )
+        if horizon in {"intraday", "next session"} and max_abs_range > 15:
             warnings.append(_warn(
                 "low", "horizon_range_mismatch", ticker,
-                "Near-term horizon has an unusually wide bull-case move.",
+                "Near-term horizon has an unusually wide bear/bull move range.",
                 "Confirm the move is catalyst-driven, not a stale range.",
+            ))
+
+        if not _has_decision_tree(rec):
+            warnings.append(_warn(
+                "medium", "missing_decision_tree", ticker,
+                'Recommendation lacks compact "If X, do Y; if Z, do W" execution language.',
+                "Add decision-tree wording to the thesis or invalidation before execution.",
             ))
 
         if action in {"BUY", "ADD"}:
@@ -152,8 +198,13 @@ def evaluate(
                     "Add stop_loss_pct to make the risk control explicit.",
                 ))
 
+        enrich = _enrichment_for(enriched or {}, ticker)
+        days_to_earnings = _days_until_earnings(enrich)
+        near_earnings = days_to_earnings is not None and 0 <= days_to_earnings <= 7
         large_move = move is not None and abs(move) >= threshold
-        catalyst_required = action in {"BUY", "ADD"} and (large_move or rec.get("earnings_alert"))
+        catalyst_required = action in {"BUY", "ADD"} and (
+            large_move or rec.get("earnings_alert") or near_earnings
+        )
         if catalyst_required:
             verified = bool(rec.get("catalyst_verified"))
             has_source = bool(rec.get("catalyst_source")) or _news_has_catalyst(news_by_ticker or {}, ticker)
@@ -164,7 +215,6 @@ def evaluate(
                     "Downgrade to HOLD or mark manual_review_required until catalyst is verified.",
                 ))
 
-        enrich = _enrichment_for(enriched or {}, ticker)
         thesis = (rec.get("thesis") or "").lower()
         if enrich.get("analyst_consensus") and "analyst" not in thesis:
             warnings.append(_warn(
@@ -208,7 +258,13 @@ def apply_quality_gates(recommendation: dict, warnings: list[dict]) -> dict:
             continue
         if rec.get("action") in {"BUY", "ADD"}:
             rec["action"] = "HOLD"
-            rec["hold_tier"] = rec.get("hold_tier") or "watch"
+            rec["hold_tier"] = "watch"
+            try:
+                rec["conviction"] = min(float(rec.get("conviction", 5)), 5)
+                if rec["conviction"].is_integer():
+                    rec["conviction"] = int(rec["conviction"])
+            except (TypeError, ValueError, AttributeError):
+                rec["conviction"] = 5
             rec["invest_amount_usd"] = None
             rec["manual_review_required"] = True
             rec["catalyst_verified"] = False

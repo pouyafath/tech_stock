@@ -6,6 +6,7 @@ def test_enrichment_degradation_is_structured(monkeypatch):
         raise RuntimeError("provider down")
 
     monkeypatch.setattr("src.enriched_data.recommendation_trends", fail)
+    monkeypatch.setattr("src.enriched_data.upgrade_downgrade", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("src.enriched_data.earnings_calendar", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("src.enriched_data.earnings_surprises", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("src.enriched_data.insider_summary", lambda *_args, **_kwargs: None)

@@ -292,6 +292,16 @@ def _fetch_ticker_raw(ticker: str, history_months: int, include_options: bool = 
         info.get("regularMarketPreviousClose"),
         info.get("previousClose"),
     )
+    pre_market_price = _safe_float(info.get("preMarketPrice"))
+    post_market_price = _safe_float(info.get("postMarketPrice"))
+    pre_market_change_pct = (
+        _safe_float((pre_market_price - previous_close) / previous_close * 100)
+        if pre_market_price is not None and previous_close else None
+    )
+    post_market_change_pct = (
+        _safe_float((post_market_price - previous_close) / previous_close * 100)
+        if post_market_price is not None and previous_close else None
+    )
     currency = info.get("currency", "USD")
     quote_timestamp_utc = _epoch_to_utc_iso(info.get("regularMarketTime"))
     quote_source = f"yfinance:{quote_source_field}" if quote_source_field else "yfinance:historyClose"
@@ -329,6 +339,26 @@ def _fetch_ticker_raw(ticker: str, history_months: int, include_options: bool = 
 
     avg_vol = info.get("averageVolume") or info.get("averageDailyVolume10Day")
     indicators = compute_indicators(hist)
+    market_cap = info.get("marketCap")
+    free_cashflow = info.get("freeCashflow")
+    free_cashflow_yield_pct = (
+        _safe_float(float(free_cashflow) / float(market_cap) * 100)
+        if free_cashflow is not None and market_cap else None
+    )
+    gross_margin_pct = (
+        _safe_float(float(info.get("grossMargins")) * 100)
+        if info.get("grossMargins") is not None else None
+    )
+    operating_margin_pct = (
+        _safe_float(float(info.get("operatingMargins")) * 100)
+        if info.get("operatingMargins") is not None else None
+    )
+    dividend_yield = _safe_float(info.get("dividendYield"))
+    dividend_yield_pct = (
+        _safe_float(dividend_yield * 100)
+        if dividend_yield is not None and dividend_yield <= 1
+        else dividend_yield
+    )
 
     return {
         "ticker": ticker,
@@ -338,6 +368,10 @@ def _fetch_ticker_raw(ticker: str, history_months: int, include_options: bool = 
         "change_pct_5d": pct_change(5),
         "change_pct_1mo": pct_change(21),
         "previous_close": round(previous_close, 2) if previous_close else None,
+        "pre_market_price": pre_market_price,
+        "pre_market_change_pct": pre_market_change_pct,
+        "post_market_price": post_market_price,
+        "post_market_change_pct": post_market_change_pct,
         "open": _first_float(info.get("regularMarketOpen"), info.get("open")),
         "day_high": _first_float(info.get("regularMarketDayHigh"), info.get("dayHigh")),
         "day_low": _first_float(info.get("regularMarketDayLow"), info.get("dayLow")),
@@ -347,16 +381,22 @@ def _fetch_ticker_raw(ticker: str, history_months: int, include_options: bool = 
         "market_state": info.get("marketState"),
         "volume_today": int(hist["Volume"].iloc[-1]) if not hist.empty else None,
         "avg_volume_30d": int(avg_vol) if avg_vol else None,
-        "market_cap": info.get("marketCap"),
+        "market_cap": market_cap,
         "pe_ratio": info.get("trailingPE"),
         "forward_pe": info.get("forwardPE"),
         "price_to_book": info.get("priceToBook"),
         "price_to_sales": info.get("priceToSalesTrailing12Months"),
         "enterprise_to_ebitda": info.get("enterpriseToEbitda"),
-        "free_cashflow": info.get("freeCashflow"),
+        "free_cashflow": free_cashflow,
+        "free_cashflow_yield_pct": free_cashflow_yield_pct,
         "gross_margins": info.get("grossMargins"),
+        "gross_margin_pct": gross_margin_pct,
         "operating_margins": info.get("operatingMargins"),
+        "operating_margin_pct": operating_margin_pct,
         "debt_to_equity": info.get("debtToEquity"),
+        "dividend_rate": info.get("dividendRate"),
+        "dividend_yield_pct": dividend_yield_pct,
+        "ex_dividend_date": _epoch_to_utc_iso(info.get("exDividendDate")),
         "52w_high": fifty_two_week_high,
         "52w_low": info.get("fiftyTwoWeekLow"),
         "pct_from_52w_high": pct_from_52w_high,
@@ -377,7 +417,7 @@ def get_ticker_data(ticker: str, history_months: int = 10) -> dict:
     settings = load_settings()
     cache_enabled = settings.get("cache_enabled", True)
     ttl = settings.get("market_data_cache_ttl_seconds", settings.get("cache_ttl_seconds", 3600))
-    cache_version = settings.get("market_data_cache_version", 2)
+    cache_version = settings.get("market_data_cache_version", 4)
     include_options = settings.get("enable_options_implied_move_all", False)
 
     try:

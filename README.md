@@ -22,6 +22,7 @@
 ### Key Features
 
 - ✅ **Trader Action Plan** — Review-before-trading execution table ordered by urgency
+- ✅ **Critical Actions Block** — Consolidates quality warnings, manual-review gates, drift, and leveraged ETF risks near the top
 - ✅ **Report Quality Gates** — Deterministic warnings for stale quotes, missing catalysts, range errors, and sizing risk
 - ✅ **Two-Pass Claude Review** — First-pass JSON is critiqued against quality warnings and drift, then revised before rendering
 - ✅ **Intelligent Sizing** — Investment amounts ($50–$700 per session) based on conviction and budget
@@ -34,7 +35,7 @@
 - ✅ **6 Enrichment APIs** — Parallel data from Finnhub, Polygon, Twelve Data, FRED, CoinGecko (+ optional Alpha Vantage)
 - ✅ **Fee-Aware** — Refuses to recommend trades below the fee hurdle (default 0.5% net expected return)
 - ✅ **Conviction Scoring** — 1-10 scale; scores < 6 automatically become HOLD recommendations
-- ✅ **Live Market Data** — Quote timestamp, previous close, day range, quote source, 10-month history, PE ratios, 52-week highs/lows via yfinance
+- ✅ **Live Market Data** — Quote timestamp, previous close, pre/after-market moves, day range, quote source, 10-month history, PE ratios, FCF yield, margins, dividends, 52-week highs/lows via yfinance
 - ✅ **Recent News** — Pulls last 7 days of headlines per ticker from Yahoo Finance
 - ✅ **Trade History Context** — Loads your recent Wealthsimple trades to avoid whipsawing
 - ✅ **Triple Output** — Markdown report + CSV table + JSON log for backtesting
@@ -42,6 +43,21 @@
 - ✅ **Fast Parallel Fetching** — Concurrent API requests with caching and graceful degradation
 
 ---
+
+## ✨ What's New in v1.4.0 (April 30, 2026)
+
+**Unified Plan Follow-Through:** Applied the remaining quality-plan items around calibration, data enrichment, report UX, and Claude cost/performance behavior.
+
+- **Critical Actions Section** — Top-of-report checklist now consolidates high/medium quality warnings, manual catalyst reviews, leveraged ETF duration risk, and major drift items
+- **Stronger Quality Gates** — Catalyst gating now independently detects near-term earnings from enrichment data; hard downgrades force HOLD-watch and cap conviction at 5
+- **Range And Decision Checks** — Reversed Bear/Bull ranges remain visible as warnings after normalization, near-term range mismatches check both sides, and missing decision-tree language is flagged
+- **Sharper Track-Record Calibration** — Prompt now caps high conviction when historical conviction/action buckets have weak hit rates, and the backtest summary includes per-ticker stats plus recent realized examples
+- **Richer Market Data** — Adds premarket/after-hours moves, FCF yield, gross/operating margins, dividend yield, and ex-dividend dates where yfinance provides them
+- **More Enrichment Signals** — Finnhub analyst upgrade/downgrade events, deterministic macro calendar estimates for NFP/CPI/FOMC verification, and optional Polygon current snapshot fields
+- **Leveraged ETF Decay Estimate** — Daily-reset ETF warnings now include holding days plus an estimated volatility-decay drag when 20-day volatility is available
+- **Previous Session Execution Check** — The report compares prior actionable recommendations with recent activities CSV rows so you can see what was or was not executed
+- **Data Freshness Footnotes** — Quote-quality section explains provider quote vs daily-close fallback semantics before order entry
+- **Claude Cost/Performance** — Repeated user context is cache-marked for the second pass, and Opus can use extended thinking via `enable_opus_extended_thinking`
 
 ## ✨ What's New in v1.3.0 (April 30, 2026)
 
@@ -131,6 +147,7 @@ Done! The app will:
 - Auto-detect your latest CSV files from `~/Downloads/`
 - Fetch live market data for portfolio/watchlist tickers, benchmark risk tickers, and sector/cross-asset context
 - Run deterministic quality checks and two Claude passes
+- Compare previous actionable recommendations with recent activities when an activities CSV is provided
 - Generate reports in `reports/` directory
 
 ---
@@ -232,9 +249,13 @@ After each run, you get **three files**:
 
 Human-readable with:
 - Session summary (market context)
+- Report Quality Warnings and Critical Actions before the detailed audit sections
+- Previous Session Execution Check when an activities CSV is provided
 - Numbered recommendations with emoji indicators 🟢🟡⚪🟠🔴
 - Conviction scores and net expected returns
 - Full thesis for each trade
+- Quote & Data Quality footnotes explaining live/provider quote vs daily-close fallback behavior
+- Risk dashboard, company exposure rollup, hedge suggestions, and leveraged ETF decay estimates
 - Watchlist flags (unwatched stocks worth monitoring)
 - Warnings (concentration risk, leverage decay, etc.)
 
@@ -296,6 +317,8 @@ Raw machine-readable format for:
   "claude_max_tokens": 20000,
   "claude_timeout_seconds": 240,
   "enable_two_pass_review": true,
+  "enable_opus_extended_thinking": true,
+  "opus_thinking_budget_tokens": 4096,
   "min_net_expected_return_pct": 0.5,
   "max_position_pct": 25,
   "quote_reconciliation_threshold_pct": 1.5,
@@ -320,6 +343,8 @@ Raw machine-readable format for:
 | `claude_max_tokens` | 20000 | Max output tokens for the structured JSON response |
 | `claude_timeout_seconds` | 240 | Hard timeout for each Claude API call |
 | `enable_two_pass_review` | true | Always run the second Claude critique/revision pass |
+| `enable_opus_extended_thinking` | true | Enables extended thinking only when the selected model is Opus |
+| `opus_thinking_budget_tokens` | 4096 | Token budget reserved for Opus extended thinking |
 | `min_net_expected_return_pct` | 0.5 | Hurdle rate — trades below this are refused |
 | `max_position_pct` | 25 | Single position size cap (% of portfolio) |
 | `quote_reconciliation_threshold_pct` | 1.5 | Warn when holdings CSV prices differ materially from quote data |
@@ -338,10 +363,10 @@ The app integrates **6 financial data sources** to enrich Claude's analysis with
 
 | API | Data | Rate Limit | Status |
 |-----|------|-----------|--------|
-| **Finnhub** | Analyst consensus, earnings calendar, insider activity, news sentiment | Free tier: unlimited | Phase 1 (parallel) |
-| **Polygon** | Previous-day OHLCV + VWAP signals | Free tier: 5/min | Phase 1 (parallel) |
+| **Finnhub** | Analyst consensus, analyst upgrades/downgrades, earnings calendar, insider activity, news sentiment | Free tier: unlimited | Phase 1 (parallel) |
+| **Polygon** | Previous-day OHLCV + VWAP signals; optional current snapshot if the API plan allows it | Free tier varies by endpoint | Phase 1 (parallel) |
 | **Twelve Data** | Real-time quotes, earnings dates (better for Canadian tickers) | Free tier: 5/min | Phase 1 (parallel) |
-| **FRED** (Federal Reserve) | Macro context: Fed Funds Rate, PCE inflation, yield curve, VIX | Free tier: unlimited | Phase 1 (parallel) |
+| **FRED** (Federal Reserve) | Macro context: Fed Funds Rate, CPI inflation, yield curve, VIX, plus macro-calendar estimates | Free tier: unlimited | Phase 1 (parallel) |
 | **CoinGecko** | BTC price, 7d change, Fear & Greed Index, macro risk signal | Free tier: 10-50/min | Phase 1 (parallel) |
 | **Alpha Vantage** (optional) | News sentiment analysis | **Free tier: 25/day** ⚠️ | Phase 2 (sequential) |
 
@@ -454,7 +479,7 @@ Wealthsimple CSVs
 | Module | Purpose |
 |--------|---------|
 | `config.py` | Load and manage settings from `config/settings.json` |
-| `constants.py` | Shared constants: LEVERAGED_ETFS, DEDUP_PAIRS, SKIP_MARKET_DATA, CDR_EXCHANGES |
+| `constants.py` | Shared constants: leveraged ETF leverage map, company/share-class groups, DEDUP_PAIRS, SKIP_MARKET_DATA, CDR_EXCHANGES |
 | `_utils.py` | Helper functions: `safe_float()`, `clean_csv_row()`, `parse_session_filename()` |
 
 **Data Loading & Calculation**:
@@ -463,7 +488,7 @@ Wealthsimple CSVs
 |--------|---------|
 | `portfolio_loader.py` | Parse Wealthsimple Holdings CSV |
 | `activity_loader.py` | Parse Wealthsimple Activities CSV (trade history) |
-| `market_data.py` | Fetch live prices, history, PE via yfinance (parallel fetching with ThreadPoolExecutor) |
+| `market_data.py` | Fetch live prices, pre/after-market fields, history, fundamentals, dividends, and indicators via yfinance |
 | `news_fetcher.py` | Fetch recent news headlines (parallel fetching with ThreadPoolExecutor) |
 | `fee_calculator.py` | Model Wealthsimple fees + bid-ask spreads |
 | `portfolio_analytics.py` | Company exposure rollups, volatility, beta, drawdown, correlation, and hedge suggestions |
@@ -473,10 +498,10 @@ Wealthsimple CSVs
 | Module | Purpose |
 |--------|---------|
 | `enriched_data.py` | Orchestrate 6 enrichment APIs in parallel (Finnhub, Polygon, Twelve Data, FRED, CoinGecko) + optional sequential Alpha Vantage |
-| `finnhub_client.py` | Fetch analyst consensus, earnings calendar, insider activity, news sentiment |
-| `polygon_client.py` | Fetch previous-day OHLCV + VWAP signals |
+| `finnhub_client.py` | Fetch analyst consensus, upgrade/downgrade events, earnings calendar, insider activity, news sentiment |
+| `polygon_client.py` | Fetch previous-day OHLCV + VWAP signals, plus optional current snapshot fields |
 | `twelve_data_client.py` | Fetch real-time quotes + earnings dates |
-| `fred_client.py` | Fetch macro context (Fed Funds, inflation, yield curve, VIX regime) |
+| `fred_client.py` | Fetch macro context (Fed Funds, inflation, yield curve, VIX regime) and deterministic event-calendar estimates |
 | `coingecko_client.py` | Fetch BTC price, Fear & Greed Index, macro risk signal |
 | `alpha_vantage_client.py` | Fetch news sentiment (thread-safe rate limiter; optional, disabled by default) |
 
@@ -486,6 +511,7 @@ Wealthsimple CSVs
 |--------|---------|
 | `claude_analyst.py` | 31-rule system prompt, build enriched prompt, run two Claude passes, parse JSON response with sizing, catalyst, risk-control, hedge, and priority-action fields |
 | `report_quality.py` | Deterministic quality warnings and hard gates for stale quotes, missing catalysts, risk controls, and sizing issues |
+| `backtester.py` | Evaluate mature recommendations by action, conviction, ticker, and recent realized examples for calibration |
 | `report_generator.py` | Format markdown + CSV with priority actions, quality warnings, risk dashboard, hold tiers, earnings badges, risk controls, and Bear/Bull ranges |
 | `main.py` | CLI entry point, interactive setup, API key loading (API_KEYS.txt first, then .env), enrichment orchestration, risk analytics, and CSV export |
 
@@ -495,16 +521,17 @@ Claude receives a detailed system prompt with **31 strategic rules** governing a
 
 **Input Data Claude Gets:**
 1. Portfolio snapshot — all holdings with cost basis, current value, P&L, unrealized gains (from portfolio_loader)
-2. Market data — current price, 1d/5d/1mo changes, PE, 52w highs/lows, last 5 closes (parallel fetch from market_data)
+2. Market data — current price, pre/after-market moves, 1d/5d/1mo changes, PE, FCF yield, margins, dividends, 52w highs/lows, last 5 closes (parallel fetch from market_data)
 3. Recent news — last 7 days of headlines per ticker (parallel fetch from news_fetcher)
 4. **Enriched intelligence** — analyst consensus, earnings calendars, insider activity, sentiment, macro context (from enriched_data.py)
 5. Fee snapshot — one-way and round-trip costs per ticker (from fee_calculator)
 6. Recent trades — your trading activity last 90 days (from activity_loader, if provided)
 7. Session type — "morning" (pre-open) or "afternoon" (intraday + EOD positioning)
 8. Watchlist alerts — target entry/exit prices for monitored tickers (from config/watchlist.json)
-9. Quality warnings, previous-session drift, risk dashboard, and company exposure rollup
+9. Quality warnings, previous-session drift/execution context, risk dashboard, company exposure rollup, and track-record calibration stats
 
 **Output Rules (Examples from the 31):**
+- **Rule 14 (Track Record Calibration):** Cap or reduce conviction when similar historical action/conviction buckets have weak returns or hit rates
 - **Rule 15 (Earnings Alert):** If earnings within 7 days, set `earnings_alert=true` and lead with "⚠️ EARNINGS [DATE]"
 - **Rule 17 (Enrichment Citation):** Cite analyst consensus, EPS beat streaks, insider activity in thesis statements
 - **Rule 18 (Investment Sizing):** Set `invest_amount_usd` based on conviction: 8–10 = 40% of session budget, 7 = 25%, 6 = 15%
@@ -669,8 +696,8 @@ Current focused coverage includes:
 - Drift tracking for latest-session lookup, action flips, and conviction jumps
 - Schema normalization for risk controls, catalyst fields, and Bear/Bull ranges
 - Market-data indicators and mocked options implied-move helper
-- Report quality gates and hard catalyst downgrades
-- Markdown rendering for quality warnings, risk dashboard, hedge suggestions, Bear/Bull labels, and cost footer
+- Report quality gates, normalized range warnings, decision-tree checks, near-earnings catalyst gating, and hard catalyst downgrades
+- Markdown rendering for quality warnings, critical actions, data freshness footnotes, risk dashboard, hedge suggestions, Bear/Bull labels, and cost footer
 
 ---
 
@@ -695,21 +722,22 @@ tech_stock/
 │   ├── __init__.py
 │   ├── main.py                  ← Entry point (CLI + interactive, API key loading)
 │   ├── config.py                ← Load settings (single source of truth)
-│   ├── constants.py             ← Shared constants
+│   ├── constants.py             ← Shared constants, company aliases, leveraged ETF leverage
 │   ├── _utils.py                ← Helper functions (safe_float, clean_csv_row, etc.)
 │   ├── portfolio_loader.py      ← Parse Holdings CSV
 │   ├── activity_loader.py       ← Parse Activities CSV
 │   ├── portfolio_analytics.py   ← Risk dashboard, company rollups, hedge suggestions
-│   ├── market_data.py           ← Fetch prices via yfinance (parallel)
+│   ├── market_data.py           ← Fetch prices, pre/after-market fields, fundamentals, indicators
 │   ├── news_fetcher.py          ← Fetch headlines (parallel)
 │   ├── fee_calculator.py        ← Wealthsimple fee model
 │   ├── enriched_data.py         ← Orchestrate 6 enrichment APIs (Phase 1 parallel, Phase 2 sequential)
-│   ├── finnhub_client.py        ← Analyst consensus, earnings, insider activity, sentiment
-│   ├── polygon_client.py        ← Previous-day OHLCV + VWAP signals
+│   ├── finnhub_client.py        ← Analyst consensus, upgrades/downgrades, earnings, insider activity, sentiment
+│   ├── polygon_client.py        ← Previous-day OHLCV + VWAP signals, optional current snapshot
 │   ├── twelve_data_client.py    ← Real-time quotes, earnings dates (better Canadian coverage)
-│   ├── fred_client.py           ← Macro context (Fed rate, inflation, yield curve, VIX)
+│   ├── fred_client.py           ← Macro context plus calendar estimates
 │   ├── coingecko_client.py      ← BTC price, 7d change, Fear & Greed, macro risk signal
 │   ├── alpha_vantage_client.py  ← News sentiment (thread-safe rate limiter; optional)
+│   ├── backtester.py            ← Historical recommendation calibration
 │   ├── report_quality.py        ← Deterministic quality gates and warnings
 │   ├── claude_analyst.py        ← 31-rule prompt, two-pass Claude review, JSON parsing
 │   └── report_generator.py      ← Priority actions table, hold tiers, earnings badges, markdown + CSV
@@ -766,6 +794,6 @@ For issues or questions:
 
 ---
 
-**Last updated:** April 30, 2026 (Major upgrade: quality gates, two-pass review, risk dashboard, risk controls, hedge suggestions, tests/CI)
-**Version:** 1.3.0
+**Last updated:** April 30, 2026 (Unified quality-plan leftovers: stronger gates, richer data, critical actions, execution check, calibration, Claude caching/thinking)
+**Version:** 1.4.0
 **Status:** Production-ready with deterministic quality checks and actionable recommendations

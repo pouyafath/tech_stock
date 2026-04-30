@@ -1,6 +1,8 @@
+from types import SimpleNamespace
+
 import jsonschema
 
-from src.claude_analyst import RECOMMENDATION_SCHEMA, normalize_recommendation
+from src.claude_analyst import RECOMMENDATION_SCHEMA, _response_text, normalize_recommendation
 
 
 def test_normalization_adds_risk_and_catalyst_fields_and_sorts_range():
@@ -29,6 +31,7 @@ def test_normalization_adds_risk_and_catalyst_fields_and_sorts_range():
     assert rec["ticker"] == "MSFT"
     assert rec["price_target_low_pct"] == -5
     assert rec["price_target_high_pct"] == 10
+    assert rec["range_was_normalized"] is True
     assert rec["risk_controls"]["stop_loss_pct"] is None
     assert rec["catalyst_verified"] is False
     assert rec["manual_review_required"] is False
@@ -72,3 +75,12 @@ def test_schema_accepts_new_fields():
         "warnings": [],
     }
     jsonschema.validate(payload, RECOMMENDATION_SCHEMA)
+
+
+def test_response_text_ignores_non_text_blocks():
+    response = SimpleNamespace(content=[
+        SimpleNamespace(type="thinking", thinking="hidden"),
+        SimpleNamespace(type="text", text='{"ok": true}'),
+    ])
+
+    assert _response_text(response) == '{"ok": true}'

@@ -685,6 +685,7 @@ def run(
         market_context=market_context,
         usage=usage,
         settings=settings,
+        previous_session=previous_session,
     )
     report_path = save_report(md_content, session_type, REPORTS_DIR)
     csv_path = save_recommendations_csv(recommendation, session_type, REPORTS_DIR, market_data)

@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from src.report_quality import apply_quality_gates, evaluate
 
 
@@ -66,6 +68,41 @@ def test_quality_gate_downgrades_unverified_large_move_buy():
     rec = gated["recommendations"][0]
 
     assert rec["action"] == "HOLD"
+    assert rec["conviction"] <= 5
+    assert rec["hold_tier"] == "watch"
     assert rec["invest_amount_usd"] is None
     assert rec["manual_review_required"] is True
     assert gated["priority_actions"] == []
+
+
+def test_quality_flags_normalized_range_and_near_earnings_catalyst():
+    recommendation = _recommendation("BUY")
+    rec = recommendation["recommendations"][0]
+    rec["range_was_normalized"] = True
+    rec["risk_controls"] = {
+        "entry_zone_low_pct": -2,
+        "entry_zone_high_pct": 1,
+        "stop_loss_pct": -7,
+        "take_profit_pct": 12,
+    }
+    warnings = evaluate(
+        recommendation,
+        {"MSFT": {"current_price": 100, "currency": "USD", "change_pct_1d": 1, "quote_timestamp_utc": "2026-04-30T20:00:00Z"}},
+        enriched={"per_ticker": {"MSFT": {"upcoming_earnings": {"date": (datetime.now().date() + timedelta(days=3)).isoformat()}}}},
+        news_by_ticker={"MSFT": []},
+        settings={"news_catalyst_move_threshold_pct": 5},
+    )
+
+    codes = {warning["code"] for warning in warnings}
+    assert "reversed_price_range" in codes
+    assert "missing_catalyst_verification" in codes
+
+
+def test_quality_flags_missing_decision_tree():
+    recommendation = _recommendation("HOLD")
+    recommendation["recommendations"][0]["thesis"] = "Strong company with solid trend."
+    recommendation["recommendations"][0]["risk_or_invalidation"] = "Support break."
+
+    warnings = evaluate(recommendation, {"MSFT": {"quote_timestamp_utc": "2026-04-30T20:00:00Z"}})
+
+    assert "missing_decision_tree" in {warning["code"] for warning in warnings}

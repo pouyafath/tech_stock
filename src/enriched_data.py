@@ -25,8 +25,9 @@ from src.finnhub_client import (
     insider_summary,
     news_sentiment as finnhub_sentiment,
     recommendation_trends,
+    upgrade_downgrade,
 )
-from src.fred_client import macro_context
+from src.fred_client import economic_calendar_estimate, macro_context
 from src.polygon_client import stock_snapshot
 from src.twelve_data_client import earnings as td_earnings
 from src.twelve_data_client import quote as td_quote
@@ -56,6 +57,13 @@ def _enrich_ticker_fast(ticker: str) -> dict:
             result["analyst_consensus"] = rec
     except Exception as e:
         result["_degradation"].append(_degradation("finnhub", "recommendation_trends", e, ticker))
+
+    try:
+        upgrades = upgrade_downgrade(ticker, days_back=90)
+        if upgrades:
+            result["upgrade_downgrade"] = upgrades
+    except Exception as e:
+        result["_degradation"].append(_degradation("finnhub", "upgrade_downgrade", e, ticker))
 
     try:
         ec = earnings_calendar(ticker, days_ahead=45)
@@ -157,6 +165,7 @@ def enrich(tickers: list[str]) -> dict:
     out: dict = {
         "per_ticker": {t: {} for t in tickers},
         "macro": None,
+        "economic_calendar": economic_calendar_estimate(),
         "crypto": None,
         "fetched_at": datetime.now().isoformat(timespec="seconds"),
         "sources_active": [],
@@ -209,7 +218,7 @@ def enrich(tickers: list[str]) -> dict:
     # ── Tally active sources ──────────────────────────────────────────────────
     sources = set()
     for ticker_data in out["per_ticker"].values():
-        if ticker_data.get("analyst_consensus"):
+        if ticker_data.get("analyst_consensus") or ticker_data.get("upgrade_downgrade"):
             sources.add("finnhub")
         if ticker_data.get("polygon_snapshot"):
             sources.add("polygon")
@@ -219,6 +228,8 @@ def enrich(tickers: list[str]) -> dict:
             sources.add("twelve_data")
     if out["macro"]:
         sources.add("fred")
+    if out.get("economic_calendar"):
+        sources.add("calendar_estimate")
     if out["crypto"]:
         sources.add("coingecko")
 
@@ -275,6 +286,17 @@ def format_enrichment_for_prompt(enriched: dict) -> str:
         lines.append(f"  - VIX regime: {macro.get('vix_regime', 'N/A')}")
         lines.append("")
 
+    econ = enriched.get("economic_calendar") or (macro or {}).get("economic_calendar")
+    if econ:
+        lines.append("### Macro Event Calendar")
+        if econ.get("next_nfp_estimate"):
+            lines.append(f"  - Next NFP estimate: {econ['next_nfp_estimate']}")
+        if econ.get("next_cpi_window"):
+            lines.append(f"  - CPI release window estimate: {econ['next_cpi_window']}")
+        if econ.get("fomc_note"):
+            lines.append(f"  - {econ['fomc_note']}")
+        lines.append("")
+
     # ── Crypto context ────────────────────────────────────────────────────
     crypto = enriched.get("crypto")
     if crypto:
@@ -307,6 +329,15 @@ def format_enrichment_for_prompt(enriched: dict) -> str:
                 f"  - Analyst consensus: **{rec['consensus_label']}** "
                 f"({rec['buy']}B / {rec['hold']}H / {rec['sell']}S "
                 f"from {rec['total_analysts']} analysts, {rec.get('period', '')})"
+            )
+
+        upgrades = data.get("upgrade_downgrade")
+        if upgrades:
+            recent = upgrades[0]
+            t_lines.append(
+                f"  - Latest analyst rating change: {recent.get('action', 'rating change')} "
+                f"{recent.get('from_grade') or 'N/A'} -> {recent.get('to_grade') or 'N/A'} "
+                f"by {recent.get('firm') or 'unknown firm'} ({str(recent.get('date') or '')[:10]})"
             )
 
         ue = data.get("upcoming_earnings")
@@ -346,9 +377,11 @@ def format_enrichment_for_prompt(enriched: dict) -> str:
             vwap_sig = snap.get("vwap_signal", "")
             after = snap.get("after_hrs_change_pct")
             after_str = f", after-hours {after:+.1f}%" if after is not None else ""
+            snapshot_change = snap.get("snapshot_change_pct")
+            snapshot_str = f", snapshot change {snapshot_change:+.1f}%" if snapshot_change is not None else ""
             t_lines.append(
                 f"  - Previous session (Polygon): VWAP {snap.get('vwap_pct', 0):+.1f}% -> {vwap_sig}"
-                f"{after_str}"
+                f"{after_str}{snapshot_str}"
             )
 
         fh_sent = data.get("finnhub_sentiment")

@@ -13,6 +13,30 @@ LEVERAGED_ETFS = frozenset({
     "TNA", "YINN", "YANG",
 })
 
+LEVERAGED_ETF_LEVERAGE = {
+    "SOXL": 3.0,
+    "SOXS": -3.0,
+    "TQQQ": 3.0,
+    "SQQQ": -3.0,
+    "UPRO": 3.0,
+    "UVXY": 1.5,
+    "TMF": 3.0,
+    "TZA": -3.0,
+    "SPXL": 3.0,
+    "LABU": 3.0,
+    "LABD": -3.0,
+    "TSLL": 2.0,
+    "NVDL": 2.0,
+    "TMV": -3.0,
+    "UDOW": 3.0,
+    "SDOW": -3.0,
+    "FAS": 3.0,
+    "FAZ": -3.0,
+    "TNA": 3.0,
+    "YINN": 3.0,
+    "YANG": -3.0,
+}
+
 
 # Pairs where one ticker is a near-duplicate / share class of the other.
 # When both appear in a portfolio + watchlist union, drop the second.
@@ -62,9 +86,22 @@ SECTOR_ALIASES = {
 
 
 COMPANY_GROUPS = {
-    "AAPL": {"AAPL"},
-    "GOOGL": {"GOOGL", "GOOG"},
-    "COST": {"COST"},
+    "AAPL": {"AAPL", "AAPL.TO"},
+    "AMD": {"AMD", "AMD.TO"},
+    "AMZN": {"AMZN", "AMZN.TO"},
+    "AVGO": {"AVGO", "AVGO.TO"},
+    "COST": {"COST", "COST.TO"},
+    "CRWD": {"CRWD", "CRWD.TO"},
+    "GOOGL": {"GOOGL", "GOOG", "GOOGL.TO", "GOOG.TO"},
+    "INTC": {"INTC", "INTC.TO"},
+    "META": {"META", "META.TO"},
+    "MSFT": {"MSFT", "MSFT.TO"},
+    "NVDA": {"NVDA", "NVDA.TO"},
+    "PLTR": {"PLTR", "PLTR.TO"},
+    "SHOP": {"SHOP", "SHOP.TO"},
+    "SPOT": {"SPOT", "SPOT.TO"},
+    "TSLA": {"TSLA", "TSLA.TO"},
+    "TSM": {"TSM", "TSM.TO"},
 }
 
 

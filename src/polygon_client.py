@@ -8,7 +8,9 @@ free-tier endpoint: previous-session aggregate OHLCV and VWAP.
 Docs: https://polygon.io/docs/stocks
 
 Provides:
-  - stock_snapshot(ticker): previous-session close, volume, VWAP, and day range
+  - stock_snapshot(ticker): previous-session close, volume, VWAP, day range,
+    and optional current snapshot fields when the configured Polygon plan
+    permits the snapshot endpoint
 
 These signal institutional participation via volume analysis:
   - Prior close above VWAP = bullish prior-session participation
@@ -98,7 +100,7 @@ def _fetch_stock_snapshot(ticker: str) -> dict | None:
     if prev_high and prev_low and prev_close:
         day_range_pct = round((prev_high - prev_low) / prev_close * 100, 2)
 
-    return {
+    out = {
         "ticker": ticker,
         "prev_close": prev_close,
         "prev_open": prev_open,
@@ -109,6 +111,34 @@ def _fetch_stock_snapshot(ticker: str) -> dict | None:
         "day_range_pct": day_range_pct,
         "price_basis": "previous_session_aggregate",
         "source": "polygon_previous_day_aggregate",
+    }
+    current = _fetch_current_snapshot(ticker)
+    if current:
+        out.update(current)
+    return out
+
+
+def _fetch_current_snapshot(ticker: str) -> dict | None:
+    """Optional Polygon market snapshot. Returns None if the plan disallows it."""
+    data = _request(f"/v2/snapshot/locale/us/markets/stocks/tickers/{ticker}")
+    if not data or not isinstance(data, dict):
+        return None
+    row = data.get("ticker") or {}
+    if not row:
+        return None
+    last_trade = row.get("lastTrade") or {}
+    day = row.get("day") or {}
+    prev_day = row.get("prevDay") or {}
+    price = last_trade.get("p") or day.get("c")
+    prev_close = prev_day.get("c")
+    change_pct = row.get("todaysChangePerc")
+    if change_pct is None and price and prev_close:
+        change_pct = (price - prev_close) / prev_close * 100
+    return {
+        "snapshot_price": round(price, 2) if price else None,
+        "snapshot_change_pct": round(change_pct, 2) if change_pct is not None else None,
+        "snapshot_updated_ns": row.get("updated"),
+        "snapshot_source": "polygon_current_snapshot",
     }
 
 
