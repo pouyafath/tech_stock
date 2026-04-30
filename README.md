@@ -39,10 +39,20 @@
 - ✅ **Recent News** — Pulls last 7 days of headlines per ticker from Yahoo Finance
 - ✅ **Trade History Context** — Loads your recent Wealthsimple trades to avoid whipsawing
 - ✅ **Triple Output** — Markdown report + CSV table + JSON log for backtesting
-- ✅ **Model Choice** — Pick Sonnet 4.6 (~$0.22/run two-pass baseline) or Opus 4.7 (~$0.45/run+, deeper analysis) per session
+- ✅ **Model Choice** — Pick Sonnet 4.6 (~$0.30-$0.55/run typical two-pass range) or Opus 4.7 (higher cost, deeper analysis) per session
 - ✅ **Fast Parallel Fetching** — Concurrent API requests with caching and graceful degradation
 
 ---
+
+## ✨ What's New in v1.4.1 (April 30, 2026)
+
+**Runtime Stabilization:** Updated after a successful full portfolio run using the April 29 holdings and activities CSVs.
+
+- **Claude Output Budget** — Default `claude_max_tokens` is now `16000`, which avoided JSON truncation while keeping the two-pass report feasible.
+- **Compact Recommendation Contract** — Rule 32 caps Claude at 12 recommendation rows focused on actionable trades and material risks; lower-signal tickers move to watchlist/warnings.
+- **Schema Resilience** — Missing required per-recommendation fields from Claude are normalized to safe defaults before schema validation, so one incomplete row does not kill the run.
+- **Correct Market Phase** — Overnight runs now label the context as "outside regular market hours — before next open" instead of pre-close.
+- **Observed Full-Run Cost** — Latest successful Sonnet two-pass run used 43,079 tokens and cost about `$0.50`; smaller portfolios or cached/shorter outputs may cost less.
 
 ## ✨ What's New in v1.4.0 (April 30, 2026)
 
@@ -138,8 +148,8 @@ Session type (morning/afternoon) [Enter = morning]:
 4. Activities CSV detected: /Users/you/Downloads/activities-export-2026-04-24.csv
    Is this correct? (Y/N, or Enter to skip): Y
 5. Which model would you like to use?
-   [1] Sonnet 4.6 — ~$0.22/run two-pass baseline (recommended for daily use)
-   [2] Opus 4.7   — ~$0.45/run (deeper analysis, better for complex portfolios)
+   [1] Sonnet 4.6 — ~$0.30-$0.55/run typical two-pass range (recommended for daily use)
+   [2] Opus 4.7   — higher cost, deeper analysis, better for complex portfolios
    Choose (1/2) [Enter = 1]:
 ```
 
@@ -340,7 +350,7 @@ Raw machine-readable format for:
 | `budget_cad` | 3000 | Available CAD to deploy (overridden per run) |
 | `risk_tolerance` | "aggressive" | "moderate" for conservative recommendations |
 | `claude_model` | "claude-sonnet-4-6" | "claude-sonnet-4-6" (fast) or "claude-opus-4-7" (thorough) |
-| `claude_max_tokens` | 16000 | Max output tokens for the structured JSON response |
+| `claude_max_tokens` | 16000 | Max output tokens for the structured JSON response; current default balances avoiding truncation with run time/cost |
 | `claude_timeout_seconds` | 240 | Hard timeout for each Claude API call |
 | `enable_two_pass_review` | true | Always run the second Claude critique/revision pass |
 | `enable_opus_extended_thinking` | true | Enables extended thinking only when the selected model is Opus |
@@ -545,6 +555,8 @@ Claude receives a detailed system prompt with **32 strategic rules** governing a
 - **Rule 31 (Hedge Suggestions):** Include trim/rebalance and optional small inverse-ETF hedges when concentration or beta is high
 - **Rule 32 (Compact JSON):** Return at most 12 recommendation rows focused on actionable trades and material risks
 
+The parser also normalizes missing per-row fields such as `action`, `conviction`, `net_expected_pct`, `fee_hurdle_pct`, and `time_horizon` to safe defaults before schema validation. Deterministic quality gates still flag unsupported recommendations after normalization.
+
 **Output JSON Structure:**
 ```json
 {
@@ -637,8 +649,8 @@ But you can run it as often as you like. Use `min_net_expected_return_pct` (defa
 
 ### Q: What's the cost per run?
 
-**A:** With Sonnet two-pass review: ~$0.22 per run (~$0.44/day for 2 runs = ~$13.20/month)
-With Opus two-pass review: roughly ~$0.45+ per run depending on output length.
+**A:** With Sonnet two-pass review, expect roughly `$0.30-$0.55` for a full portfolio run. The latest full run with 31 tracked tickers, enrichment enabled, 12 recommendation rows, and two Claude passes used 43,079 tokens and cost about `$0.50`.
+With Opus two-pass review, expect higher cost depending on output length and extended-thinking budget.
 **Note:** Enrichment APIs have no cost (all free tiers).
 
 ### Q: Can I schedule this automatically?
@@ -673,7 +685,7 @@ The app looks for `holdings-report-*.csv` in `~/Downloads/`. Either:
 This is normal. yfinance news availability varies by ticker and day. The app still generates recommendations based on price action and fundamentals.
 
 ### "Claude response parsing failed"
-The response was truncated or not valid JSON. This can happen with very large portfolios or news volumes. Increase `claude_max_tokens` in `config/settings.json` or reduce watchlist/news scope.
+The response was truncated or not valid JSON. The current default `claude_max_tokens` is `16000` and Rule 32 asks Claude to keep recommendations to 12 rows. If this still happens with a very large portfolio or news-heavy run, reduce watchlist scope, disable optional enrichment, or increase `claude_max_tokens` carefully. Higher token caps can raise cost and may make non-streamed Claude responses slower.
 
 ### "GitHub Actions cannot import src"
 The workflow sets `PYTHONPATH: ${{ github.workspace }}` for pytest. If you create another workflow, include the same environment variable or install the project as a package before running tests.
@@ -795,6 +807,6 @@ For issues or questions:
 
 ---
 
-**Last updated:** April 30, 2026 (Unified quality-plan leftovers: stronger gates, richer data, critical actions, execution check, calibration, Claude caching/thinking)
-**Version:** 1.4.0
+**Last updated:** April 30, 2026 (Runtime-stable full run: 16k Claude cap, compact 12-row JSON, schema defaults, corrected overnight phase)
+**Version:** 1.4.1
 **Status:** Production-ready with deterministic quality checks and actionable recommendations
