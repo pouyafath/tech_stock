@@ -23,6 +23,19 @@ def test_sector_overrides_and_company_alias_rollup():
     assert sorted(companies["GOOGL"]["tickers"]) == ["GOOG", "GOOGL"]
 
 
+def test_company_rollup_handles_base_symbol_and_cdr_suffix():
+    holdings = [
+        {"ticker": "COST", "quantity": 1, "market_value": 1000, "market_value_currency": "USD"},
+        {"ticker": "COST.TO", "quantity": 1, "market_value": 1370, "market_value_currency": "CAD", "is_cdr": True},
+    ]
+
+    companies, total = aggregate_company_exposure(holdings, cad_per_usd=1.37)
+
+    assert total == 2000
+    assert companies["COST"]["value_usd"] == 2000
+    assert sorted(companies["COST"]["tickers"]) == ["COST", "COST.TO"]
+
+
 def test_hedge_suggestions_prioritize_rebalance_before_inverse_hedge():
     company_exposure = {
         "NVDA": {"company": "NVDA", "pct": 32.0, "value_usd": 3200, "tickers": ["NVDA"]},

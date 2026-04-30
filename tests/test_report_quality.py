@@ -3,6 +3,10 @@ from datetime import datetime, timedelta
 from src.report_quality import apply_quality_gates, evaluate
 
 
+def _codes(warnings):
+    return {warning["code"] for warning in warnings}
+
+
 def _recommendation(action="BUY"):
     return {
         "recommendations": [
@@ -53,7 +57,7 @@ def test_quality_flags_stale_quote_missing_catalyst_and_quote_mismatch():
         settings={"max_position_pct": 25, "quote_reconciliation_threshold_pct": 1.5},
     )
 
-    codes = {warning["code"] for warning in warnings}
+    codes = _codes(warnings)
     assert "stale_or_unstamped_quote" in codes
     assert "quote_source_mismatch" in codes
     assert "missing_catalyst_verification" in codes
@@ -93,7 +97,7 @@ def test_quality_flags_normalized_range_and_near_earnings_catalyst():
         settings={"news_catalyst_move_threshold_pct": 5},
     )
 
-    codes = {warning["code"] for warning in warnings}
+    codes = _codes(warnings)
     assert "reversed_price_range" in codes
     assert "missing_catalyst_verification" in codes
 
@@ -105,4 +109,84 @@ def test_quality_flags_missing_decision_tree():
 
     warnings = evaluate(recommendation, {"MSFT": {"quote_timestamp_utc": "2026-04-30T20:00:00Z"}})
 
-    assert "missing_decision_tree" in {warning["code"] for warning in warnings}
+    assert "missing_decision_tree" in _codes(warnings)
+
+
+def test_decision_tree_allows_action_before_if_clause():
+    recommendation = _recommendation("TRIM")
+    rec = recommendation["recommendations"][0]
+    rec["thesis"] = "Trim 20% if RSI exceeds 78; hold if price reclaims support."
+    rec["risk_or_invalidation"] = "Sell if support fails."
+    rec["risk_controls"] = {"stop_loss_pct": 6}
+
+    warnings = evaluate(recommendation, {"MSFT": {"quote_timestamp_utc": "2026-04-30T20:00:00Z"}})
+
+    assert "missing_decision_tree" not in _codes(warnings)
+
+
+def test_quality_flags_missing_stop_loss_and_invalid_horizon():
+    recommendation = _recommendation("SELL")
+    rec = recommendation["recommendations"][0]
+    rec["time_horizon"] = "soon"
+    rec["risk_controls"] = {}
+
+    warnings = evaluate(recommendation, {"MSFT": {"quote_timestamp_utc": "2026-04-30T20:00:00Z"}})
+
+    codes = _codes(warnings)
+    assert "missing_stop_loss" in codes
+    assert "invalid_time_horizon" in codes
+
+
+def test_quality_flags_oversized_position_and_buy_add_cap():
+    recommendation = _recommendation("BUY")
+    recommendation["recommendations"][0]["risk_controls"] = {
+        "entry_zone_low_pct": -2,
+        "entry_zone_high_pct": 1,
+        "stop_loss_pct": -8,
+        "take_profit_pct": 12,
+    }
+
+    warnings = evaluate(
+        recommendation,
+        {"MSFT": {"current_price": 100, "currency": "USD", "change_pct_1d": 0, "quote_timestamp_utc": "2026-04-30T20:00:00Z"}},
+        portfolio={
+            "holdings": [
+                {"ticker": "MSFT", "market_value": 1000, "market_value_currency": "USD", "quantity": 10},
+            ]
+        },
+        settings={"max_position_pct": 25},
+    )
+
+    codes = _codes(warnings)
+    assert "oversized_company_exposure" in codes
+    assert "buy_add_over_position_cap" in codes
+
+
+def test_quality_flags_missing_enrichment_citations():
+    recommendation = _recommendation("HOLD")
+    rec = recommendation["recommendations"][0]
+    rec["thesis"] = "If trend holds, keep; if it breaks, trim."
+    rec["risk_or_invalidation"] = "If support fails, trim."
+
+    warnings = evaluate(
+        recommendation,
+        {"MSFT": {"quote_timestamp_utc": "2026-04-30T20:00:00Z"}},
+        enriched={
+            "per_ticker": {
+                "MSFT": {
+                    "analyst_consensus": {"consensus_label": "BUY"},
+                    "insider_activity": {"signal": "SELLING"},
+                }
+            }
+        },
+    )
+
+    codes = _codes(warnings)
+    assert "missing_analyst_citation" in codes
+    assert "missing_insider_citation" in codes
+
+
+def test_quality_flags_market_data_error():
+    warnings = evaluate(_recommendation("HOLD"), {"MSFT": {"error": "provider down"}})
+
+    assert "market_data_error" in _codes(warnings)

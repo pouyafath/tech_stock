@@ -70,9 +70,17 @@ def _has_decision_tree(rec: dict) -> bool:
     if not text:
         return False
     action_words = r"(then|do|buy|add|hold|keep|trim|sell|reduce|exit|wait)"
-    if len(re.findall(rf"\bif\b[^.;]*\b{action_words}\b", text)) >= 2:
+    condition_then_action = re.search(rf"\bif\b[^.;]*\b{action_words}\b", text)
+    action_then_condition = re.search(rf"\b{action_words}\b[^.;]*\bif\b", text)
+    paired_conditions = re.search(
+        rf"(\bif\b[^.;]*\b{action_words}\b|\b{action_words}\b[^.;]*\bif\b)"
+        rf".*[.;]\s*"
+        rf"(\bif\b[^.;]*\b{action_words}\b|\b{action_words}\b[^.;]*\bif\b)",
+        text,
+    )
+    if paired_conditions:
         return True
-    return bool(re.search(rf"\bif\b.+?;\s*\bif\b.+?\b{action_words}\b", text))
+    return bool(condition_then_action or action_then_condition)
 
 
 def evaluate(
