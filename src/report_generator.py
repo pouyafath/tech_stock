@@ -195,7 +195,7 @@ def _render_sector_section(sector_exposure: dict, threshold_pct: float = 40) -> 
     lines.append("|---|---:|---:|---|---|")
     for sector, data in sector_exposure.items():
         flag = " ⚠️" if data.get("pct", 0) > threshold_pct else ""
-        tickers = ", ".join(data.get("tickers", [])[:8])
+        tickers = ", ".join(data.get("tickers", []))
         lines.append(
             f"| {sector} | {data['pct']:.1f}% | ${data['value_cad']:,.0f} | {tickers} | {flag} |"
         )
@@ -319,15 +319,120 @@ def _render_track_record_section(backtest_summary: dict) -> list[str]:
     return lines
 
 
-def _render_priority_actions_section(priority_actions: list) -> list[str]:
-    """Render the 'Do This Today' ordered action plan at the top of the report."""
+def _table_cell(value) -> str:
+    """Make arbitrary text safe for a markdown table cell."""
+    if value is None:
+        return ""
+    return str(value).replace("\n", " ").replace("|", "\\|").strip()
+
+
+def _render_fee_assumptions_section(settings: dict) -> list[str]:
+    fee_model = settings.get("fee_model") or {}
+    account_type = settings.get("account_type", "wealthsimple_premium_usd")
+    lines = [
+        "## Fee & FX Assumptions",
+        "",
+        "| Item | Assumption |",
+        "|---|---|",
+        f"| Account type | `{account_type}` |",
+        f"| Commission | ${fee_model.get('commission', 0):.2f} per trade |",
+        f"| FX spread in trade hurdle | {fee_model.get('fx_spread_pct', 0):.2f}% |",
+        f"| Bid/ask tiers | megacap {fee_model.get('bid_ask_megacap_pct', 0):.2f}%, midcap {fee_model.get('bid_ask_midcap_pct', 0):.2f}%, smallcap {fee_model.get('bid_ask_smallcap_pct', 0):.2f}% one-way |",
+        f"| US regulatory fee estimate | ${fee_model.get('regulatory_per_us_trade_usd', 0):.2f} per US trade |",
+        "| FX note | USD-account trades assume USD cash is already available; CAD-to-USD conversion costs are not included unless cash must be converted before execution. |",
+        "",
+        "---",
+        "",
+    ]
+    return lines
+
+
+def _render_data_quality_section(market_data: dict) -> list[str]:
+    if not market_data:
+        return []
+
+    rows = []
+    fallback_count = 0
+    error_count = 0
+    for ticker, data in sorted(market_data.items()):
+        if data.get("error"):
+            error_count += 1
+            rows.append((ticker, "ERROR", "", "", "", data.get("error", "")))
+            continue
+        if data.get("price_basis") == "daily_history_close":
+            fallback_count += 1
+        rows.append((
+            ticker,
+            f"${data.get('current_price', 'N/A')} {data.get('currency', '')}",
+            f"${data.get('previous_close'):,.2f}" if data.get("previous_close") else "N/A",
+            f"{data.get('change_pct_1d'):+.2f}%" if data.get("change_pct_1d") is not None else "N/A",
+            data.get("quote_timestamp_utc") or "N/A",
+            data.get("quote_source") or "N/A",
+        ))
+
+    lines = [
+        "## Quote & Data Quality",
+        "",
+        f"_Market data source: yfinance. Provider quotes may be delayed. Fallback daily-close quotes: {fallback_count}; ticker errors: {error_count}._",
+        "",
+        "| Ticker | Quote | Previous Close | 1D Move | Quote Time (UTC) | Source |",
+        "|---|---:|---:|---:|---|---|",
+    ]
+    for row in rows:
+        lines.append("| " + " | ".join(_table_cell(v) for v in row) + " |")
+    lines += ["", "---", ""]
+    return lines
+
+
+def _render_catalyst_section(market_data: dict, news_by_ticker: dict, threshold_pct: float) -> list[str]:
+    if not market_data:
+        return []
+
+    movers = []
+    for ticker, data in market_data.items():
+        move = data.get("change_pct_1d")
+        if move is None or abs(move) < threshold_pct:
+            continue
+        articles = (news_by_ticker or {}).get(ticker) or []
+        usable = [
+            a for a in articles
+            if a.get("title") and not a.get("title", "").lower().startswith("error fetching news")
+        ]
+        if usable:
+            top = usable[0]
+            headline = top.get("title", "")
+            if top.get("link"):
+                headline = f"[{headline}]({top['link']})"
+            catalyst = f"{headline} ({top.get('publisher', 'source unknown')}, {top.get('published_at', 'time unknown')})"
+        else:
+            catalyst = "No fresh headline found by the news layer; manually verify catalyst before trading."
+        movers.append((ticker, move, catalyst))
+
+    if not movers:
+        return []
+
+    lines = [
+        f"## Large-Move Catalyst Check (>|{threshold_pct:.0f}%|)",
+        "",
+        "| Ticker | 1D Move | Catalyst / Top Headline |",
+        "|---|---:|---|",
+    ]
+    for ticker, move, catalyst in sorted(movers, key=lambda x: -abs(x[1])):
+        lines.append(f"| **{ticker}** | {move:+.2f}% | {_table_cell(catalyst)} |")
+    lines += ["", "---", ""]
+    return lines
+
+
+def _render_priority_actions_section(priority_actions: list, recommendations: list = None) -> list[str]:
+    """Render the trader-facing ordered action plan at the top of the report."""
     if not priority_actions:
         return []
+    rec_by_ticker = {r.get("ticker"): r for r in recommendations or []}
     lines = [
-        "## 🎯 Priority Actions — Do This Today",
+        "## 🎯 Trader Action Plan — Review Before Trading",
         "",
-        "| # | Ticker | Action | Amount | Rationale |",
-        "|---|--------|--------|--------|-----------|",
+        "| # | Ticker | Action | Amount | Reason | Condition |",
+        "|---|---|---|---:|---|---|",
     ]
     for pa in sorted(priority_actions, key=lambda x: x.get("order", 99)):
         ticker = pa.get("ticker", "")
@@ -342,8 +447,10 @@ def _render_priority_actions_section(priority_actions: list) -> list[str]:
         else:
             size_str = "—"
         rationale = pa.get("rationale", "")
+        rec = rec_by_ticker.get(ticker) or {}
+        condition = rec.get("risk_or_invalidation") or "Confirm live quote, spread, and catalyst before execution."
         lines.append(
-            f"| {pa.get('order', '–')} | **{ticker}** | {emoji} {action} | {size_str} | {rationale} |"
+            f"| {pa.get('order', '–')} | **{ticker}** | {emoji} {action} | {size_str} | {_table_cell(rationale)} | {_table_cell(condition)} |"
         )
     lines += ["", "---", ""]
     return lines
@@ -375,6 +482,7 @@ def generate_markdown(
     session_type: str,
     recommendation: dict,
     market_data: dict,
+    news_by_ticker: dict = None,
     portfolio: dict = None,
     sector_exposure: dict = None,
     backtest_summary: dict = None,
@@ -421,7 +529,17 @@ def generate_markdown(
     lines += ["", "---", ""]
 
     # ── Priority actions (do-this-today list) ─────────────────────────────
-    lines += _render_priority_actions_section(recommendation.get("priority_actions") or [])
+    lines += _render_priority_actions_section(
+        recommendation.get("priority_actions") or [],
+        recommendation.get("recommendations") or [],
+    )
+
+    # ── Data quality and cost assumptions ─────────────────────────────────
+    lines += _render_data_quality_section(market_data or {})
+    lines += _render_fee_assumptions_section(settings)
+
+    catalyst_threshold = settings.get("news_catalyst_move_threshold_pct", 5)
+    lines += _render_catalyst_section(market_data or {}, news_by_ticker or {}, catalyst_threshold)
 
     # ── New sections (Phase 4 + 5) ─────────────────────────────────────────
     threshold_pct = settings.get("sector_concentration_threshold_pct", 40)
@@ -479,6 +597,14 @@ def generate_markdown(
                           f"| Current Price | ${md.get('current_price', 'N/A')} {md.get('currency', '')} |"]
                 if md.get("change_pct_1d") is not None:
                     lines.append(f"| 1-Day Change | {md['change_pct_1d']:+.1f}% |")
+                if md.get("previous_close") is not None:
+                    lines.append(f"| Previous Close | ${md['previous_close']:.2f} {md.get('currency', '')} |")
+                if md.get("day_low") is not None and md.get("day_high") is not None:
+                    lines.append(f"| Day Range | ${md['day_low']:.2f} – ${md['day_high']:.2f} |")
+                if md.get("quote_timestamp_utc"):
+                    lines.append(f"| Quote Time | {md['quote_timestamp_utc']} |")
+                if md.get("quote_source"):
+                    lines.append(f"| Quote Source | {md['quote_source']} |")
                 if md.get("pct_from_52w_high") is not None:
                     lines.append(f"| From 52w High | {md['pct_from_52w_high']:+.1f}% |")
                 ind = md.get("indicators") or {}
@@ -509,9 +635,11 @@ def generate_markdown(
                 else "N/A"
             )
             exit_str = target_exit if target_exit else "—"
+            expected_header = "Expected Stock Move / Risk" if action in ("SELL", "TRIM") else "Expected Stock Move"
+            net_header = "Expected Action Benefit" if action in ("SELL", "TRIM") else "Net After Fees"
 
             lines += [
-                "| Expected Move | Fee Hurdle | Net Expected | Time Horizon | Exit Target | Price Range |",
+                f"| {expected_header} | Fee Hurdle | {net_header} | Time Horizon | Exit Target | Price Range |",
                 "|---|---|---|---|---|---|",
                 f"| {rec.get('expected_move_pct', 0):+.2f}% | "
                 f"{rec.get('fee_hurdle_pct', 0):.3f}% | "

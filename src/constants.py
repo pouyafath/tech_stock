@@ -29,3 +29,29 @@ SKIP_MARKET_DATA = frozenset({"CASH"})
 # Wealthsimple "Exchange" / "MIC" values that indicate a CDR (CAD-hedged
 # Canadian Depositary Receipt) listed on TSX rather than the US line.
 CDR_EXCHANGES = frozenset({"XTSE", "TSX"})
+
+
+# Deterministic sector labels for ETFs/CDRs/share classes that yfinance may
+# report as Unknown or that may be skipped after ticker de-duplication.
+SECTOR_OVERRIDES = {
+    "ARKF": "Technology",
+    "ARKK": "Technology",
+    "ARKQ": "Technology",
+    "ARKG": "Healthcare",
+    "SOXL": "Semiconductors",
+    "SOXS": "Semiconductors",
+    "TQQQ": "Technology",
+    "SQQQ": "Technology",
+    "SPY": "Broad Market ETF",
+    "VOO": "Broad Market ETF",
+    "VGRO": "Multi-Asset ETF",
+    "XEQT": "Multi-Asset ETF",
+    "VEQT": "Multi-Asset ETF",
+    "VCNS": "Multi-Asset ETF",
+}
+
+
+SECTOR_ALIASES = {
+    "GOOG": "GOOGL",
+    "BRK.B": "BRK.A",
+}

@@ -18,7 +18,7 @@ import json
 from pathlib import Path
 
 from src._utils import clean_csv_row, safe_float
-from src.constants import CDR_EXCHANGES
+from src.constants import CDR_EXCHANGES, SECTOR_ALIASES, SECTOR_OVERRIDES
 
 # Minimum columns we need from the Wealthsimple Holdings CSV.
 # If any of these are missing, parsing will produce garbage — fail loudly.
@@ -223,7 +223,14 @@ def compute_sector_exposure(holdings: list, market_data: dict) -> dict:
             continue
 
         md = market_data.get(ticker, {}) if market_data else {}
-        sector = (md.get("sector") if md else None) or "Unknown"
+        alias = SECTOR_ALIASES.get(ticker)
+        alias_md = market_data.get(alias, {}) if alias and market_data else {}
+        sector = (
+            SECTOR_OVERRIDES.get(ticker)
+            or (md.get("sector") if md else None)
+            or (alias_md.get("sector") if alias_md else None)
+            or "Unknown"
+        )
 
         if sector not in sector_totals:
             sector_totals[sector] = {"value_cad": 0.0, "pct": 0.0, "tickers": []}

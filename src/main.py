@@ -393,7 +393,12 @@ def save_recommendation_log(data: dict, session_type: str) -> Path:
     return path
 
 
-def save_recommendations_csv(recommendation: dict, session_type: str, csv_dir: Path) -> Path:
+def save_recommendations_csv(
+    recommendation: dict,
+    session_type: str,
+    csv_dir: Path,
+    market_data: dict = None,
+) -> Path:
     """Save recommendations as a clean CSV table."""
     import csv
     csv_dir.mkdir(parents=True, exist_ok=True)
@@ -406,8 +411,10 @@ def save_recommendations_csv(recommendation: dict, session_type: str, csv_dir: P
             f,
             fieldnames=[
                 "Ticker", "Action", "Hold Tier", "Conviction",
-                "Invest USD", "Net Expected %",
+                "Invest USD", "Expected Stock Move %",
+                "Expected Benefit of Action %", "Net Expected %",
                 "Time Horizon", "Exit Target", "Price Range Low%", "Price Range High%",
+                "Quote", "Previous Close", "Quote Time UTC", "Quote Source",
                 "Earnings Alert", "Thesis",
             ],
             extrasaction="ignore",
@@ -416,17 +423,27 @@ def save_recommendations_csv(recommendation: dict, session_type: str, csv_dir: P
         for r in recs:
             lo = r.get("price_target_low_pct")
             hi = r.get("price_target_high_pct")
+            ticker = r.get("ticker", "")
+            md = (market_data or {}).get(ticker, {})
+            expected_move = r.get("expected_move_pct", 0)
+            net_expected = r.get("net_expected_pct", 0)
             writer.writerow({
-                "Ticker":           r.get("ticker", ""),
+                "Ticker":           ticker,
                 "Action":           r.get("action", "HOLD"),
                 "Hold Tier":        r.get("hold_tier", ""),
                 "Conviction":       r.get("conviction", 0),
                 "Invest USD":       f"${r['invest_amount_usd']:,.0f}" if r.get("invest_amount_usd") else "",
-                "Net Expected %":   f"{r.get('net_expected_pct', 0):+.2f}%",
+                "Expected Stock Move %": f"{expected_move:+.2f}%",
+                "Expected Benefit of Action %": f"{net_expected:+.2f}%",
+                "Net Expected %":   f"{net_expected:+.2f}%",
                 "Time Horizon":     r.get("time_horizon", ""),
                 "Exit Target":      r.get("target_exit_date", ""),
                 "Price Range Low%": f"{lo:+.0f}%" if lo is not None else "",
                 "Price Range High%":f"{hi:+.0f}%" if hi is not None else "",
+                "Quote":            f"{md.get('current_price')} {md.get('currency', '')}".strip() if md.get("current_price") is not None else "",
+                "Previous Close":   f"{md.get('previous_close')} {md.get('currency', '')}".strip() if md.get("previous_close") is not None else "",
+                "Quote Time UTC":   md.get("quote_timestamp_utc", ""),
+                "Quote Source":     md.get("quote_source", ""),
                 "Earnings Alert":   "⚠️ YES" if r.get("earnings_alert") else "",
                 "Thesis":           r.get("thesis", ""),
             })
@@ -618,6 +635,7 @@ def run(
         session_type,
         recommendation,
         market_data,
+        news_by_ticker=news_by_ticker,
         portfolio=portfolio,
         sector_exposure=sector_exposure,
         backtest_summary=backtest_summary,
@@ -627,7 +645,7 @@ def run(
         settings=settings,
     )
     report_path = save_report(md_content, session_type, REPORTS_DIR)
-    csv_path = save_recommendations_csv(recommendation, session_type, REPORTS_DIR)
+    csv_path = save_recommendations_csv(recommendation, session_type, REPORTS_DIR, market_data)
 
     print_summary(recommendation, session_type)
     print_usage(usage, display_model)

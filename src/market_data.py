@@ -13,7 +13,7 @@ Resilience:
 
 import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import yfinance as yf
@@ -38,6 +38,34 @@ def _safe_float(x) -> float | None:
             return None
         return round(v, 4)
     except (TypeError, ValueError):
+        return None
+
+
+def _first_float(*values) -> float | None:
+    """Return the first non-null numeric value from a list of provider fields."""
+    for value in values:
+        parsed = _safe_float(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _first_float_with_source(*fields: tuple[str, object]) -> tuple[str | None, float | None]:
+    """Return the first numeric provider field as (field_name, value)."""
+    for name, value in fields:
+        parsed = _safe_float(value)
+        if parsed is not None:
+            return name, parsed
+    return None, None
+
+
+def _epoch_to_utc_iso(value) -> str | None:
+    """Convert a provider epoch timestamp to a compact UTC ISO string."""
+    try:
+        if value is None:
+            return None
+        return datetime.fromtimestamp(float(value), tz=timezone.utc).isoformat(timespec="seconds")
+    except (TypeError, ValueError, OSError):
         return None
 
 
@@ -149,19 +177,43 @@ def _fetch_ticker_raw(ticker: str, history_months: int) -> dict:
 
     end = datetime.now()
     start = end - timedelta(days=history_months * 31)
-    hist = t.history(start=start.strftime("%Y-%m-%d"), end=end.strftime("%Y-%m-%d"))
+    # yfinance treats `end` as exclusive. Include tomorrow so today's intraday
+    # daily bar is available during/after the current trading session.
+    hist = t.history(
+        start=start.strftime("%Y-%m-%d"),
+        end=(end + timedelta(days=1)).strftime("%Y-%m-%d"),
+    )
 
     if hist.empty:
         return {"ticker": ticker, "error": "No history data returned"}
 
-    current_price = float(hist["Close"].iloc[-1])
+    history_close = float(hist["Close"].iloc[-1])
+    quote_source_field, quote_price = _first_float_with_source(
+        ("regularMarketPrice", info.get("regularMarketPrice")),
+        ("currentPrice", info.get("currentPrice")),
+        ("postMarketPrice", info.get("postMarketPrice")),
+        ("preMarketPrice", info.get("preMarketPrice")),
+    )
+    current_price = quote_price if quote_price is not None else history_close
+    previous_close = _first_float(
+        info.get("regularMarketPreviousClose"),
+        info.get("previousClose"),
+    )
     currency = info.get("currency", "USD")
+    quote_timestamp_utc = _epoch_to_utc_iso(info.get("regularMarketTime"))
+    quote_source = f"yfinance:{quote_source_field}" if quote_source_field else "yfinance:historyClose"
+    price_basis = "regular_market_quote" if quote_price is not None else "daily_history_close"
 
     def pct_change(n_days: int) -> float | None:
         if len(hist) < n_days + 1:
             return None
         prev = float(hist["Close"].iloc[-(n_days + 1)])
         return round((current_price - prev) / prev * 100, 2)
+
+    change_pct_1d = (
+        round((current_price - previous_close) / previous_close * 100, 2)
+        if previous_close else pct_change(1)
+    )
 
     # Tail history (last 90 days) as list of dicts
     history_records = []
@@ -189,9 +241,17 @@ def _fetch_ticker_raw(ticker: str, history_months: int) -> dict:
         "ticker": ticker,
         "current_price": round(current_price, 2),
         "currency": currency,
-        "change_pct_1d": pct_change(1),
+        "change_pct_1d": change_pct_1d,
         "change_pct_5d": pct_change(5),
         "change_pct_1mo": pct_change(21),
+        "previous_close": round(previous_close, 2) if previous_close else None,
+        "open": _first_float(info.get("regularMarketOpen"), info.get("open")),
+        "day_high": _first_float(info.get("regularMarketDayHigh"), info.get("dayHigh")),
+        "day_low": _first_float(info.get("regularMarketDayLow"), info.get("dayLow")),
+        "quote_timestamp_utc": quote_timestamp_utc,
+        "quote_source": quote_source,
+        "price_basis": price_basis,
+        "market_state": info.get("marketState"),
         "volume_today": int(hist["Volume"].iloc[-1]) if not hist.empty else None,
         "avg_volume_30d": int(avg_vol) if avg_vol else None,
         "market_cap": info.get("marketCap"),
@@ -215,12 +275,13 @@ def get_ticker_data(ticker: str, history_months: int = 10) -> dict:
     """
     settings = load_settings()
     cache_enabled = settings.get("cache_enabled", True)
-    ttl = settings.get("cache_ttl_seconds", 3600)
+    ttl = settings.get("market_data_cache_ttl_seconds", settings.get("cache_ttl_seconds", 3600))
+    cache_version = settings.get("market_data_cache_version", 2)
 
     try:
         return cached(
             namespace="market_data",
-            key=f"{ticker}_{history_months}",
+            key=f"v{cache_version}_{ticker}_{history_months}",
             ttl_seconds=ttl,
             loader=lambda: _fetch_ticker_raw(ticker, history_months),
             enabled=cache_enabled,

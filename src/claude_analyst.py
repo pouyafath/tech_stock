@@ -50,10 +50,13 @@ RULES YOU MUST FOLLOW:
 17. ENRICHMENT CITATION: When analyst_consensus is available, cite it in the thesis (e.g., "66 analysts: STRONG BUY"). When earnings_history shows 3+ consecutive beats, say "beat estimates X quarters in a row". When insider_activity shows net buying/selling of significance, mention it. Do not silently ignore enrichment data.
 18. INVESTMENT SIZING (FRACTIONAL SHARES): For BUY/ADD, set invest_amount_usd based on the session budget (USD available, shown in PORTFOLIO): conviction 8–10 = up to 40% of budget, conviction 7 = 25%, conviction 6 = 15%. Cap at the position limit. Express as a dollar amount — the investor will buy fractional shares automatically through Wealthsimple.
 19. HOLD TIERS — add hold_tier to every HOLD: "watch" (conviction ≤5: monitoring for deterioration/exit opportunity), "keep" (conviction 6–7: comfortable, no action needed), "add_on_dip" (conviction ≥8: would buy more if budget or price dipped).
-20. TIME HORIZONS: Use exactly one of: "intraday" / "1-2 weeks" / "1-3 months" / "3-6 months" / "6-12 months" / "12-36 months". Match to the actual thesis — a mean-reversion trade is 1-3 months, a fundamental growth story is 12-36 months.
+20. TIME HORIZONS: Use exactly one of: "intraday" / "next session" / "1-3 trading days" / "1-2 weeks" / "1-3 months" / "3-6 months" / "6-12 months" / "12-36 months". Match to the actual thesis — a mean-reversion trade is 1-3 months, a fundamental growth story is 12-36 months. If the report is generated after the regular market close, do not use "intraday"; use "next session" or longer.
 21. TARGET EXIT & PRICE RANGE: For every recommendation (including HOLDs), provide: target_exit_date (e.g., "Jul 2026"), price_target_low_pct (conservative % move over holding period), price_target_high_pct (optimistic % move). These must be consistent with time_horizon.
 22. BUY SIGNALS: Actively look for BUY opportunities — not just in the existing portfolio. If a watchlist ticker or a ticker mentioned in news is setting up well (RSI recovering, catalyst, analyst upgrades), recommend BUY with invest_amount_usd. Don't only HOLD; find the best 1-2 buys per session if any exist.
 23. PRIORITY ACTIONS: Output priority_actions — an ordered list of what to execute today. Only include BUY/SELL/TRIM/ADD. Order by urgency (intraday first, then short-term). HOLDs are never in this list.
+24. QUOTE DISCIPLINE: Treat quote freshness as a hard input. Use current_price only with its quote timestamp, previous_close, source, and price_basis. If a ticker uses daily_history_close fallback or lacks a quote timestamp, say that data quality is degraded and avoid new BUY/ADD recommendations.
+25. LARGE-MOVE CATALYST CHECK: For any ticker with an absolute 1-day move of 5% or more, explicitly cite the top available news/catalyst in the thesis. If no news catalyst is available, say "NO VERIFIED CATALYST FOUND" and make any trade conditional on manual catalyst verification.
+26. TRADER CLARITY: Separate expected stock move from expected benefit of the action in wording. For SELL/TRIM, net_expected_pct means drawdown avoided or gain protected, not a positive expected stock return.
 
 OUTPUT FORMAT (return exactly this structure):
 {
@@ -89,7 +92,7 @@ OUTPUT FORMAT (return exactly this structure):
       "fee_hurdle_pct": <number>,
       "net_expected_pct": <number>,
       "risk_or_invalidation": "string",
-      "time_horizon": "intraday|1-2 weeks|1-3 months|3-6 months|6-12 months|12-36 months",
+      "time_horizon": "intraday|next session|1-3 trading days|1-2 weeks|1-3 months|3-6 months|6-12 months|12-36 months",
       "target_exit_date": "string or null (e.g. Jul 2026)",
       "price_target_low_pct": <number or null>,
       "price_target_high_pct": <number or null>,
@@ -245,9 +248,12 @@ def build_user_message(
     """Construct the full user message with all context."""
     from src.news_fetcher import aggregate_sentiment
 
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    now_dt = datetime.now()
+    now = now_dt.strftime("%Y-%m-%d %H:%M")
+    market_phase = "after regular market close" if now_dt.hour > 16 or (now_dt.hour == 16 and now_dt.minute >= 0) else "regular session or pre-close"
     budget_cad = settings.get("budget_cad", 0)
     budget_usd = settings.get("budget_usd", 0)
+    news_by_ticker = news_by_ticker or {}
 
     holdings = portfolio.get("holdings", [])
     cash_cad = portfolio.get("cash_cad", 0)
@@ -264,6 +270,7 @@ def build_user_message(
     lines = [
         f"SESSION TYPE: {session_type.upper()}",
         f"TIMESTAMP: {now}",
+        f"MARKET PHASE: {market_phase}",
         "",
         "=== PORTFOLIO ===",
         f"Portfolio snapshot: {exported_at}" if exported_at else "",
@@ -345,6 +352,8 @@ def build_user_message(
 
         # Build summary string safely
         parts = [f"{ticker}: ${d.get('current_price', 'N/A')} {d.get('currency', '')}"]
+        if d.get("previous_close") is not None:
+            parts.append(f"prev_close=${d['previous_close']:.2f}")
         if change_1d is not None:
             parts.append(f"1d={change_1d:+.1f}%")
         if change_5d is not None:
@@ -357,12 +366,39 @@ def build_user_message(
             parts.append(f"PE={d['pe_ratio']}")
         if d.get("sector"):
             parts.append(f"sector={d['sector']}")
+        if d.get("quote_timestamp_utc"):
+            parts.append(f"quote_time_utc={d['quote_timestamp_utc']}")
+        if d.get("quote_source"):
+            parts.append(f"source={d['quote_source']}")
+        if d.get("price_basis"):
+            parts.append(f"price_basis={d['price_basis']}")
         lines.append(" | ".join(parts))
 
         ind_line = _format_indicators_line(d.get("indicators") or {})
         if ind_line:
             lines.append(f"  INDICATORS: {ind_line}")
         lines.append(f"  Last 5 closes: {recent_closes}")
+
+    # ── Mandatory catalyst check for large movers ─────────────────────────
+    catalyst_threshold = settings.get("news_catalyst_move_threshold_pct", 5)
+    large_movers = []
+    for ticker, d in market_data.items():
+        move = d.get("change_pct_1d")
+        if move is not None and abs(move) >= catalyst_threshold:
+            large_movers.append((ticker, move))
+    if large_movers:
+        lines.append(f"\n=== LARGE-MOVE CATALYST CHECK REQUIRED (>|{catalyst_threshold:.0f}%| 1D) ===")
+        for ticker, move in sorted(large_movers, key=lambda x: -abs(x[1])):
+            articles = news_by_ticker.get(ticker) or []
+            top = next((a for a in articles if a.get("title")), None)
+            if top:
+                lines.append(
+                    f"  {ticker}: {move:+.1f}% — top headline: "
+                    f"{top.get('title')} ({top.get('publisher', 'source unknown')}, "
+                    f"{top.get('published_at', 'time unknown')})"
+                )
+            else:
+                lines.append(f"  {ticker}: {move:+.1f}% — NO VERIFIED CATALYST FOUND in news feed")
 
     # ── Price alerts from watchlist ────────────────────────────────────────
     if price_alerts:
@@ -403,6 +439,14 @@ def build_user_message(
             )
 
     lines.append("\n=== FEE SNAPSHOT (round-trip cost per $1000 notional) ===")
+    fee_model = settings.get("fee_model", {})
+    lines.append(
+        "Fee assumptions: "
+        f"account={settings.get('account_type', 'wealthsimple_premium_usd')}; "
+        f"commission=${fee_model.get('commission', 0):.2f}; "
+        f"fx_spread_in_hurdle={fee_model.get('fx_spread_pct', 0):.2f}%; "
+        "USD-account trades assume USD cash is available; CAD→USD conversion is not included unless cash must be converted."
+    )
     for ticker, fees in fee_snapshot.items():
         lines.append(
             f"{ticker}: hurdle={fees['hurdle_pct']:.3f}% | "
