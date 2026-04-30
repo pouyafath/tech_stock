@@ -128,7 +128,9 @@ streamlit run ui/streamlit_app.py
 python ui/textual_app.py
 ```
 
-Use Streamlit when you want CSV upload, markdown report viewing, history, backtest, and config editing in a browser. Use Textual when you want the same workflow inside a terminal.
+Use Streamlit when you want CSV upload, holdings preview, live run progress, dashboard metrics, markdown report viewing, history compare, download buttons, backtest tables, connectivity checks, and config editing in a browser.
+
+Use Textual when you want live run progress, dashboard/backtest tables, report history, connectivity checks, keyboard shortcuts, and config editing inside a terminal.
 
 ---
 

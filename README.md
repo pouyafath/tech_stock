@@ -45,15 +45,16 @@
 
 ---
 
-## ✨ What's New in v1.5.0 (April 30, 2026)
+## ✨ What's New in v1.5.1 (April 30, 2026)
 
-**Optional UI Layer:** Added two extra interfaces without changing the original way to run the program.
+**Optional UI Layer:** Added and upgraded two extra interfaces without changing the original way to run the program.
 
 - **Original CLI Preserved** — `python src/main.py` and `./run.sh` still behave as before
-- **Streamlit Dashboard** — Run reports from a browser UI, upload Wealthsimple CSVs, render markdown reports natively, browse history, inspect backtests, and edit config JSON
-- **Textual TUI** — Run reports from a terminal dashboard with tabs for report generation, today's report, history, backtest, and portfolio/config editing
+- **Streamlit Dashboard** — Run reports from a browser UI with live progress, CSV upload/preview, first-class dashboard metrics, markdown history/compare, structured backtests, downloads, connectivity checks, and config JSON validation
+- **Textual TUI** — Run reports from a terminal dashboard with live progress, dashboard tables, history, structured backtest tables, CSV discovery helpers, keyboard shortcuts, connectivity checks, and portfolio/config editing
 - **UI Launcher** — `./run-ui.sh` or `python src/ui_launcher.py` lets you choose CLI, Streamlit, or Textual from one menu
 - **Shared UI Runtime** — Both UIs call the same `src.main.run()` pipeline as the CLI, with auto-open disabled and generated artifact paths returned to the UI
+- **Latest JSON Dashboard** — Optional UIs surface `risk_dashboard`, `quality_warnings`, `priority_actions`, `hedge_suggestions`, `drift_vs_previous`, and Claude cost/tokens without requiring a long markdown scroll
 
 ## ✨ What's New in v1.4.1 (April 30, 2026)
 
@@ -241,16 +242,18 @@ streamlit run ui/streamlit_app.py
 Then open the local URL Streamlit prints, normally `http://localhost:8501`.
 
 Tabs:
+- **Dashboard** — Shows latest JSON-log metrics for risk, priority actions, quality warnings, hedge suggestions, drift, cost/tokens, and API connectivity
 - **Today's Report** — Renders the latest markdown report with `st.markdown`
-- **Run Report** — Select session/model/budgets, upload or point to Wealthsimple CSVs, and trigger the same report pipeline as CLI mode
-- **History** — Browse previous markdown reports from `reports/`
-- **Backtest** — View the current recommendation backtest summary
-- **Portfolio Editor** — Edit `config/settings.json`, `config/watchlist.json`, or fallback `config/portfolio.json`
+- **Run Report** — Select session/model/budgets, upload or point to Wealthsimple CSVs, preview holdings before spending Claude tokens, and trigger the same report pipeline as CLI mode with live progress
+- **History** — Browse previous markdown reports from `reports/`, filter/search by filename, and compare two reports side by side
+- **Backtest** — View metrics, action/conviction/ticker buckets, bar charts, and recent realized examples
+- **Portfolio Editor** — Edit `config/settings.json`, `config/watchlist.json`, or fallback `config/portfolio.json` with live JSON validation
 
 Defaults:
 - Budget/model fields are read from `config/settings.json`
 - Uploaded CSVs are copied into `temporary_upload/` and remain git-ignored
 - If no holdings CSV is selected, you can explicitly use fallback `config/portfolio.json`
+- Generated markdown, CSV, and JSON files get download buttons after a successful Streamlit run
 
 ### Textual Terminal UI
 
@@ -258,7 +261,12 @@ Defaults:
 python ui/textual_app.py
 ```
 
-The Textual app runs fully in the terminal and provides the same workflow tabs as the Streamlit dashboard. Long reports are shown in scrollable terminal panes, which is more reliable for very large markdown reports than terminal markdown rendering.
+The Textual app runs fully in the terminal and provides the same workflow tabs as the Streamlit dashboard. Long reports are shown in scrollable terminal panes, which is more reliable for very large markdown reports than terminal markdown rendering in the currently pinned Textual version.
+
+Useful keyboard shortcuts:
+- `r` refreshes the active tab
+- `Ctrl+R` starts a report run
+- `Ctrl+S` saves the JSON editor when the content is valid
 
 ### Schedule Recurring Sessions
 
@@ -554,7 +562,6 @@ Wealthsimple CSVs
 | `config.py` | Load and manage settings from `config/settings.json` |
 | `constants.py` | Shared constants: leveraged ETF leverage map, company/share-class groups, DEDUP_PAIRS, SKIP_MARKET_DATA, CDR_EXCHANGES |
 | `_utils.py` | Helper functions: `safe_float()`, `clean_csv_row()`, `parse_session_filename()` |
-| `ui_support.py` | Shared non-visual helpers for Streamlit/Textual report runs, history, backtest, and config editing |
 
 **Data Loading & Calculation**:
 
@@ -589,6 +596,7 @@ Wealthsimple CSVs
 | `report_generator.py` | Format markdown + CSV with priority actions, quality warnings, risk dashboard, hold tiers, earnings badges, risk controls, and Bear/Bull ranges |
 | `main.py` | CLI entry point, interactive setup, API key loading (API_KEYS.txt first, then .env), enrichment orchestration, risk analytics, and CSV export |
 | `ui_launcher.py` | Optional menu for choosing the original CLI, Streamlit dashboard, or Textual TUI |
+| `ui_support.py` | Shared helpers for UI progress streaming, report/log discovery, latest-log dashboards, holdings preview, JSON validation, connectivity checks, and canonical report runs |
 
 **Optional UI Entry Points**:
 
@@ -783,7 +791,7 @@ Current focused coverage includes:
 - Market-data indicators and mocked options implied-move helper
 - Report quality gates, normalized range warnings, decision-tree checks, near-earnings catalyst gating, and hard catalyst downgrades
 - Markdown rendering for quality warnings, critical actions, data freshness footnotes, risk dashboard, hedge suggestions, Bear/Bull labels, and cost footer
-- UI support helpers for canonical runner invocation, report history ordering, JSON config validation, and default budget/model loading
+- UI support helpers for canonical runner invocation, progress streaming, latest JSON-log dashboard summaries, report history ordering, JSON config validation, and default budget/model loading
 
 ---
 
@@ -827,7 +835,7 @@ tech_stock/
 │   ├── report_quality.py        ← Deterministic quality gates and warnings
 │   ├── claude_analyst.py        ← 32-rule prompt, two-pass Claude review, JSON parsing
 │   ├── report_generator.py      ← Priority actions table, hold tiers, earnings badges, markdown + CSV
-│   ├── ui_support.py            ← Shared helpers for optional UI entrypoints
+│   ├── ui_support.py            ← Shared helpers for UI progress, dashboards, previews, validation, and connectivity
 │   └── ui_launcher.py           ← Interface chooser for CLI, Streamlit, and Textual
 ├── ui/
 │   ├── streamlit_app.py         ← Optional browser dashboard
@@ -886,6 +894,6 @@ For issues or questions:
 
 ---
 
-**Last updated:** April 30, 2026 (Optional Streamlit/Textual UI layer added; original CLI preserved)
-**Version:** 1.5.0
+**Last updated:** April 30, 2026 (UI dashboards, live progress, JSON validation, report downloads, history compare, and connectivity checks added; original CLI preserved)
+**Version:** 1.5.1
 **Status:** Production-ready with deterministic quality checks and actionable recommendations
