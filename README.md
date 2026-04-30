@@ -11,7 +11,7 @@
 
 ## 🎯 Overview
 
-**tech_stock** is an intelligent portfolio advisor that analyzes your Wealthsimple holdings and provides structured trading recommendations twice daily (morning/afternoon sessions). It leverages Claude AI to:
+**tech_stock** is an intelligent portfolio advisor that analyzes your Wealthsimple holdings and provides structured trading recommendations twice daily (morning/afternoon sessions). The original CLI remains the canonical workflow, with optional Streamlit and Textual interfaces layered on top of the same report pipeline. It leverages Claude AI to:
 
 - **Analyze** your portfolio in real-time with live market data
 - **Score** each trade idea by conviction (1-10) and net expected return after fees
@@ -111,6 +111,7 @@
 - **Python 3.11+** (via Homebrew on macOS: `brew install python@3.11`)
 - **Anthropic API key** (from https://console.anthropic.com/)
 - **Wealthsimple Premium account** with a USD trading account
+- **Optional UI dependencies** are included in `requirements.txt` (`streamlit` and `textual`)
 
 ### Installation
 
@@ -124,6 +125,7 @@ source .venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
+# This installs the CLI/runtime dependencies plus optional Streamlit/Textual UI packages
 
 # Set up API keys (two options below)
 ```
@@ -228,6 +230,8 @@ The launcher offers:
 | 2 | Streamlit dashboard | Browser-based report viewing, CSV upload, history, backtest, JSON config editing |
 | 3 | Textual terminal UI | Terminal-native dashboard with tabs, forms, scrollable output, and no browser workflow |
 
+All three options call the same report engine. UI runs disable automatic markdown file opening and return the generated markdown/CSV/JSON paths inside the interface.
+
 ### Streamlit Dashboard
 
 ```bash
@@ -243,13 +247,18 @@ Tabs:
 - **Backtest** — View the current recommendation backtest summary
 - **Portfolio Editor** — Edit `config/settings.json`, `config/watchlist.json`, or fallback `config/portfolio.json`
 
+Defaults:
+- Budget/model fields are read from `config/settings.json`
+- Uploaded CSVs are copied into `temporary_upload/` and remain git-ignored
+- If no holdings CSV is selected, you can explicitly use fallback `config/portfolio.json`
+
 ### Textual Terminal UI
 
 ```bash
 python ui/textual_app.py
 ```
 
-The Textual app runs fully in the terminal and provides the same tabs as the Streamlit dashboard. It is useful when you want a richer interface while staying inside a shell session.
+The Textual app runs fully in the terminal and provides the same workflow tabs as the Streamlit dashboard. Long reports are shown in scrollable terminal panes, which is more reliable for very large markdown reports than terminal markdown rendering.
 
 ### Schedule Recurring Sessions
 
@@ -530,6 +539,8 @@ Wealthsimple CSVs
 [Claude Analyst] → first-pass JSON → quality gates + drift → second-pass JSON
     ↓
 [Report Generator] → markdown + CSV + JSON log
+    ↓
+[Optional UIs] → Streamlit browser dashboard / Textual terminal dashboard
 ```
 
 **Performance:** Market data, news, and enrichment calls run in parallel where possible. Runtime depends on portfolio size, API coverage, cache state, and the two Claude passes. Slow optional sources such as options implied-move lookup are disabled by default.
@@ -577,6 +588,14 @@ Wealthsimple CSVs
 | `backtester.py` | Evaluate mature recommendations by action, conviction, ticker, and recent realized examples for calibration |
 | `report_generator.py` | Format markdown + CSV with priority actions, quality warnings, risk dashboard, hold tiers, earnings badges, risk controls, and Bear/Bull ranges |
 | `main.py` | CLI entry point, interactive setup, API key loading (API_KEYS.txt first, then .env), enrichment orchestration, risk analytics, and CSV export |
+| `ui_launcher.py` | Optional menu for choosing the original CLI, Streamlit dashboard, or Textual TUI |
+
+**Optional UI Entry Points**:
+
+| File | Purpose |
+|------|---------|
+| `ui/streamlit_app.py` | Browser dashboard for CSV upload, report generation, markdown viewing, history, backtest, and JSON config editing |
+| `ui/textual_app.py` | Terminal dashboard for the same workflow using Textual widgets and scrollable panes |
 
 ### Claude System Prompt (32 Rules)
 
@@ -593,7 +612,7 @@ Claude receives a detailed system prompt with **32 strategic rules** governing a
 8. Watchlist alerts — target entry/exit prices for monitored tickers (from config/watchlist.json)
 9. Quality warnings, previous-session drift/execution context, risk dashboard, company exposure rollup, and track-record calibration stats
 
-**Output Rules (Examples from the 31):**
+**Output Rules (Examples from the 32):**
 - **Rule 14 (Track Record Calibration):** Cap or reduce conviction when similar historical action/conviction buckets have weak returns or hit rates
 - **Rule 15 (Earnings Alert):** If earnings within 7 days, set `earnings_alert=true` and lead with "⚠️ EARNINGS [DATE]"
 - **Rule 17 (Enrichment Citation):** Cite analyst consensus, EPS beat streaks, insider activity in thesis statements
@@ -764,6 +783,7 @@ Current focused coverage includes:
 - Market-data indicators and mocked options implied-move helper
 - Report quality gates, normalized range warnings, decision-tree checks, near-earnings catalyst gating, and hard catalyst downgrades
 - Markdown rendering for quality warnings, critical actions, data freshness footnotes, risk dashboard, hedge suggestions, Bear/Bull labels, and cost footer
+- UI support helpers for canonical runner invocation, report history ordering, JSON config validation, and default budget/model loading
 
 ---
 
