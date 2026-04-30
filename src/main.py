@@ -538,6 +538,7 @@ def run(
     budget_cad: float = None,
     model_id: str = None,
     model_name: str = None,
+    open_report: bool = True,
 ):
     validate_environment()
 
@@ -700,7 +701,18 @@ def run(
     print(f"  {C.CYAN}{csv_path.resolve()}{C.RESET}")
     print(f"{C.BOLD}{'=' * 65}{C.RESET}\n")
 
-    open_file(report_path)
+    if open_report:
+        open_file(report_path)
+
+    return {
+        "recommendation": recommendation,
+        "usage": usage,
+        "report_path": report_path,
+        "csv_path": csv_path,
+        "log_path": log_path,
+        "session_type": session_type,
+        "model_name": display_model,
+    }
 
 
 def main():

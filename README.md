@@ -39,10 +39,21 @@
 - ✅ **Recent News** — Pulls last 7 days of headlines per ticker from Yahoo Finance
 - ✅ **Trade History Context** — Loads your recent Wealthsimple trades to avoid whipsawing
 - ✅ **Triple Output** — Markdown report + CSV table + JSON log for backtesting
+- ✅ **Three Interface Options** — Original CLI remains default, with optional Streamlit dashboard and Textual terminal UI
 - ✅ **Model Choice** — Pick Sonnet 4.6 (~$0.30-$0.55/run typical two-pass range) or Opus 4.7 (higher cost, deeper analysis) per session
 - ✅ **Fast Parallel Fetching** — Concurrent API requests with caching and graceful degradation
 
 ---
+
+## ✨ What's New in v1.5.0 (April 30, 2026)
+
+**Optional UI Layer:** Added two extra interfaces without changing the original way to run the program.
+
+- **Original CLI Preserved** — `python src/main.py` and `./run.sh` still behave as before
+- **Streamlit Dashboard** — Run reports from a browser UI, upload Wealthsimple CSVs, render markdown reports natively, browse history, inspect backtests, and edit config JSON
+- **Textual TUI** — Run reports from a terminal dashboard with tabs for report generation, today's report, history, backtest, and portfolio/config editing
+- **UI Launcher** — `./run-ui.sh` or `python src/ui_launcher.py` lets you choose CLI, Streamlit, or Textual from one menu
+- **Shared UI Runtime** — Both UIs call the same `src.main.run()` pipeline as the CLI, with auto-open disabled and generated artifact paths returned to the UI
 
 ## ✨ What's New in v1.4.1 (April 30, 2026)
 
@@ -198,6 +209,47 @@ python src/main.py afternoon --holdings ~/Downloads/holdings-report-2026-04-24.c
 # Force Opus model (default is Sonnet)
 python src/main.py morning --holdings ~/Holdings.csv --model opus
 ```
+
+### Optional UI Launcher
+
+The original CLI remains the default path. To choose between all available interfaces:
+
+```bash
+./run-ui.sh
+# or
+python src/ui_launcher.py
+```
+
+The launcher offers:
+
+| Option | Interface | Best For |
+|---|---|---|
+| 1 | Original CLI | Fastest path, scripts, cron, current workflow |
+| 2 | Streamlit dashboard | Browser-based report viewing, CSV upload, history, backtest, JSON config editing |
+| 3 | Textual terminal UI | Terminal-native dashboard with tabs, forms, scrollable output, and no browser workflow |
+
+### Streamlit Dashboard
+
+```bash
+streamlit run ui/streamlit_app.py
+```
+
+Then open the local URL Streamlit prints, normally `http://localhost:8501`.
+
+Tabs:
+- **Today's Report** — Renders the latest markdown report with `st.markdown`
+- **Run Report** — Select session/model/budgets, upload or point to Wealthsimple CSVs, and trigger the same report pipeline as CLI mode
+- **History** — Browse previous markdown reports from `reports/`
+- **Backtest** — View the current recommendation backtest summary
+- **Portfolio Editor** — Edit `config/settings.json`, `config/watchlist.json`, or fallback `config/portfolio.json`
+
+### Textual Terminal UI
+
+```bash
+python ui/textual_app.py
+```
+
+The Textual app runs fully in the terminal and provides the same tabs as the Streamlit dashboard. It is useful when you want a richer interface while staying inside a shell session.
 
 ### Schedule Recurring Sessions
 
@@ -491,6 +543,7 @@ Wealthsimple CSVs
 | `config.py` | Load and manage settings from `config/settings.json` |
 | `constants.py` | Shared constants: leveraged ETF leverage map, company/share-class groups, DEDUP_PAIRS, SKIP_MARKET_DATA, CDR_EXCHANGES |
 | `_utils.py` | Helper functions: `safe_float()`, `clean_csv_row()`, `parse_session_filename()` |
+| `ui_support.py` | Shared non-visual helpers for Streamlit/Textual report runs, history, backtest, and config editing |
 
 **Data Loading & Calculation**:
 
@@ -753,7 +806,13 @@ tech_stock/
 │   ├── backtester.py            ← Historical recommendation calibration
 │   ├── report_quality.py        ← Deterministic quality gates and warnings
 │   ├── claude_analyst.py        ← 32-rule prompt, two-pass Claude review, JSON parsing
-│   └── report_generator.py      ← Priority actions table, hold tiers, earnings badges, markdown + CSV
+│   ├── report_generator.py      ← Priority actions table, hold tiers, earnings badges, markdown + CSV
+│   ├── ui_support.py            ← Shared helpers for optional UI entrypoints
+│   └── ui_launcher.py           ← Interface chooser for CLI, Streamlit, and Textual
+├── ui/
+│   ├── streamlit_app.py         ← Optional browser dashboard
+│   └── textual_app.py           ← Optional terminal dashboard
+├── run-ui.sh                    ← Optional UI launcher wrapper
 ├── requirements.txt             ← Python dependencies
 ├── .env.example                 ← Template for API key
 ├── .gitignore                   ← Excludes .env, .venv, reports/
@@ -807,6 +866,6 @@ For issues or questions:
 
 ---
 
-**Last updated:** April 30, 2026 (Runtime-stable full run: 16k Claude cap, compact 12-row JSON, schema defaults, corrected overnight phase)
-**Version:** 1.4.1
+**Last updated:** April 30, 2026 (Optional Streamlit/Textual UI layer added; original CLI preserved)
+**Version:** 1.5.0
 **Status:** Production-ready with deterministic quality checks and actionable recommendations
