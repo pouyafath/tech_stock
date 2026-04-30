@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from src._utils import clean_csv_row, safe_float
+from src.constants import LEVERAGED_ETFS
 
 
 # Minimum columns we need from the Wealthsimple Activities CSV.
@@ -145,6 +146,62 @@ def get_recent_trades_summary(activities: list[dict]) -> dict:
         elif "SELL" in sub:
             by_ticker[ticker]["sells"].append(a)
     return by_ticker
+
+
+def holding_days_by_ticker(activities: list[dict], holdings: list[dict] = None) -> dict:
+    """
+    Estimate open-lot holding days by ticker from recent activities.
+
+    Uses FIFO sells against buys. If the activity window misses the original
+    buy, returns duration_unknown=True for currently held tickers.
+    """
+    held_tickers = {h.get("ticker") for h in holdings or [] if h.get("quantity")}
+    lots_by_ticker = {}
+    for activity in sorted(activities or [], key=lambda row: row.get("date", "")):
+        if activity.get("type") != "Trade":
+            continue
+        ticker = activity.get("ticker")
+        if not ticker:
+            continue
+        sub_type = (activity.get("sub_type") or "").upper()
+        quantity = activity.get("quantity") or 0
+        if quantity <= 0:
+            continue
+        lots = lots_by_ticker.setdefault(ticker, [])
+        if "BUY" in sub_type:
+            lots.append({"date": activity.get("date"), "quantity": quantity})
+        elif "SELL" in sub_type:
+            remaining = quantity
+            while lots and remaining > 0:
+                lot = lots[0]
+                used = min(lot["quantity"], remaining)
+                lot["quantity"] -= used
+                remaining -= used
+                if lot["quantity"] <= 1e-8:
+                    lots.pop(0)
+
+    today = datetime.now().date()
+    out = {}
+    tickers = held_tickers or set(lots_by_ticker)
+    for ticker in tickers:
+        if not ticker:
+            continue
+        lots = [lot for lot in lots_by_ticker.get(ticker, []) if lot.get("quantity", 0) > 1e-8]
+        earliest = None
+        for lot in lots:
+            try:
+                lot_date = datetime.strptime(lot["date"], "%Y-%m-%d").date()
+            except (TypeError, ValueError):
+                continue
+            earliest = lot_date if earliest is None or lot_date < earliest else earliest
+        out[ticker] = {
+            "ticker": ticker,
+            "days_held": (today - earliest).days if earliest else None,
+            "earliest_open_buy": earliest.isoformat() if earliest else None,
+            "duration_unknown": earliest is None and ticker in held_tickers,
+            "is_leveraged_etf": ticker in LEVERAGED_ETFS,
+        }
+    return out
 
 
 def format_activities_for_prompt(activities: list[dict], days: int = 90) -> str:

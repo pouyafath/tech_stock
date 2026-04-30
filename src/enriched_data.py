@@ -13,7 +13,6 @@ Any individual source that fails is simply omitted — the run continues.
 The key contract: enrich(tickers) always returns a dict, never raises.
 """
 
-import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
@@ -26,11 +25,21 @@ from src.finnhub_client import (
     insider_summary,
     news_sentiment as finnhub_sentiment,
     recommendation_trends,
+    upgrade_downgrade,
 )
-from src.fred_client import macro_context
+from src.fred_client import economic_calendar_estimate, macro_context
 from src.polygon_client import stock_snapshot
 from src.twelve_data_client import earnings as td_earnings
 from src.twelve_data_client import quote as td_quote
+
+
+def _degradation(source: str, operation: str, error: Exception, ticker: str | None = None) -> dict:
+    return {
+        "source": source,
+        "operation": operation,
+        "ticker": ticker,
+        "error": f"{type(error).__name__}: {error}",
+    }
 
 
 def _enrich_ticker_fast(ticker: str) -> dict:
@@ -39,7 +48,7 @@ def _enrich_ticker_fast(ticker: str) -> dict:
     Alpha Vantage is excluded here — it's rate-limited to 5/min and handled
     sequentially in enrich() after the parallel phase completes.
     """
-    result: dict = {}
+    result: dict = {"_degradation": []}
 
     # Finnhub
     try:
@@ -47,35 +56,42 @@ def _enrich_ticker_fast(ticker: str) -> dict:
         if rec:
             result["analyst_consensus"] = rec
     except Exception as e:
-        warnings.warn(f"[enrich] finnhub.recommendation_trends({ticker}): {type(e).__name__}: {e}")
+        result["_degradation"].append(_degradation("finnhub", "recommendation_trends", e, ticker))
+
+    try:
+        upgrades = upgrade_downgrade(ticker, days_back=90)
+        if upgrades:
+            result["upgrade_downgrade"] = upgrades
+    except Exception as e:
+        result["_degradation"].append(_degradation("finnhub", "upgrade_downgrade", e, ticker))
 
     try:
         ec = earnings_calendar(ticker, days_ahead=45)
         if ec:
             result["upcoming_earnings"] = ec
     except Exception as e:
-        warnings.warn(f"[enrich] finnhub.earnings_calendar({ticker}): {type(e).__name__}: {e}")
+        result["_degradation"].append(_degradation("finnhub", "earnings_calendar", e, ticker))
 
     try:
         es = earnings_surprises(ticker, limit=4)
         if es:
             result["earnings_history"] = es
     except Exception as e:
-        warnings.warn(f"[enrich] finnhub.earnings_surprises({ticker}): {type(e).__name__}: {e}")
+        result["_degradation"].append(_degradation("finnhub", "earnings_surprises", e, ticker))
 
     try:
         ins = insider_summary(ticker, days=90)
         if ins:
             result["insider_activity"] = ins
     except Exception as e:
-        warnings.warn(f"[enrich] finnhub.insider_summary({ticker}): {type(e).__name__}: {e}")
+        result["_degradation"].append(_degradation("finnhub", "insider_summary", e, ticker))
 
     try:
         fh_sent = finnhub_sentiment(ticker)
         if fh_sent:
             result["finnhub_sentiment"] = fh_sent
     except Exception as e:
-        warnings.warn(f"[enrich] finnhub.news_sentiment({ticker}): {type(e).__name__}: {e}")
+        result["_degradation"].append(_degradation("finnhub", "news_sentiment", e, ticker))
 
     # Polygon — previous-day OHLCV + VWAP signal
     try:
@@ -83,7 +99,7 @@ def _enrich_ticker_fast(ticker: str) -> dict:
         if snap:
             result["polygon_snapshot"] = snap
     except Exception as e:
-        warnings.warn(f"[enrich] polygon.stock_snapshot({ticker}): {type(e).__name__}: {e}")
+        result["_degradation"].append(_degradation("polygon", "stock_snapshot", e, ticker))
 
     # Twelve Data — Canadian tickers get better coverage here
     try:
@@ -91,14 +107,14 @@ def _enrich_ticker_fast(ticker: str) -> dict:
         if td_q:
             result["td_quote"] = td_q
     except Exception as e:
-        warnings.warn(f"[enrich] twelve_data.quote({ticker}): {type(e).__name__}: {e}")
+        result["_degradation"].append(_degradation("twelve_data", "quote", e, ticker))
 
     try:
         td_e = td_earnings(ticker)
         if td_e:
             result["td_earnings"] = td_e
     except Exception as e:
-        warnings.warn(f"[enrich] twelve_data.earnings({ticker}): {type(e).__name__}: {e}")
+        result["_degradation"].append(_degradation("twelve_data", "earnings", e, ticker))
 
     return result
 
@@ -144,14 +160,16 @@ def enrich(tickers: list[str]) -> dict:
     """
     settings = load_settings()
     if not settings.get("enable_enrichment", True):
-        return {"per_ticker": {}, "macro": None, "crypto": None, "sources_active": []}
+        return {"per_ticker": {}, "macro": None, "crypto": None, "sources_active": [], "degradation": []}
 
     out: dict = {
         "per_ticker": {t: {} for t in tickers},
         "macro": None,
+        "economic_calendar": economic_calendar_estimate(),
         "crypto": None,
         "fetched_at": datetime.now().isoformat(timespec="seconds"),
         "sources_active": [],
+        "degradation": [],
     }
 
     # ── Phase 1: Parallel fast sources ───────────────────────────────────────
@@ -159,20 +177,32 @@ def enrich(tickers: list[str]) -> dict:
 
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
         ticker_futures = {ex.submit(_enrich_ticker_fast, t): t for t in tickers}
-        macro_future   = ex.submit(_safe(macro_context))
-        crypto_future  = ex.submit(_safe(crypto_context))
+        macro_future   = ex.submit(_safe(macro_context, "fred"))
+        crypto_future  = ex.submit(_safe(crypto_context, "coingecko"))
 
         for future in as_completed(list(ticker_futures) + [macro_future, crypto_future]):
             if future is macro_future:
-                out["macro"] = future.result()
+                macro_result = future.result()
+                if isinstance(macro_result, dict) and macro_result.get("_degradation"):
+                    out["degradation"].append(macro_result["_degradation"])
+                    out["macro"] = None
+                else:
+                    out["macro"] = macro_result
             elif future is crypto_future:
-                out["crypto"] = future.result()
+                crypto_result = future.result()
+                if isinstance(crypto_result, dict) and crypto_result.get("_degradation"):
+                    out["degradation"].append(crypto_result["_degradation"])
+                    out["crypto"] = None
+                else:
+                    out["crypto"] = crypto_result
             else:
                 ticker = ticker_futures[future]
                 try:
-                    out["per_ticker"][ticker] = future.result()
+                    ticker_result = future.result()
+                    out["degradation"].extend(ticker_result.pop("_degradation", []) or [])
+                    out["per_ticker"][ticker] = ticker_result
                 except Exception as e:
-                    warnings.warn(f"[enrich] _enrich_ticker_fast({ticker}): {type(e).__name__}: {e}")
+                    out["degradation"].append(_degradation("enrich", "_enrich_ticker_fast", e, ticker))
                     out["per_ticker"][ticker] = {}
 
     # ── Phase 2: Sequential Alpha Vantage (free tier: only 25 req/day) ────────
@@ -183,12 +213,12 @@ def enrich(tickers: list[str]) -> dict:
                 if av_sent:
                     out["per_ticker"].setdefault(ticker, {})["av_sentiment"] = av_sent
             except Exception as e:
-                warnings.warn(f"[enrich] av_sentiment({ticker}): {type(e).__name__}: {e}")
+                out["degradation"].append(_degradation("alpha_vantage", "news_sentiment", e, ticker))
 
     # ── Tally active sources ──────────────────────────────────────────────────
     sources = set()
     for ticker_data in out["per_ticker"].values():
-        if ticker_data.get("analyst_consensus"):
+        if ticker_data.get("analyst_consensus") or ticker_data.get("upgrade_downgrade"):
             sources.add("finnhub")
         if ticker_data.get("polygon_snapshot"):
             sources.add("polygon")
@@ -198,6 +228,8 @@ def enrich(tickers: list[str]) -> dict:
             sources.add("twelve_data")
     if out["macro"]:
         sources.add("fred")
+    if out.get("economic_calendar"):
+        sources.add("calendar_estimate")
     if out["crypto"]:
         sources.add("coingecko")
 
@@ -205,14 +237,13 @@ def enrich(tickers: list[str]) -> dict:
     return out
 
 
-def _safe(fn):
+def _safe(fn, source: str = None):
     """Wrap a zero-arg callable to never raise."""
     def wrapper():
         try:
             return fn()
         except Exception as e:
-            warnings.warn(f"[enrich] {fn.__name__}(): {type(e).__name__}: {e}")
-            return None
+            return {"_degradation": _degradation(source or fn.__name__, fn.__name__, e)}
     return wrapper
 
 
@@ -229,6 +260,16 @@ def format_enrichment_for_prompt(enriched: dict) -> str:
     sources = enriched.get("sources_active", [])
     if sources:
         lines.append(f"*Data sources: {', '.join(sources)}*\n")
+    degradation = enriched.get("degradation") or []
+    if degradation:
+        lines.append("### Data Coverage / Degradation")
+        for item in degradation[:12]:
+            ticker = f"{item.get('ticker')}: " if item.get("ticker") else ""
+            lines.append(
+                f"  - {ticker}{item.get('source')}.{item.get('operation')} "
+                f"unavailable ({item.get('error')})"
+            )
+        lines.append("")
 
     # ── Macro context ─────────────────────────────────────────────────────
     macro = enriched.get("macro")
@@ -243,6 +284,17 @@ def format_enrichment_for_prompt(enriched: dict) -> str:
         lines.append(f"  - Yield curve: {macro.get('yield_curve_signal', 'N/A')}")
         lines.append(f"  - Inflation: {macro.get('inflation_signal', 'N/A')}")
         lines.append(f"  - VIX regime: {macro.get('vix_regime', 'N/A')}")
+        lines.append("")
+
+    econ = enriched.get("economic_calendar") or (macro or {}).get("economic_calendar")
+    if econ:
+        lines.append("### Macro Event Calendar")
+        if econ.get("next_nfp_estimate"):
+            lines.append(f"  - Next NFP estimate: {econ['next_nfp_estimate']}")
+        if econ.get("next_cpi_window"):
+            lines.append(f"  - CPI release window estimate: {econ['next_cpi_window']}")
+        if econ.get("fomc_note"):
+            lines.append(f"  - {econ['fomc_note']}")
         lines.append("")
 
     # ── Crypto context ────────────────────────────────────────────────────
@@ -277,6 +329,15 @@ def format_enrichment_for_prompt(enriched: dict) -> str:
                 f"  - Analyst consensus: **{rec['consensus_label']}** "
                 f"({rec['buy']}B / {rec['hold']}H / {rec['sell']}S "
                 f"from {rec['total_analysts']} analysts, {rec.get('period', '')})"
+            )
+
+        upgrades = data.get("upgrade_downgrade")
+        if upgrades:
+            recent = upgrades[0]
+            t_lines.append(
+                f"  - Latest analyst rating change: {recent.get('action', 'rating change')} "
+                f"{recent.get('from_grade') or 'N/A'} -> {recent.get('to_grade') or 'N/A'} "
+                f"by {recent.get('firm') or 'unknown firm'} ({str(recent.get('date') or '')[:10]})"
             )
 
         ue = data.get("upcoming_earnings")
@@ -316,9 +377,11 @@ def format_enrichment_for_prompt(enriched: dict) -> str:
             vwap_sig = snap.get("vwap_signal", "")
             after = snap.get("after_hrs_change_pct")
             after_str = f", after-hours {after:+.1f}%" if after is not None else ""
+            snapshot_change = snap.get("snapshot_change_pct")
+            snapshot_str = f", snapshot change {snapshot_change:+.1f}%" if snapshot_change is not None else ""
             t_lines.append(
-                f"  - Intraday (Polygon): VWAP {snap.get('vwap_pct', 0):+.1f}% → {vwap_sig}"
-                f"{after_str}"
+                f"  - Previous session (Polygon): VWAP {snap.get('vwap_pct', 0):+.1f}% -> {vwap_sig}"
+                f"{after_str}{snapshot_str}"
             )
 
         fh_sent = data.get("finnhub_sentiment")

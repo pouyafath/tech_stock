@@ -22,7 +22,8 @@ All functions return None on error or missing API key — never raise.
 """
 
 import os
-from datetime import datetime, timedelta
+from calendar import monthrange
+from datetime import date, datetime, timedelta
 
 import requests
 from tenacity import (
@@ -45,6 +46,53 @@ SERIES = {
     "UNRATE":   ("Unemployment Rate",      "%",    False),
     "VIXCLS":   ("VIX (Fear Index)",       "pts",  False),
 }
+
+
+def _macro_summary(dff: float, curve: float | None, cpi: float | None, vix: float | None) -> str:
+    parts = [f"Rates: {dff:.2f}%"]
+    if curve is not None:
+        parts.append(f"Curve: {curve:+.2f}%")
+    if cpi is not None:
+        parts.append(f"CPI: {cpi:+.1f}% YoY")
+    if vix is not None:
+        parts.append(f"VIX: {vix:.1f}")
+    return " | ".join(parts)
+
+
+def _add_months(day: date, months: int) -> date:
+    month = day.month - 1 + months
+    year = day.year + month // 12
+    month = month % 12 + 1
+    return date(year, month, min(day.day, monthrange(year, month)[1]))
+
+
+def _first_weekday_of_month(year: int, month: int, weekday: int) -> date:
+    first = date(year, month, 1)
+    offset = (weekday - first.weekday()) % 7
+    return first + timedelta(days=offset)
+
+
+def economic_calendar_estimate(today: date | None = None) -> dict:
+    """
+    Deterministic macro calendar estimate. It intentionally labels CPI/FOMC
+    as windows/verification items because official schedules need a live source.
+    """
+    today = today or datetime.now().date()
+    nfp = _first_weekday_of_month(today.year, today.month, 4)
+    if nfp < today:
+        nxt = _add_months(today.replace(day=1), 1)
+        nfp = _first_weekday_of_month(nxt.year, nxt.month, 4)
+
+    cpi_month = today if today.day <= 15 else _add_months(today.replace(day=1), 1)
+    cpi_window_start = date(cpi_month.year, cpi_month.month, 10)
+    cpi_window_end = date(cpi_month.year, cpi_month.month, 15)
+
+    return {
+        "next_nfp_estimate": nfp.isoformat(),
+        "next_cpi_window": f"{cpi_window_start.isoformat()} to {cpi_window_end.isoformat()}",
+        "fomc_note": "FOMC dates are not available from FRED; verify the official Fed calendar before event-risk trades.",
+        "source": "deterministic_calendar_estimate",
+    }
 
 
 def _api_key() -> str | None:
@@ -178,6 +226,7 @@ def _fetch_macro_context() -> dict | None:
 
     return {
         "series": data,
+        "economic_calendar": economic_calendar_estimate(),
         "rate_regime": rate_regime,
         "yield_curve_signal": curve_signal,
         "vix_regime": vix_regime,
@@ -186,12 +235,7 @@ def _fetch_macro_context() -> dict | None:
             "MODERATE INFLATION" if (cpi or 0) > 2.5 else
             "LOW INFLATION — benign for equities"
         ),
-        "summary": (
-            f"Rates: {dff:.2f}% | "
-            f"Curve: {curve:+.2f}% | " if curve is not None else "" +
-            f"CPI: {cpi:+.1f}% YoY | " if cpi is not None else "" +
-            f"VIX: {vix:.1f}" if vix is not None else ""
-        ),
+        "summary": _macro_summary(dff, curve, cpi, vix),
     }
 
 

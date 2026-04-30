@@ -89,7 +89,7 @@ Session type (morning/afternoon) [Enter = morning]:
    Is this correct? (Y/N): Y
 4. Activities CSV detected: (Skip for now, just press Enter)
 5. Which model? 
-   [1] Sonnet 4.6 (recommended, ~$0.09/run, fast)
+   [1] Sonnet 4.6 (recommended, ~$0.30-$0.55/run typical two-pass range)
    [2] Opus 4.7 (deeper analysis, ~$0.45/run)
    Choose (1/2) [Enter = 1]:
 ```
@@ -107,6 +107,30 @@ Session type (morning/afternoon) [Enter = morning]:
 ```
 
 Open the markdown file in any editor to see recommendations with conviction scores and theses.
+
+---
+
+## Optional: Choose a UI
+
+The original CLI remains the default. To choose between CLI, Streamlit, and Textual:
+
+```bash
+./run-ui.sh
+```
+
+Direct UI commands:
+
+```bash
+# Browser dashboard
+streamlit run ui/streamlit_app.py
+
+# Terminal dashboard
+python ui/textual_app.py
+```
+
+Use Streamlit when you want CSV upload, holdings preview, live run progress, dashboard metrics, markdown report viewing, history compare, download buttons, backtest tables, connectivity checks, and config editing in a browser.
+
+Use Textual when you want live run progress, dashboard/backtest tables, report history, connectivity checks, keyboard shortcuts, and config editing inside a terminal.
 
 ---
 

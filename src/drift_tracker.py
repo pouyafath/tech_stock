@@ -14,10 +14,14 @@ from pathlib import Path
 from src._utils import parse_session_filename
 
 
-def get_previous_session(log_dir: str | Path) -> dict | None:
+def get_previous_session(log_dir: str | Path, skip_newest: bool = False) -> dict | None:
     """
-    Return the most recently-saved recommendation JSON _before_ the current run.
-    Treats the newest file as "current" and returns the second-newest.
+    Return the most recently-saved recommendation JSON before the current run.
+
+    During normal app execution the current run has not been saved yet, so the
+    newest existing file is the previous session. When comparing two already
+    saved logs in the standalone script, pass skip_newest=True to treat the
+    newest file as current and return the second-newest.
 
     Returns the parsed JSON dict (with extra `_session_file` key) or None.
     """
@@ -30,10 +34,11 @@ def get_previous_session(log_dir: str | Path) -> dict | None:
         key=lambda p: p.name,
         reverse=True,
     )
-    if len(files) < 2:
+    index = 1 if skip_newest else 0
+    if len(files) <= index:
         return None
 
-    prev_path = files[1]
+    prev_path = files[index]
     try:
         with open(prev_path) as f:
             data = json.load(f)
@@ -166,7 +171,7 @@ if __name__ == "__main__":
 
     with open(files[0]) as f:
         current = json.load(f)
-    previous = get_previous_session(log_dir)
+    previous = get_previous_session(log_dir, skip_newest=True)
 
     drift = compute_drift(current, previous)
     print(f"Drift: {len(drift)} events between {files[1].name} → {files[0].name}")
