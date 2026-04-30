@@ -621,7 +621,7 @@ def _render_market_context_section(market_context: dict) -> list[str]:
     lines = [
         "## Sector And Cross-Asset Context",
         "",
-        "| Symbol | Price | 5D | 20D | Source |",
+        "| Symbol | Price | 5D | 1M | Source |",
         "|---|---:|---:|---:|---|",
     ]
     for symbol, row in sorted(market_context.items()):
@@ -630,7 +630,8 @@ def _render_market_context_section(market_context: dict) -> list[str]:
             continue
         lines.append(
             f"| {symbol} | ${row.get('current_price', 'N/A')} | "
-            f"{row.get('change_pct_5d', 'N/A')}% | {row.get('change_pct_20d', 'N/A')}% | "
+            f"{row.get('change_pct_5d', 'N/A')}% | "
+            f"{row.get('change_pct_21d', row.get('change_pct_20d', 'N/A'))}% | "
             f"{_table_cell(row.get('quote_source', 'N/A'))} |"
         )
     lines += ["", "---", ""]

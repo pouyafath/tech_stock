@@ -472,7 +472,7 @@ def add_options_implied_moves(market_data: dict, tickers: list[str]) -> dict:
 
 
 def get_context_moves(symbols: list[str] = None, history_months: int = 3) -> dict:
-    """Fetch compact 5d/20d context moves for sector and cross-asset symbols."""
+    """Fetch compact 5d/one-month context moves for sector and cross-asset symbols."""
     symbols = list(symbols or (SECTOR_ROTATION_TICKERS + CROSS_ASSET_TICKERS))
     data = get_market_data(symbols, history_months=history_months)
     out = {}
@@ -480,10 +480,12 @@ def get_context_moves(symbols: list[str] = None, history_months: int = 3) -> dic
         if row.get("error"):
             out[symbol] = {"error": row.get("error")}
             continue
+        one_month_change = row.get("change_pct_1mo")
         out[symbol] = {
             "current_price": row.get("current_price"),
             "change_pct_5d": row.get("change_pct_5d"),
-            "change_pct_20d": row.get("change_pct_1mo"),
+            "change_pct_21d": one_month_change,
+            "change_pct_20d": one_month_change,
             "quote_timestamp_utc": row.get("quote_timestamp_utc"),
             "quote_source": row.get("quote_source"),
         }

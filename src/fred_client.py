@@ -48,6 +48,17 @@ SERIES = {
 }
 
 
+def _macro_summary(dff: float, curve: float | None, cpi: float | None, vix: float | None) -> str:
+    parts = [f"Rates: {dff:.2f}%"]
+    if curve is not None:
+        parts.append(f"Curve: {curve:+.2f}%")
+    if cpi is not None:
+        parts.append(f"CPI: {cpi:+.1f}% YoY")
+    if vix is not None:
+        parts.append(f"VIX: {vix:.1f}")
+    return " | ".join(parts)
+
+
 def _add_months(day: date, months: int) -> date:
     month = day.month - 1 + months
     year = day.year + month // 12
@@ -224,12 +235,7 @@ def _fetch_macro_context() -> dict | None:
             "MODERATE INFLATION" if (cpi or 0) > 2.5 else
             "LOW INFLATION — benign for equities"
         ),
-        "summary": (
-            f"Rates: {dff:.2f}% | "
-            f"Curve: {curve:+.2f}% | " if curve is not None else "" +
-            f"CPI: {cpi:+.1f}% YoY | " if cpi is not None else "" +
-            f"VIX: {vix:.1f}" if vix is not None else ""
-        ),
+        "summary": _macro_summary(dff, curve, cpi, vix),
     }
 
 

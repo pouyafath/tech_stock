@@ -388,7 +388,7 @@ def _format_market_context(market_context: dict | None) -> list[str]:
         lines.append(
             f"  {symbol}: ${row.get('current_price', 'N/A')} | "
             f"5d={row.get('change_pct_5d', 'N/A')}% | "
-            f"20d={row.get('change_pct_20d', 'N/A')}% | "
+            f"1mo={row.get('change_pct_21d', row.get('change_pct_20d', 'N/A'))}% | "
             f"source={row.get('quote_source', 'N/A')}"
         )
     return lines

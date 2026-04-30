@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from src.market_data import _fetch_options_implied_move, _safe_float, compute_indicators
+from src.market_data import _fetch_options_implied_move, _safe_float, compute_indicators, get_context_moves
 
 
 def test_compute_indicators_includes_atr_volatility_and_sma_cross():
@@ -48,3 +48,23 @@ def test_options_implied_move_uses_atm_straddle_mid_prices():
 
 def test_safe_float_preserves_negative_values_for_derived_metrics():
     assert _safe_float(-4.25) == -4.25
+
+
+def test_context_moves_exposes_one_month_label_and_compat_alias(monkeypatch):
+    def fake_get_market_data(symbols, history_months):
+        return {
+            "XLK": {
+                "current_price": 100,
+                "change_pct_5d": 1.2,
+                "change_pct_1mo": 4.5,
+                "quote_timestamp_utc": "2026-04-30T20:00:00Z",
+                "quote_source": "test",
+            }
+        }
+
+    monkeypatch.setattr("src.market_data.get_market_data", fake_get_market_data)
+
+    out = get_context_moves(["XLK"])
+
+    assert out["XLK"]["change_pct_21d"] == 4.5
+    assert out["XLK"]["change_pct_20d"] == 4.5
