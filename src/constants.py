@@ -45,9 +45,13 @@ SECTOR_OVERRIDES = {
     "SPY": "Broad Market ETF",
     "VOO": "Broad Market ETF",
     "VGRO": "Multi-Asset ETF",
+    "VGRO.TO": "Multi-Asset ETF",
     "XEQT": "Multi-Asset ETF",
+    "XEQT.TO": "Multi-Asset ETF",
     "VEQT": "Multi-Asset ETF",
+    "VEQT.TO": "Multi-Asset ETF",
     "VCNS": "Multi-Asset ETF",
+    "VCNS.TO": "Multi-Asset ETF",
 }
 
 

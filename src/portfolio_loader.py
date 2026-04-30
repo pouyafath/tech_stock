@@ -129,7 +129,12 @@ def parse_holdings_csv(csv_path: str | Path) -> dict:
         if quantity is None or quantity == 0:
             continue
 
-        is_cdr = mic in CDR_EXCHANGES or exchange in CDR_EXCHANGES
+        is_canadian_listing = mic in CDR_EXCHANGES or exchange in CDR_EXCHANGES
+        name_upper = name.upper()
+        is_cdr = is_canadian_listing and (" CDR" in f" {name_upper}" or "CAD HEDGED" in name_upper)
+        ticker = symbol
+        if is_canadian_listing and not is_cdr and market_currency == "CAD" and symbol != "CASH":
+            ticker = symbol if symbol.endswith(".TO") else f"{symbol}.TO"
 
         # Average cost in market currency
         avg_cost_market = None
@@ -146,7 +151,8 @@ def parse_holdings_csv(csv_path: str | Path) -> dict:
             unrealized_pct = round(unrealized / book_value_market * 100, 2)
 
         holdings.append({
-            "ticker": symbol,
+            "ticker": ticker,
+            "raw_symbol": symbol,
             "exchange": exchange,
             "name": name,
             "security_type": security_type,

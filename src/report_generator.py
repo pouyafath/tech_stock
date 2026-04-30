@@ -339,11 +339,74 @@ def _render_fee_assumptions_section(settings: dict) -> list[str]:
         f"| FX spread in trade hurdle | {fee_model.get('fx_spread_pct', 0):.2f}% |",
         f"| Bid/ask tiers | megacap {fee_model.get('bid_ask_megacap_pct', 0):.2f}%, midcap {fee_model.get('bid_ask_midcap_pct', 0):.2f}%, smallcap {fee_model.get('bid_ask_smallcap_pct', 0):.2f}% one-way |",
         f"| US regulatory fee estimate | ${fee_model.get('regulatory_per_us_trade_usd', 0):.2f} per US trade |",
+        f"| CAD/USD display conversion | {settings.get('cad_per_usd_assumption', 1.37):.4f} CAD per USD for approximate position sizing only |",
         "| FX note | USD-account trades assume USD cash is already available; CAD-to-USD conversion costs are not included unless cash must be converted before execution. |",
         "",
         "---",
         "",
     ]
+    return lines
+
+
+def _aggregate_positions(holdings: list, cad_per_usd: float) -> tuple[dict, float]:
+    """Aggregate reported holdings to approximate USD-equivalent position values."""
+    positions = {}
+    total_usd = 0.0
+    for holding in holdings or []:
+        ticker = holding.get("ticker")
+        if not ticker or ticker == "CASH":
+            continue
+        value = holding.get("market_value")
+        currency = holding.get("market_value_currency")
+        if not value or not currency:
+            continue
+        if currency == "USD":
+            value_usd = float(value)
+        elif currency == "CAD" and cad_per_usd:
+            value_usd = float(value) / cad_per_usd
+        else:
+            continue
+
+        position = positions.setdefault(
+            ticker,
+            {"ticker": ticker, "value_usd": 0.0, "reported_values": [], "quantity": 0.0},
+        )
+        position["value_usd"] += value_usd
+        position["quantity"] += holding.get("quantity") or 0.0
+        position["reported_values"].append(f"${value:,.0f} {currency}")
+        total_usd += value_usd
+
+    if total_usd > 0:
+        for position in positions.values():
+            position["pct"] = position["value_usd"] / total_usd * 100
+    return positions, total_usd
+
+
+def _render_position_sizing_section(holdings: list, settings: dict) -> list[str]:
+    positions, total_usd = _aggregate_positions(
+        holdings,
+        settings.get("cad_per_usd_assumption", 1.37),
+    )
+    if not positions:
+        return []
+
+    lines = [
+        "## Position Sizing Context",
+        "",
+        f"_Approximate USD-equivalent exposure from the holdings CSV. CAD rows use {settings.get('cad_per_usd_assumption', 1.37):.4f} CAD/USD for display._",
+        "",
+        "| Rank | Ticker | Approx Value | Portfolio % | Reported Rows |",
+        "|---:|---|---:|---:|---|",
+    ]
+    for rank, position in enumerate(
+        sorted(positions.values(), key=lambda p: -p["value_usd"])[:12],
+        start=1,
+    ):
+        lines.append(
+            f"| {rank} | **{position['ticker']}** | ${position['value_usd']:,.0f} | "
+            f"{position.get('pct', 0):.1f}% | {_table_cell(', '.join(position['reported_values']))} |"
+        )
+    lines += ["", "---", ""]
     return lines
 
 
@@ -495,6 +558,10 @@ def generate_markdown(
     settings = settings or {}
     portfolio = portfolio or {}
     holdings = portfolio.get("holdings", [])
+    positions, _ = _aggregate_positions(
+        holdings,
+        settings.get("cad_per_usd_assumption", 1.37),
+    )
 
     now = datetime.now()
     timestamp = now.strftime("%Y-%m-%d %H:%M")
@@ -540,6 +607,8 @@ def generate_markdown(
 
     catalyst_threshold = settings.get("news_catalyst_move_threshold_pct", 5)
     lines += _render_catalyst_section(market_data or {}, news_by_ticker or {}, catalyst_threshold)
+
+    lines += _render_position_sizing_section(holdings, settings)
 
     # ── New sections (Phase 4 + 5) ─────────────────────────────────────────
     threshold_pct = settings.get("sector_concentration_threshold_pct", 40)
@@ -616,6 +685,12 @@ def generate_markdown(
                     lines.append(f"| vs SMA(200) | {ind['price_vs_sma200_pct']:+.1f}% |")
                 if rec.get("liquidity_tier"):
                     lines.append(f"| Liquidity Tier | {rec['liquidity_tier']} |")
+                position = positions.get(ticker)
+                if position:
+                    lines.append(
+                        f"| Position Size | ~${position['value_usd']:,.0f} "
+                        f"({position.get('pct', 0):.1f}% of holdings ex-cash) |"
+                    )
                 if rec.get("target_entry_or_exit"):
                     lines.append(f"| Target Entry/Exit | ${rec['target_entry_or_exit']:.2f} |")
                 # Invest amount for buys; shares for sells/trims

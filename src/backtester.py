@@ -21,8 +21,13 @@ from src.market_data import price_at
 # Approximate horizon windows in calendar days.
 HORIZON_DAYS = {
     "intraday": 1,
+    "next session": 1,
+    "1-3 trading days": 5,
     "1-2 weeks": 10,
     "1-3 months": 60,
+    "3-6 months": 120,
+    "6-12 months": 240,
+    "12-36 months": 540,
 }
 
 # Conviction buckets we report on (6 = threshold for trading recs).

@@ -1,5 +1,6 @@
 {
   "budget_cad": 3000,
+  "cad_per_usd_assumption": 1.37,
   "risk_tolerance": "aggressive",
   "account_type": "wealthsimple_premium_usd",
   "claude_model": "claude-sonnet-4-6",

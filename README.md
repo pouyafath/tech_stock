@@ -21,16 +21,16 @@
 
 ### Key Features
 
-✅ **Priority Actions** — "Do This Today" list ordered by urgency (intraday trades first, then short-term)  
+✅ **Trader Action Plan** — Review-before-trading execution table ordered by urgency  
 ✅ **Intelligent Sizing** — Investment amounts ($50–$700 per session) based on conviction and budget  
 ✅ **Hold Tiers** — HOLD recommendations labeled as watch / keep / add-on-dip for clarity  
 ✅ **Earnings Alerts** — ⚠️ Flags tickers with earnings within 7 days; adjusts risk profile  
 ✅ **Exit Planning** — Target exit dates and expected price ranges (low % / high %) for every trade  
-✅ **6 Time Horizons** — Intraday / 1-2 weeks / 1-3 months / 3-6 months / 6-12 months / 12-36 months  
+✅ **8 Time Horizons** — Intraday / next session / 1-3 trading days / 1-2 weeks / 1-3 months / 3-6 months / 6-12 months / 12-36 months  
 ✅ **6 Enrichment APIs** — Parallel data from Finnhub, Polygon, Twelve Data, FRED, CoinGecko (+ optional Alpha Vantage)  
 ✅ **Fee-Aware** — Refuses to recommend trades below the fee hurdle (default 0.5% net expected return)  
 ✅ **Conviction Scoring** — 1-10 scale; scores < 6 automatically become HOLD recommendations  
-✅ **Live Market Data** — Real-time prices, 3-month history, PE ratios, 52-week highs/lows via yfinance  
+✅ **Live Market Data** — Quote timestamp, previous close, day range, quote source, 10-month history, PE ratios, 52-week highs/lows via yfinance  
 ✅ **Recent News** — Pulls last 7 days of headlines per ticker from Yahoo Finance  
 ✅ **Trade History Context** — Loads your recent Wealthsimple trades to avoid whipsawing  
 ✅ **Triple Output** — Markdown report + CSV table + JSON log for backtesting  
@@ -232,17 +232,20 @@ Human-readable with:
 ### 2. CSV Table
 **Path:** `reports/YYYYMMDD_HHMM_morning_recommendations.csv`
 
-Structured table with 12 columns:
+Structured table with trader-facing columns:
 - **Ticker** — Stock symbol
 - **Action** — BUY, ADD, HOLD, TRIM, or SELL
 - **Conviction** — 1–10 score
-- **Net Expected %** — Expected return after fees
-- **Time Horizon** — Intraday / 1-2 weeks / 1-3 months / 3-6 months / 6-12 months / 12-36 months
+- **Expected Stock Move %** — Expected move of the underlying security
+- **Expected Benefit of Action %** — For SELL/TRIM, avoided drawdown or protected gain; for BUY/ADD, upside after fees
+- **Net Expected %** — Backward-compatible net expected field
+- **Time Horizon** — Intraday / next session / 1-3 trading days / 1-2 weeks / 1-3 months / 3-6 months / 6-12 months / 12-36 months
 - **Hold Tier** — For HOLD only: watch (conviction ≤5) / keep (6–7) / add_on_dip (≥8)
 - **Invest USD** — Amount to invest (for BUY/ADD only)
 - **Exit Target** — Target exit date (e.g., "Jul 2026")
 - **Price Range Low %** — Expected low (% change from now)
 - **Price Range High %** — Expected high (% change from now)
+- **Quote / Previous Close / Quote Time UTC / Quote Source** — Quote audit fields for execution review
 - **Earnings Alert** — ⚠️ if earnings within 7 days
 - **Thesis** — Text summary
 
@@ -250,11 +253,9 @@ Structured table with 12 columns:
 
 **Example:**
 ```csv
-Ticker,Action,Conviction,Net Expected %,Time Horizon,Hold Tier,Invest USD,Exit Target,Price Range Low %,Price Range High %,Earnings Alert,Thesis
-NVDA,ADD,8,+14.89%,3-6 months,,500,Jul 2026,-8.0,+18.0,,Core AI infrastructure play. Analyst consensus strong...
-MSFT,HOLD,7,+11.89%,1-3 months,keep,,,+5.0,+12.0,,Lagging despite solid fundamentals; watch for catalyst...
-TSM,HOLD,8,+7.69%,6-12 months,add_on_dip,,,+2.0,+16.0,,Concentration risk at 23.7%; add on pullback below $100...
-LULU,SELL,8,+9.69%,intraday,,,,,-40.0,+5.0,⚠️,Down 67% with no recovery catalyst; earnings in 5 days...
+Ticker,Action,Hold Tier,Conviction,Invest USD,Expected Stock Move %,Expected Benefit of Action %,Net Expected %,Time Horizon,Exit Target,Price Range Low%,Price Range High%,Quote,Previous Close,Quote Time UTC,Quote Source,Earnings Alert,Thesis
+NVDA,ADD,,8,$500,+15.00%,+14.89%,+14.89%,3-6 months,Jul 2026,-8%,+18%,210.50 USD,205.12 USD,2026-04-29T20:00:01+00:00,yfinance:regularMarketPrice,,Core AI infrastructure play...
+SOXL,SELL,,9,,-20.00%,+19.70%,+19.70%,next session,Apr 2026,-30%,-10%,117.97 USD,109.56 USD,2026-04-29T20:00:00+00:00,yfinance:regularMarketPrice,,Leveraged ETF decay risk...
 ```
 
 ### 3. JSON Log
@@ -473,7 +474,7 @@ Claude receives a detailed system prompt with **23 strategic rules** governing a
 - **Rule 17 (Enrichment Citation):** Cite analyst consensus, EPS beat streaks, insider activity in thesis statements
 - **Rule 18 (Investment Sizing):** Set `invest_amount_usd` based on conviction: 8–10 = 40% of session budget, 7 = 25%, 6 = 15%
 - **Rule 19 (Hold Tiers):** Every HOLD gets `hold_tier`: "watch" (conviction ≤5), "keep" (6–7), "add_on_dip" (≥8)
-- **Rule 20 (Time Horizons):** Exactly one of: intraday / 1-2 weeks / 1-3 months / 3-6 months / 6-12 months / 12-36 months
+- **Rule 20 (Time Horizons):** Exactly one of: intraday / next session / 1-3 trading days / 1-2 weeks / 1-3 months / 3-6 months / 6-12 months / 12-36 months
 - **Rule 21 (Exit Plan):** Every recommendation includes `target_exit_date` (e.g., "Jul 2026") and price range (low %, high %)
 - **Rule 22 (Buy Signals):** Actively look for BUY opportunities — not just existing portfolio
 - **Rule 23 (Priority Actions):** Output `priority_actions` array — ordered "do this today" list by urgency
