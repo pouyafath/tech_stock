@@ -66,6 +66,7 @@ RULES YOU MUST FOLLOW:
 29. DECISION TREE: Every thesis or risk_or_invalidation must contain compact "If X, do Y; if Z, do W" execution language.
 30. RANGE LABELS: price_target_low_pct is the Bear Case and price_target_high_pct is the Bull Case. Keep the JSON field names unchanged for compatibility.
 31. HEDGE SUGGESTIONS: If concentration, beta, or volatility risk is high, include hedge_suggestions. Trim/rebalance suggestions should come before inverse ETFs. Inverse ETF hedges are allowed only as small short-term hedges with risk notes and sizing caps.
+32. COMPACT JSON: Return at most 12 recommendation rows. Include all priority/actionable trades, all holdings with material risk, and the strongest watchlist opportunities. Do not include every low-signal ticker as a recommendation; summarize the rest in watchlist_flags, sector_warnings, or warnings.
 
 OUTPUT FORMAT (return exactly this structure):
 {
@@ -254,6 +255,14 @@ def normalize_recommendation(recommendation: dict) -> dict:
     for rec in recommendation.get("recommendations", []) or []:
         if rec.get("ticker"):
             rec["ticker"] = str(rec["ticker"]).upper()
+        rec.setdefault("ticker", "UNKNOWN")
+        if rec.get("action") not in {"BUY", "SELL", "HOLD", "TRIM", "ADD"}:
+            rec["action"] = "HOLD"
+        rec.setdefault("conviction", 5)
+        rec.setdefault("thesis", "No thesis provided by model.")
+        rec.setdefault("net_expected_pct", 0)
+        rec.setdefault("fee_hurdle_pct", 0)
+        rec.setdefault("time_horizon", "1-3 months")
         low = rec.get("price_target_low_pct")
         high = rec.get("price_target_high_pct")
         if low is not None and high is not None and low > high:
@@ -385,6 +394,16 @@ def _format_market_context(market_context: dict | None) -> list[str]:
     return lines
 
 
+def _market_phase(now_dt: datetime) -> str:
+    market_open = now_dt.replace(hour=9, minute=30, second=0, microsecond=0)
+    market_close = now_dt.replace(hour=16, minute=0, second=0, microsecond=0)
+    if now_dt < market_open:
+        return "outside regular market hours — before next open"
+    if now_dt >= market_close:
+        return "after regular market close"
+    return "regular session or pre-close"
+
+
 def build_user_message(
     session_type: str,
     portfolio: dict,
@@ -409,7 +428,7 @@ def build_user_message(
 
     now_dt = datetime.now()
     now = now_dt.strftime("%Y-%m-%d %H:%M")
-    market_phase = "after regular market close" if now_dt.hour > 16 or (now_dt.hour == 16 and now_dt.minute >= 0) else "regular session or pre-close"
+    market_phase = _market_phase(now_dt)
     budget_cad = settings.get("budget_cad", 0)
     budget_usd = settings.get("budget_usd", 0)
     news_by_ticker = news_by_ticker or {}
@@ -696,7 +715,8 @@ def build_user_message(
         f"net_expected_pct > {settings.get('min_net_expected_return_pct', 0.5)}% and conviction >= 6. "
         f"Use the TECHNICAL INDICATORS, ANALYST CONSENSUS, OPTIONS FLOW, MACRO CONTEXT, "
         f"RISK DASHBOARD, COMPANY EXPOSURE, and TRACK RECORD above to calibrate. "
-        f"Populate risk_controls, catalyst fields, hedge_suggestions, and decision-tree wording."
+        f"Populate risk_controls, catalyst fields, hedge_suggestions, and decision-tree wording. "
+        f"Keep recommendations compact: at most 12 rows, focused on actionable trades and material risks."
     )
 
     return "\n".join(lines)
@@ -742,6 +762,8 @@ def _parse_validate_recommendation(raw_text: str) -> dict:
             f"Claude returned non-JSON response. Parse error: {e}\n\nRaw response:\n{raw_text[:500]}"
         )
 
+    recommendation = normalize_recommendation(recommendation)
+
     try:
         jsonschema.validate(recommendation, RECOMMENDATION_SCHEMA)
     except jsonschema.ValidationError as e:
@@ -750,7 +772,7 @@ def _parse_validate_recommendation(raw_text: str) -> dict:
             f"Claude response failed schema validation at {path}: {e.message}"
         )
 
-    return normalize_recommendation(recommendation)
+    return recommendation
 
 
 def _response_text(response) -> str:

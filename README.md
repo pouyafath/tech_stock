@@ -314,7 +314,7 @@ Raw machine-readable format for:
   "risk_tolerance": "aggressive",
   "account_type": "wealthsimple_premium_usd",
   "claude_model": "claude-sonnet-4-6",
-  "claude_max_tokens": 20000,
+  "claude_max_tokens": 16000,
   "claude_timeout_seconds": 240,
   "enable_two_pass_review": true,
   "enable_opus_extended_thinking": true,
@@ -340,7 +340,7 @@ Raw machine-readable format for:
 | `budget_cad` | 3000 | Available CAD to deploy (overridden per run) |
 | `risk_tolerance` | "aggressive" | "moderate" for conservative recommendations |
 | `claude_model` | "claude-sonnet-4-6" | "claude-sonnet-4-6" (fast) or "claude-opus-4-7" (thorough) |
-| `claude_max_tokens` | 20000 | Max output tokens for the structured JSON response |
+| `claude_max_tokens` | 16000 | Max output tokens for the structured JSON response |
 | `claude_timeout_seconds` | 240 | Hard timeout for each Claude API call |
 | `enable_two_pass_review` | true | Always run the second Claude critique/revision pass |
 | `enable_opus_extended_thinking` | true | Enables extended thinking only when the selected model is Opus |
@@ -509,15 +509,15 @@ Wealthsimple CSVs
 
 | Module | Purpose |
 |--------|---------|
-| `claude_analyst.py` | 31-rule system prompt, build enriched prompt, run two Claude passes, parse JSON response with sizing, catalyst, risk-control, hedge, and priority-action fields |
+| `claude_analyst.py` | 32-rule system prompt, build enriched prompt, run two Claude passes, parse JSON response with sizing, catalyst, risk-control, hedge, and priority-action fields |
 | `report_quality.py` | Deterministic quality warnings and hard gates for stale quotes, missing catalysts, risk controls, and sizing issues |
 | `backtester.py` | Evaluate mature recommendations by action, conviction, ticker, and recent realized examples for calibration |
 | `report_generator.py` | Format markdown + CSV with priority actions, quality warnings, risk dashboard, hold tiers, earnings badges, risk controls, and Bear/Bull ranges |
 | `main.py` | CLI entry point, interactive setup, API key loading (API_KEYS.txt first, then .env), enrichment orchestration, risk analytics, and CSV export |
 
-### Claude System Prompt (31 Rules)
+### Claude System Prompt (32 Rules)
 
-Claude receives a detailed system prompt with **31 strategic rules** governing analysis and output structure:
+Claude receives a detailed system prompt with **32 strategic rules** governing analysis and output structure:
 
 **Input Data Claude Gets:**
 1. Portfolio snapshot — all holdings with cost basis, current value, P&L, unrealized gains (from portfolio_loader)
@@ -543,6 +543,7 @@ Claude receives a detailed system prompt with **31 strategic rules** governing a
 - **Rule 27 (Risk Controls):** Include entry zone, stop-loss, and take-profit percentages
 - **Rule 28 (Catalyst Gate):** BUY/ADD on >5% movers or near-earnings names requires verified catalyst or manual review
 - **Rule 31 (Hedge Suggestions):** Include trim/rebalance and optional small inverse-ETF hedges when concentration or beta is high
+- **Rule 32 (Compact JSON):** Return at most 12 recommendation rows focused on actionable trades and material risks
 
 **Output JSON Structure:**
 ```json
@@ -739,7 +740,7 @@ tech_stock/
 │   ├── alpha_vantage_client.py  ← News sentiment (thread-safe rate limiter; optional)
 │   ├── backtester.py            ← Historical recommendation calibration
 │   ├── report_quality.py        ← Deterministic quality gates and warnings
-│   ├── claude_analyst.py        ← 31-rule prompt, two-pass Claude review, JSON parsing
+│   ├── claude_analyst.py        ← 32-rule prompt, two-pass Claude review, JSON parsing
 │   └── report_generator.py      ← Priority actions table, hold tiers, earnings badges, markdown + CSV
 ├── requirements.txt             ← Python dependencies
 ├── .env.example                 ← Template for API key

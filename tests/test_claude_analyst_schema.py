@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import jsonschema
 
-from src.claude_analyst import RECOMMENDATION_SCHEMA, _response_text, call_claude, normalize_recommendation
+from src.claude_analyst import RECOMMENDATION_SCHEMA, _market_phase, _response_text, call_claude, normalize_recommendation
 
 
 def test_normalization_adds_risk_and_catalyst_fields_and_sorts_range():
@@ -37,6 +37,23 @@ def test_normalization_adds_risk_and_catalyst_fields_and_sorts_range():
     assert rec["catalyst_verified"] is False
     assert rec["manual_review_required"] is False
     assert rec["hold_tier"] == "watch"
+
+
+def test_normalization_defaults_missing_required_model_fields():
+    recommendation = {
+        "session_summary": "test",
+        "portfolio_health": {},
+        "recommendations": [{"ticker": "msft"}],
+        "warnings": [],
+    }
+
+    rec = normalize_recommendation(recommendation)["recommendations"][0]
+
+    assert rec["action"] == "HOLD"
+    assert rec["conviction"] == 5
+    assert rec["net_expected_pct"] == 0
+    assert rec["fee_hurdle_pct"] == 0
+    assert rec["time_horizon"] == "1-3 months"
 
 
 def test_schema_accepts_new_fields():
@@ -85,6 +102,14 @@ def test_response_text_ignores_non_text_blocks():
     ])
 
     assert _response_text(response) == '{"ok": true}'
+
+
+def test_market_phase_labels_overnight_and_after_close_correctly():
+    from datetime import datetime
+
+    assert _market_phase(datetime(2026, 4, 30, 1, 44)) == "outside regular market hours — before next open"
+    assert _market_phase(datetime(2026, 4, 30, 16, 0)) == "after regular market close"
+    assert _market_phase(datetime(2026, 4, 30, 15, 0)) == "regular session or pre-close"
 
 
 def _claude_payload(summary: str) -> dict:

@@ -4,7 +4,7 @@
   "risk_tolerance": "aggressive",
   "account_type": "wealthsimple_premium_usd",
   "claude_model": "claude-sonnet-4-6",
-  "claude_max_tokens": 20000,
+  "claude_max_tokens": 16000,
   "claude_timeout_seconds": 240,
   "enable_opus_extended_thinking": true,
   "opus_thinking_budget_tokens": 4096,
