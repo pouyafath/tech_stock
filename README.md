@@ -21,37 +21,45 @@
 
 ### Key Features
 
-✅ **Trader Action Plan** — Review-before-trading execution table ordered by urgency  
-✅ **Intelligent Sizing** — Investment amounts ($50–$700 per session) based on conviction and budget  
-✅ **Hold Tiers** — HOLD recommendations labeled as watch / keep / add-on-dip for clarity  
-✅ **Earnings Alerts** — ⚠️ Flags tickers with earnings within 7 days; adjusts risk profile  
-✅ **Exit Planning** — Target exit dates and expected price ranges (low % / high %) for every trade  
-✅ **8 Time Horizons** — Intraday / next session / 1-3 trading days / 1-2 weeks / 1-3 months / 3-6 months / 6-12 months / 12-36 months  
-✅ **6 Enrichment APIs** — Parallel data from Finnhub, Polygon, Twelve Data, FRED, CoinGecko (+ optional Alpha Vantage)  
-✅ **Fee-Aware** — Refuses to recommend trades below the fee hurdle (default 0.5% net expected return)  
-✅ **Conviction Scoring** — 1-10 scale; scores < 6 automatically become HOLD recommendations  
-✅ **Live Market Data** — Quote timestamp, previous close, day range, quote source, 10-month history, PE ratios, 52-week highs/lows via yfinance  
-✅ **Recent News** — Pulls last 7 days of headlines per ticker from Yahoo Finance  
-✅ **Trade History Context** — Loads your recent Wealthsimple trades to avoid whipsawing  
-✅ **Triple Output** — Markdown report + CSV table + JSON log for backtesting  
-✅ **Model Choice** — Pick Sonnet 4.6 (~$0.09/run, fast) or Opus 4.7 (~$0.45/run, deeper analysis) per session  
-✅ **Fast Parallel Fetching** — Concurrent API requests (18 tickers + enrichment in ~15s vs ~120s serial)  
+✅ **Trader Action Plan** — Review-before-trading execution table ordered by urgency
+✅ **Report Quality Gates** — Deterministic warnings for stale quotes, missing catalysts, range errors, and sizing risk
+✅ **Two-Pass Claude Review** — First-pass JSON is critiqued against quality warnings and drift, then revised before rendering
+✅ **Intelligent Sizing** — Investment amounts ($50–$700 per session) based on conviction and budget
+✅ **Hold Tiers** — HOLD recommendations labeled as watch / keep / add-on-dip for clarity
+✅ **Earnings Alerts** — ⚠️ Flags tickers with earnings within 7 days; adjusts risk profile
+✅ **Risk Controls** — Entry zones, stop-loss, take-profit, catalyst verification, and manual-review flags per recommendation
+✅ **Exit Planning** — Target exit dates and Bear Case / Bull Case ranges for every trade
+✅ **Portfolio Risk Dashboard** — Beta, volatility, drawdown estimate, company exposure rollups, and hedge suggestions
+✅ **8 Time Horizons** — Intraday / next session / 1-3 trading days / 1-2 weeks / 1-3 months / 3-6 months / 6-12 months / 12-36 months
+✅ **6 Enrichment APIs** — Parallel data from Finnhub, Polygon, Twelve Data, FRED, CoinGecko (+ optional Alpha Vantage)
+✅ **Fee-Aware** — Refuses to recommend trades below the fee hurdle (default 0.5% net expected return)
+✅ **Conviction Scoring** — 1-10 scale; scores < 6 automatically become HOLD recommendations
+✅ **Live Market Data** — Quote timestamp, previous close, day range, quote source, 10-month history, PE ratios, 52-week highs/lows via yfinance
+✅ **Recent News** — Pulls last 7 days of headlines per ticker from Yahoo Finance
+✅ **Trade History Context** — Loads your recent Wealthsimple trades to avoid whipsawing
+✅ **Triple Output** — Markdown report + CSV table + JSON log for backtesting
+✅ **Model Choice** — Pick Sonnet 4.6 (~$0.22/run two-pass baseline) or Opus 4.7 (~$0.45/run+, deeper analysis) per session
+✅ **Fast Parallel Fetching** — Concurrent API requests (18 tickers + enrichment in ~15s vs ~120s serial)
 
 ---
 
 ## ✨ What's New in v1.2.0 (April 29, 2026)
 
-**Major Upgrade:** Professional-grade signals, actionable sizing, and clear exit plans
+**Major Upgrade:** Professional-grade signals, deterministic quality gates, actionable sizing, and clear exit plans
 
+- **Report Quality Warnings** — Stale quotes, quote mismatches, missing catalysts, invalid horizons, and oversized exposures are surfaced near the top of the report
+- **Always-On Second Pass** — Claude revises its first JSON using quality warnings, drift, and previous-session context before final output
+- **Risk Controls** — Each recommendation now carries entry zone, stop-loss, take-profit, catalyst verification, catalyst source, and manual-review fields
+- **Portfolio Risk Dashboard** — Adds beta, volatility, drawdown estimate, top-3 concentration, correlated pairs, company-level exposure rollups, and hedge suggestions
 - **Priority Actions** — "Do This Today" ranked list replaces guesswork about order of execution
 - **Investment Sizing** — Exact USD amounts per trade ($50–$700 range), scaled by conviction
 - **Hold Tiers** — HOLD recommendations now labeled (watch / keep / add_on_dip) for clarity on next steps
 - **Earnings Alerts** — ⚠️ Automatically flags tickers with earnings within 7 days
-- **Exit Planning** — Every trade includes target exit date and expected price range (low % / high %)
+- **Exit Planning** — Every trade includes target exit date and Bear Case / Bull Case expected ranges
 - **6 Enrichment APIs** — Analyst consensus, insider activity, macro signals, crypto context (fast parallel phase)
 - **Extended Time Horizons** — Now supports 3-6 months, 6-12 months, 12-36 months for medium-term thesis
 - **Improved Setup** — `API_KEYS.txt` as the easy-to-find alternative to `.env` for new users
-- **Better CSV Export** — 12 columns including Hold Tier, Invest USD, Exit Target, Price Range, Earnings Alert
+- **Better CSV Export** — Trader-facing columns for Hold Tier, Invest USD, Bear/Bull Case, risk controls, catalyst gate, and quote audit fields
 - **Optional Alpha Vantage** — Now disabled by default (free tier only 25 req/day); enable in settings if you have paid plan
 
 ---
@@ -111,7 +119,7 @@ Session type (morning/afternoon) [Enter = morning]:
 4. Activities CSV detected: /Users/you/Downloads/activities-export-2026-04-24.csv
    Is this correct? (Y/N, or Enter to skip): Y
 5. Which model would you like to use?
-   [1] Sonnet 4.6 — ~$0.09/run (recommended for daily use)
+   [1] Sonnet 4.6 — ~$0.22/run two-pass baseline (recommended for daily use)
    [2] Opus 4.7   — ~$0.45/run (deeper analysis, better for complex portfolios)
    Choose (1/2) [Enter = 1]:
 ```
@@ -182,7 +190,7 @@ ANTHROPIC_API_KEY=your_key python src/main.py morning --holdings ~/Downloads/lat
 
 ### Holdings Report (Wealthsimple)
 
-**When to export:** Every run (takes 30 seconds)  
+**When to export:** Every run (takes 30 seconds)
 **Where:** Account → Activity → Export Holdings Report (CSV)
 
 Contains your current positions:
@@ -197,8 +205,8 @@ The app reads this to:
 
 ### Activities Export (Wealthsimple)
 
-**When to export:** Once per week (optional but recommended)  
-**Where:** Account → Activity → Export Activities Export (CSV)  
+**When to export:** Once per week (optional but recommended)
+**Where:** Account → Activity → Export Activities Export (CSV)
 **Period:** Select last **3 months**
 
 Contains your trade history:
@@ -243,8 +251,10 @@ Structured table with trader-facing columns:
 - **Hold Tier** — For HOLD only: watch (conviction ≤5) / keep (6–7) / add_on_dip (≥8)
 - **Invest USD** — Amount to invest (for BUY/ADD only)
 - **Exit Target** — Target exit date (e.g., "Jul 2026")
-- **Price Range Low %** — Expected low (% change from now)
-- **Price Range High %** — Expected high (% change from now)
+- **Bear Case %** — Conservative expected move from now
+- **Bull Case %** — Optimistic expected move from now
+- **Stop Loss % / Take Profit %** — Risk controls relative to current price
+- **Catalyst Verified / Catalyst Source / Manual Review** — Catalyst gate fields for large movers and near-earnings names
 - **Quote / Previous Close / Quote Time UTC / Quote Source** — Quote audit fields for execution review
 - **Earnings Alert** — ⚠️ if earnings within 7 days
 - **Thesis** — Text summary
@@ -253,9 +263,9 @@ Structured table with trader-facing columns:
 
 **Example:**
 ```csv
-Ticker,Action,Hold Tier,Conviction,Invest USD,Expected Stock Move %,Expected Benefit of Action %,Net Expected %,Time Horizon,Exit Target,Price Range Low%,Price Range High%,Quote,Previous Close,Quote Time UTC,Quote Source,Earnings Alert,Thesis
-NVDA,ADD,,8,$500,+15.00%,+14.89%,+14.89%,3-6 months,Jul 2026,-8%,+18%,210.50 USD,205.12 USD,2026-04-29T20:00:01+00:00,yfinance:regularMarketPrice,,Core AI infrastructure play...
-SOXL,SELL,,9,,-20.00%,+19.70%,+19.70%,next session,Apr 2026,-30%,-10%,117.97 USD,109.56 USD,2026-04-29T20:00:00+00:00,yfinance:regularMarketPrice,,Leveraged ETF decay risk...
+Ticker,Action,Hold Tier,Conviction,Invest USD,Expected Stock Move %,Expected Benefit of Action %,Net Expected %,Time Horizon,Exit Target,Bear Case %,Bull Case %,Stop Loss %,Take Profit %,Catalyst Verified,Catalyst Source,Manual Review,Quote,Previous Close,Quote Time UTC,Quote Source,Earnings Alert,Thesis
+NVDA,ADD,,8,$500,+15.00%,+14.89%,+14.89%,3-6 months,Jul 2026,-8%,+18%,-7%,+18%,YES,Finnhub earnings/news,NO,210.50 USD,205.12 USD,2026-04-29T20:00:01+00:00,yfinance:regularMarketPrice,,Core AI infrastructure play...
+SOXL,SELL,,9,,-20.00%,+19.70%,+19.70%,next session,Apr 2026,-30%,-10%,-6%,+0%,NO,,YES,117.97 USD,109.56 USD,2026-04-29T20:00:00+00:00,yfinance:regularMarketPrice,,Leveraged ETF decay risk...
 ```
 
 ### 3. JSON Log
@@ -299,6 +309,7 @@ Raw machine-readable format for:
 | `max_position_pct` | 25 | Single position size cap (% of portfolio) |
 | `enable_enrichment` | true | Enable/disable all enrichment APIs |
 | `alpha_vantage_enabled` | false | Alpha Vantage free tier limited to 25 req/day; set true only with paid plan |
+| `enable_options_implied_move_for_earnings` | false | Optional yfinance options implied move lookup; disabled by default because option-chain calls can be slow |
 | `news_lookback_days` | 7 | How far back to fetch news headlines |
 | `history_months` | 10 | Months of historical price data to fetch |
 
@@ -408,7 +419,9 @@ Wealthsimple CSVs
 [News Fetcher]     ├→ yfinance → prices, history, PE, headlines, news
 [Fee Calculator]   ┘
     ↓
-[Claude Analyst] (with Config & Constants loaded) → JSON recommendations
+[Portfolio Analytics] → risk dashboard, company exposure, hedge suggestions
+    ↓
+[Claude Analyst] → first-pass JSON → quality gates + drift → second-pass JSON
     ↓
 [Report Generator] → markdown + CSV + JSON log
 ```
@@ -434,6 +447,7 @@ Wealthsimple CSVs
 | `market_data.py` | Fetch live prices, history, PE via yfinance (parallel fetching with ThreadPoolExecutor) |
 | `news_fetcher.py` | Fetch recent news headlines (parallel fetching with ThreadPoolExecutor) |
 | `fee_calculator.py` | Model Wealthsimple fees + bid-ask spreads |
+| `portfolio_analytics.py` | Company exposure rollups, volatility, beta, drawdown, correlation, and hedge suggestions |
 
 **Enrichment & Analysis**:
 
@@ -451,13 +465,14 @@ Wealthsimple CSVs
 
 | Module | Purpose |
 |--------|---------|
-| `claude_analyst.py` | 23-rule system prompt, build enriched prompt, call Claude API, parse JSON response with new fields (invest_amount_usd, hold_tier, earnings_alert, target_exit_date, price targets, priority_actions) |
-| `report_generator.py` | Format markdown + CSV with priority actions table, hold tier labels, earnings badges, invest amounts, exit targets, price ranges |
+| `claude_analyst.py` | 31-rule system prompt, build enriched prompt, run two Claude passes, parse JSON response with sizing, catalyst, risk-control, hedge, and priority-action fields |
+| `report_quality.py` | Deterministic quality warnings and hard gates for stale quotes, missing catalysts, risk controls, and sizing issues |
+| `report_generator.py` | Format markdown + CSV with priority actions, quality warnings, risk dashboard, hold tiers, earnings badges, risk controls, and Bear/Bull ranges |
 | `main.py` | CLI entry point, interactive setup, API key loading (API_KEYS.txt first, then .env), enrichment orchestration, CSV export with 12 columns |
 
-### Claude System Prompt (23 Rules)
+### Claude System Prompt (31 Rules)
 
-Claude receives a detailed system prompt with **23 strategic rules** governing analysis and output structure:
+Claude receives a detailed system prompt with **31 strategic rules** governing analysis and output structure:
 
 **Input Data Claude Gets:**
 1. Portfolio snapshot — all holdings with cost basis, current value, P&L, unrealized gains (from portfolio_loader)
@@ -468,6 +483,7 @@ Claude receives a detailed system prompt with **23 strategic rules** governing a
 6. Recent trades — your trading activity last 90 days (from activity_loader, if provided)
 7. Session type — "morning" (pre-open) or "afternoon" (intraday + EOD positioning)
 8. Watchlist alerts — target entry/exit prices for monitored tickers (from config/watchlist.json)
+9. Quality warnings, previous-session drift, risk dashboard, and company exposure rollup
 
 **Output Rules (Examples from the 23):**
 - **Rule 15 (Earnings Alert):** If earnings within 7 days, set `earnings_alert=true` and lead with "⚠️ EARNINGS [DATE]"
@@ -475,9 +491,12 @@ Claude receives a detailed system prompt with **23 strategic rules** governing a
 - **Rule 18 (Investment Sizing):** Set `invest_amount_usd` based on conviction: 8–10 = 40% of session budget, 7 = 25%, 6 = 15%
 - **Rule 19 (Hold Tiers):** Every HOLD gets `hold_tier`: "watch" (conviction ≤5), "keep" (6–7), "add_on_dip" (≥8)
 - **Rule 20 (Time Horizons):** Exactly one of: intraday / next session / 1-3 trading days / 1-2 weeks / 1-3 months / 3-6 months / 6-12 months / 12-36 months
-- **Rule 21 (Exit Plan):** Every recommendation includes `target_exit_date` (e.g., "Jul 2026") and price range (low %, high %)
+- **Rule 21 (Exit Plan):** Every recommendation includes `target_exit_date` (e.g., "Jul 2026") and Bear/Bull range
 - **Rule 22 (Buy Signals):** Actively look for BUY opportunities — not just existing portfolio
 - **Rule 23 (Priority Actions):** Output `priority_actions` array — ordered "do this today" list by urgency
+- **Rule 27 (Risk Controls):** Include entry zone, stop-loss, and take-profit percentages
+- **Rule 28 (Catalyst Gate):** BUY/ADD on >5% movers or near-earnings names requires verified catalyst or manual review
+- **Rule 31 (Hedge Suggestions):** Include trim/rebalance and optional small inverse-ETF hedges when concentration or beta is high
 
 **Output JSON Structure:**
 ```json
@@ -487,7 +506,7 @@ Claude receives a detailed system prompt with **23 strategic rules** governing a
       "ticker": "NVDA",
       "action": "ADD",
       "conviction": 8,
-      "net_expected_return_pct": 14.89,
+      "net_expected_pct": 14.89,
       "invest_amount_usd": 500,
       "time_horizon": "3-6 months",
       "hold_tier": null,
@@ -495,15 +514,25 @@ Claude receives a detailed system prompt with **23 strategic rules** governing a
       "target_exit_date": "Jul 2026",
       "price_target_low_pct": -8.0,
       "price_target_high_pct": 18.0,
+      "risk_controls": {
+        "entry_zone_low_pct": -3.0,
+        "entry_zone_high_pct": 1.0,
+        "stop_loss_pct": -7.0,
+        "take_profit_pct": 18.0
+      },
+      "catalyst_verified": true,
+      "catalyst_source": "Finnhub analyst consensus + earnings history",
+      "manual_review_required": false,
       "thesis": "Core AI infrastructure. Analyst consensus: 66 analysts STRONG BUY. Beat estimates 4 quarters in a row. Insider buying strong."
     }
   ],
   "priority_actions": [
     {"order": 1, "ticker": "NVDA", "action": "ADD", "reason": "Core position, good entry"},
-    {"order": 2, "ticker": "MSFT", "action": "HOLD", "reason": "Watch for earnings catalyst"}
+    {"order": 2, "ticker": "SOXL", "action": "SELL", "reason": "Leveraged ETF decay and concentration risk"}
   ],
   "summary": "..."
 }
+```
 
 ---
 
@@ -526,11 +555,12 @@ This helps you prioritize which HOLDs to monitor for entry opportunities.
 
 **A:** The app flags tickers with earnings within 7 days and adjusts the risk profile. Volatility often spikes around earnings, so the recommendation may suggest a shorter time horizon or smaller position size. Check your CSV for the `earnings_alert` column.
 
-### Q: What's the "Exit Target" and "Price Range"?
+### Q: What's the "Exit Target" and "Bear/Bull Case"?
 
 **A:** Every recommendation includes:
 - **Exit Target Date** (e.g., "Jul 2026") — when Claude expects you to close the position
-- **Price Range Low % / High %** — expected price move from entry (e.g., -8% to +18%)
+- **Bear Case % / Bull Case %** — conservative and optimistic expected moves from entry (e.g., -8% to +18%)
+- **Stop Loss % / Take Profit %** — risk-control levels relative to current price
 
 Use these to set stop-loss and take-profit orders in Wealthsimple.
 
@@ -560,8 +590,8 @@ But you can run it as often as you like. Use `min_net_expected_return_pct` (defa
 
 ### Q: What's the cost per run?
 
-**A:** With Sonnet: ~$0.09 per run (~$0.18/day for 2 runs = ~$5.40/month)  
-With Opus: ~$0.45 per run (~$0.90/day = ~$27/month)  
+**A:** With Sonnet two-pass review: ~$0.22 per run (~$0.44/day for 2 runs = ~$13.20/month)
+With Opus two-pass review: roughly ~$0.45+ per run depending on output length
 **Note:** Enrichment APIs have no cost (all free tiers).
 
 ### Q: Can I schedule this automatically?
@@ -596,7 +626,7 @@ The app looks for `holdings-report-*.csv` in `~/Downloads/`. Either:
 This is normal. yfinance news availability varies by ticker and day. The app still generates recommendations based on price action and fundamentals.
 
 ### "Claude response parsing failed"
-The response was truncated. This can happen if you have 100+ positions or very large news volumes. Increase `max_tokens` in `claude_analyst.py` from 8192 to 16384.
+The response was truncated or not valid JSON. This can happen with very large portfolios or news volumes. Increase `claude_max_tokens` in `config/settings.json` or reduce watchlist/news scope.
 
 ---
 
@@ -622,6 +652,7 @@ tech_stock/
 │   ├── _utils.py                ← Helper functions (safe_float, clean_csv_row, etc.)
 │   ├── portfolio_loader.py      ← Parse Holdings CSV
 │   ├── activity_loader.py       ← Parse Activities CSV
+│   ├── portfolio_analytics.py   ← Risk dashboard, company rollups, hedge suggestions
 │   ├── market_data.py           ← Fetch prices via yfinance (parallel)
 │   ├── news_fetcher.py          ← Fetch headlines (parallel)
 │   ├── fee_calculator.py        ← Wealthsimple fee model
@@ -632,7 +663,8 @@ tech_stock/
 │   ├── fred_client.py           ← Macro context (Fed rate, inflation, yield curve, VIX)
 │   ├── coingecko_client.py      ← BTC price, 7d change, Fear & Greed, macro risk signal
 │   ├── alpha_vantage_client.py  ← News sentiment (thread-safe rate limiter; optional)
-│   ├── claude_analyst.py        ← 23-rule system prompt, Claude API call, JSON parsing
+│   ├── report_quality.py        ← Deterministic quality gates and warnings
+│   ├── claude_analyst.py        ← 31-rule prompt, two-pass Claude review, JSON parsing
 │   └── report_generator.py      ← Priority actions table, hold tiers, earnings badges, markdown + CSV
 ├── requirements.txt             ← Python dependencies
 ├── .env.example                 ← Template for API key
@@ -687,6 +719,6 @@ For issues or questions:
 
 ---
 
-**Last updated:** April 29, 2026 (Major upgrade: priority actions, invest sizing, hold tiers, earnings alerts, exit planning, 6 enrichment APIs)  
-**Version:** 1.2.0  
-**Status:** Production-ready with professional-grade signals and actionable recommendations
+**Last updated:** April 30, 2026 (Major upgrade: quality gates, two-pass review, risk dashboard, risk controls, hedge suggestions)
+**Version:** 1.3.0
+**Status:** Production-ready with deterministic quality checks and actionable recommendations

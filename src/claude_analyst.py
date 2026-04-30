@@ -7,6 +7,7 @@ reduce costs on repeated runs.
 
 import json
 import os
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 
@@ -15,6 +16,9 @@ import jsonschema
 from dotenv import load_dotenv
 
 from src.config import load_settings
+from src.drift_tracker import compute_drift
+from src.portfolio_analytics import build_hedge_suggestions
+from src.report_quality import apply_quality_gates, evaluate as evaluate_report_quality
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
@@ -57,6 +61,11 @@ RULES YOU MUST FOLLOW:
 24. QUOTE DISCIPLINE: Treat quote freshness as a hard input. Use current_price only with its quote timestamp, previous_close, source, and price_basis. If a ticker uses daily_history_close fallback or lacks a quote timestamp, say that data quality is degraded and avoid new BUY/ADD recommendations.
 25. LARGE-MOVE CATALYST CHECK: For any ticker with an absolute 1-day move of 5% or more, explicitly cite the top available news/catalyst in the thesis. If no news catalyst is available, say "NO VERIFIED CATALYST FOUND" and make any trade conditional on manual catalyst verification.
 26. TRADER CLARITY: Separate expected stock move from expected benefit of the action in wording. For SELL/TRIM, net_expected_pct means drawdown avoided or gain protected, not a positive expected stock return.
+27. RISK CONTROLS: Every recommendation must include risk_controls with entry_zone_low_pct, entry_zone_high_pct, stop_loss_pct, and take_profit_pct. Use percentages relative to current price. For SELL/TRIM, stop_loss_pct means the adverse rebound or invalidation threshold.
+28. CATALYST GATE: Every recommendation must include catalyst_verified, catalyst_source, and manual_review_required. BUY/ADD on >5% movers or near-earnings names requires catalyst_verified=true and a specific source; otherwise downgrade to HOLD and set manual_review_required=true.
+29. DECISION TREE: Every thesis or risk_or_invalidation must contain compact "If X, do Y; if Z, do W" execution language.
+30. RANGE LABELS: price_target_low_pct is the Bear Case and price_target_high_pct is the Bull Case. Keep the JSON field names unchanged for compatibility.
+31. HEDGE SUGGESTIONS: If concentration, beta, or volatility risk is high, include hedge_suggestions. Trim/rebalance suggestions should come before inverse ETFs. Inverse ETF hedges are allowed only as small short-term hedges with risk notes and sizing caps.
 
 OUTPUT FORMAT (return exactly this structure):
 {
@@ -65,8 +74,19 @@ OUTPUT FORMAT (return exactly this structure):
     "total_value_usd_equivalent": <number>,
     "overall_pnl_pct": <number>,
     "concentration_risk": "low|medium|high",
-    "cash_deployment": "string"
+    "cash_deployment": "string",
+    "risk_dashboard": <object or null>
   },
+  "hedge_suggestions": [
+    {
+      "type": "rebalance|inverse_etf|cash_buffer|other",
+      "instrument": "string",
+      "action": "string",
+      "max_portfolio_pct": <number or null>,
+      "rationale": "string",
+      "risk_note": "string"
+    }
+  ],
   "priority_actions": [
     {
       "order": 1,
@@ -96,6 +116,15 @@ OUTPUT FORMAT (return exactly this structure):
       "target_exit_date": "string or null (e.g. Jul 2026)",
       "price_target_low_pct": <number or null>,
       "price_target_high_pct": <number or null>,
+      "risk_controls": {
+        "entry_zone_low_pct": <number or null>,
+        "entry_zone_high_pct": <number or null>,
+        "stop_loss_pct": <number or null>,
+        "take_profit_pct": <number or null>
+      },
+      "catalyst_verified": <true|false|null>,
+      "catalyst_source": "string or null",
+      "manual_review_required": <true|false|null>,
       "hold_tier": "watch|keep|add_on_dip|null",
       "earnings_alert": <true|false|null>
     }
@@ -125,8 +154,24 @@ RECOMMENDATION_SCHEMA = {
                 "overall_pnl_pct": {"type": ["number", "null"]},
                 "concentration_risk": {"type": ["string", "null"]},
                 "cash_deployment": {"type": ["string", "null"]},
+                "risk_dashboard": {"type": ["object", "null"]},
             },
             "additionalProperties": True,
+        },
+        "hedge_suggestions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "type": {"type": ["string", "null"]},
+                    "instrument": {"type": ["string", "null"]},
+                    "action": {"type": ["string", "null"]},
+                    "max_portfolio_pct": {"type": ["number", "null"]},
+                    "rationale": {"type": ["string", "null"]},
+                    "risk_note": {"type": ["string", "null"]},
+                },
+                "additionalProperties": True,
+            },
         },
         "priority_actions": {
             "type": "array",
@@ -167,6 +212,19 @@ RECOMMENDATION_SCHEMA = {
                     "target_exit_date": {"type": ["string", "null"]},
                     "price_target_low_pct": {"type": ["number", "null"]},
                     "price_target_high_pct": {"type": ["number", "null"]},
+                    "risk_controls": {
+                        "type": ["object", "null"],
+                        "properties": {
+                            "entry_zone_low_pct": {"type": ["number", "null"]},
+                            "entry_zone_high_pct": {"type": ["number", "null"]},
+                            "stop_loss_pct": {"type": ["number", "null"]},
+                            "take_profit_pct": {"type": ["number", "null"]},
+                        },
+                        "additionalProperties": True,
+                    },
+                    "catalyst_verified": {"type": ["boolean", "null"]},
+                    "catalyst_source": {"type": ["string", "null"]},
+                    "manual_review_required": {"type": ["boolean", "null"]},
                     "hold_tier": {"type": ["string", "null"]},
                     "earnings_alert": {"type": ["boolean", "null"]},
                 },
@@ -194,10 +252,30 @@ RECOMMENDATION_SCHEMA = {
 def normalize_recommendation(recommendation: dict) -> dict:
     """Normalize model output before it is logged or rendered."""
     for rec in recommendation.get("recommendations", []) or []:
+        if rec.get("ticker"):
+            rec["ticker"] = str(rec["ticker"]).upper()
         low = rec.get("price_target_low_pct")
         high = rec.get("price_target_high_pct")
         if low is not None and high is not None and low > high:
             rec["price_target_low_pct"], rec["price_target_high_pct"] = high, low
+        controls = rec.get("risk_controls")
+        if not isinstance(controls, dict):
+            controls = {}
+        rec["risk_controls"] = {
+            "entry_zone_low_pct": controls.get("entry_zone_low_pct"),
+            "entry_zone_high_pct": controls.get("entry_zone_high_pct"),
+            "stop_loss_pct": controls.get("stop_loss_pct"),
+            "take_profit_pct": controls.get("take_profit_pct"),
+            **{k: v for k, v in controls.items() if k not in {
+                "entry_zone_low_pct", "entry_zone_high_pct", "stop_loss_pct", "take_profit_pct",
+            }},
+        }
+        rec.setdefault("catalyst_verified", False)
+        rec.setdefault("catalyst_source", None)
+        rec.setdefault("manual_review_required", False)
+        if rec.get("action") == "HOLD" and not rec.get("hold_tier"):
+            rec["hold_tier"] = "watch"
+    recommendation.setdefault("hedge_suggestions", [])
     return recommendation
 
 
@@ -216,6 +294,12 @@ def _format_indicators_line(ind: dict) -> str:
         parts.append(f"px/SMA50={ind['price_vs_sma50_pct']:+.1f}%")
     if ind.get("price_vs_sma200_pct") is not None:
         parts.append(f"px/SMA200={ind['price_vs_sma200_pct']:+.1f}%")
+    if ind.get("sma_50_above_200") is not None:
+        parts.append(f"SMA50>SMA200={bool(ind['sma_50_above_200'])}")
+    if ind.get("atr_pct_of_price") is not None:
+        parts.append(f"ATR14={ind['atr_pct_of_price']:.1f}%")
+    if ind.get("volatility_20d_pct") is not None:
+        parts.append(f"20d_vol={ind['volatility_20d_pct']:.1f}%")
     if ind.get("volume_spike_ratio") is not None:
         parts.append(f"vol×{ind['volume_spike_ratio']:.2f}")
     return " | ".join(parts)
@@ -231,6 +315,75 @@ def _format_sentiment_line(aggregate: dict) -> str:
     )
 
 
+def _format_previous_session(previous_session: dict | None) -> list[str]:
+    if not previous_session:
+        return []
+    lines = [
+        "\n=== PREVIOUS SESSION RECOMMENDATIONS ===",
+        f"Source log: {previous_session.get('_session_file', 'unknown')}",
+    ]
+    for rec in (previous_session.get("recommendations") or [])[:12]:
+        lines.append(
+            f"  {rec.get('ticker', '')}: {rec.get('action', '')} "
+            f"conviction={rec.get('conviction', 'N/A')} "
+            f"net={rec.get('net_expected_pct', 'N/A')}% "
+            f"horizon={rec.get('time_horizon', 'N/A')}"
+        )
+    return lines
+
+
+def _format_risk_dashboard(risk_dashboard: dict | None) -> list[str]:
+    if not risk_dashboard:
+        return []
+    lines = ["\n=== PORTFOLIO RISK DASHBOARD ==="]
+    if risk_dashboard.get("annualized_volatility_pct") is not None:
+        lines.append(f"Annualized volatility estimate: {risk_dashboard['annualized_volatility_pct']:.1f}%")
+    if risk_dashboard.get("max_drawdown_estimate_pct") is not None:
+        lines.append(f"Max drawdown estimate from available history: {risk_dashboard['max_drawdown_estimate_pct']:.1f}%")
+    if risk_dashboard.get("top3_concentration_pct") is not None:
+        lines.append(f"Top-3 concentration: {risk_dashboard['top3_concentration_pct']:.1f}%")
+    beta = risk_dashboard.get("beta") or {}
+    if beta:
+        lines.append("Beta estimates: " + ", ".join(f"{k}={v:.2f}" for k, v in beta.items()))
+    pairs = risk_dashboard.get("correlated_pairs") or []
+    if pairs:
+        lines.append(
+            "Highly correlated pairs: "
+            + ", ".join(f"{p['pair']} ({p['correlation']:+.2f})" for p in pairs)
+        )
+    return lines
+
+
+def _format_company_exposure(company_exposure: dict | None) -> list[str]:
+    if not company_exposure:
+        return []
+    lines = ["\n=== COMPANY-LEVEL EXPOSURE ROLLUP ==="]
+    for row in list(company_exposure.values())[:12]:
+        tickers = ", ".join(row.get("tickers") or [])
+        lines.append(
+            f"  {row.get('company')}: {row.get('pct', 0):.1f}% "
+            f"(${row.get('value_usd', 0):,.0f} USD equiv) via {tickers}"
+        )
+    return lines
+
+
+def _format_market_context(market_context: dict | None) -> list[str]:
+    if not market_context:
+        return []
+    lines = ["\n=== SECTOR / CROSS-ASSET CONTEXT ==="]
+    for symbol, row in sorted(market_context.items()):
+        if row.get("error"):
+            lines.append(f"  {symbol}: ERROR - {row['error']}")
+            continue
+        lines.append(
+            f"  {symbol}: ${row.get('current_price', 'N/A')} | "
+            f"5d={row.get('change_pct_5d', 'N/A')}% | "
+            f"20d={row.get('change_pct_20d', 'N/A')}% | "
+            f"source={row.get('quote_source', 'N/A')}"
+        )
+    return lines
+
+
 def build_user_message(
     session_type: str,
     portfolio: dict,
@@ -244,6 +397,11 @@ def build_user_message(
     price_alerts: list = None,
     drift: list = None,
     enriched: dict = None,
+    previous_session: dict = None,
+    risk_dashboard: dict = None,
+    company_exposure: dict = None,
+    market_context: dict = None,
+    hedge_suggestions: list = None,
 ) -> str:
     """Construct the full user message with all context."""
     from src.news_fetcher import aggregate_sentiment
@@ -335,6 +493,17 @@ def build_user_message(
                 f"[{tickers_str}]{flag}"
             )
 
+    lines += _format_company_exposure(company_exposure)
+    lines += _format_risk_dashboard(risk_dashboard)
+    if hedge_suggestions:
+        lines.append("\n=== DETERMINISTIC HEDGE / REBALANCE SUGGESTIONS ===")
+        for suggestion in hedge_suggestions:
+            lines.append(
+                f"  {suggestion.get('instrument')}: {suggestion.get('action')} "
+                f"cap={suggestion.get('max_portfolio_pct', 'N/A')}% - "
+                f"{suggestion.get('rationale', '')} Risk: {suggestion.get('risk_note', '')}"
+            )
+
     # ── Market data + indicators ──────────────────────────────────────────
     lines.append("\n=== MARKET DATA (price + technical indicators) ===")
     for ticker, d in market_data.items():
@@ -364,6 +533,12 @@ def build_user_message(
             parts.append(f"from 52w-high={pct_high:+.1f}%")
         if d.get("pe_ratio") is not None:
             parts.append(f"PE={d['pe_ratio']}")
+        if d.get("forward_pe") is not None:
+            parts.append(f"fwdPE={d['forward_pe']}")
+        if d.get("price_to_sales") is not None:
+            parts.append(f"P/S={d['price_to_sales']}")
+        if d.get("enterprise_to_ebitda") is not None:
+            parts.append(f"EV/EBITDA={d['enterprise_to_ebitda']}")
         if d.get("sector"):
             parts.append(f"sector={d['sector']}")
         if d.get("quote_timestamp_utc"):
@@ -377,7 +552,16 @@ def build_user_message(
         ind_line = _format_indicators_line(d.get("indicators") or {})
         if ind_line:
             lines.append(f"  INDICATORS: {ind_line}")
+        options_move = d.get("options_implied_move")
+        if options_move:
+            lines.append(
+                "  OPTIONS IMPLIED MOVE: "
+                f"{options_move.get('implied_move_pct')}% by {options_move.get('expiry')} "
+                f"(ATM {options_move.get('atm_strike')}, source={options_move.get('source')})"
+            )
         lines.append(f"  Last 5 closes: {recent_closes}")
+
+    lines += _format_market_context(market_context)
 
     # ── Mandatory catalyst check for large movers ─────────────────────────
     catalyst_threshold = settings.get("news_catalyst_move_threshold_pct", 5)
@@ -410,6 +594,8 @@ def build_user_message(
         from src.activity_loader import format_activities_for_prompt
         lines.append("\n=== RECENT TRADE HISTORY (last 90 days) ===")
         lines.append(format_activities_for_prompt(recent_activities))
+
+    lines += _format_previous_session(previous_session)
 
     # ── Track record (from backtester) ─────────────────────────────────────
     if backtest_summary and backtest_summary.get("n_samples", 0) > 0:
@@ -482,7 +668,8 @@ def build_user_message(
         f"\n\nNow provide your recommendation JSON. Remember: only recommend trading if "
         f"net_expected_pct > {settings.get('min_net_expected_return_pct', 0.5)}% and conviction >= 6. "
         f"Use the TECHNICAL INDICATORS, ANALYST CONSENSUS, OPTIONS FLOW, MACRO CONTEXT, "
-        f"and TRACK RECORD above to calibrate."
+        f"RISK DASHBOARD, COMPANY EXPOSURE, and TRACK RECORD above to calibrate. "
+        f"Populate risk_controls, catalyst fields, hedge_suggestions, and decision-tree wording."
     )
 
     return "\n".join(lines)
@@ -511,6 +698,107 @@ def estimate_cost(usage, model: str) -> dict:
     }
 
 
+def _strip_json_fences(raw_text: str) -> str:
+    raw_text = (raw_text or "").strip()
+    if raw_text.startswith("```"):
+        lines_raw = raw_text.split("\n")
+        raw_text = "\n".join(lines_raw[1:-1] if lines_raw[-1].strip() == "```" else lines_raw[1:])
+    return raw_text.strip()
+
+
+def _parse_validate_recommendation(raw_text: str) -> dict:
+    raw_text = _strip_json_fences(raw_text)
+    try:
+        recommendation = json.loads(raw_text)
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            f"Claude returned non-JSON response. Parse error: {e}\n\nRaw response:\n{raw_text[:500]}"
+        )
+
+    try:
+        jsonschema.validate(recommendation, RECOMMENDATION_SCHEMA)
+    except jsonschema.ValidationError as e:
+        path = " -> ".join(str(p) for p in e.absolute_path) or "<root>"
+        raise ValueError(
+            f"Claude response failed schema validation at {path}: {e.message}"
+        )
+
+    return normalize_recommendation(recommendation)
+
+
+def _create_message(client, model: str, settings: dict, messages: list[dict]):
+    """Call Anthropic with the cacheable system prompt."""
+    return client.messages.create(
+        model=model,
+        max_tokens=settings.get("claude_max_tokens", 20000),
+        system=[
+            {
+                "type": "text",
+                "text": SYSTEM_PROMPT,
+                "cache_control": {"type": "ephemeral", "ttl": "1h"},
+            }
+        ],
+        messages=messages,
+    )
+
+
+def _combine_usage_stats(first: dict, second: dict | None) -> dict:
+    """Aggregate cost/tokens across the two Claude passes."""
+    if not second:
+        out = deepcopy(first)
+        out["passes"] = 1
+        out["first_pass"] = first
+        return out
+
+    out = {
+        "input_tokens": first.get("input_tokens", 0) + second.get("input_tokens", 0),
+        "output_tokens": first.get("output_tokens", 0) + second.get("output_tokens", 0),
+        "cache_write_tokens": first.get("cache_write_tokens", 0) + second.get("cache_write_tokens", 0),
+        "cache_read_tokens": first.get("cache_read_tokens", 0) + second.get("cache_read_tokens", 0),
+        "total_tokens": first.get("total_tokens", 0) + second.get("total_tokens", 0),
+        "cost_usd": round(first.get("cost_usd", 0) + second.get("cost_usd", 0), 4),
+        "cache_hit": bool(first.get("cache_hit") or second.get("cache_hit")),
+        "passes": 2,
+        "first_pass": first,
+        "second_pass": second,
+    }
+    return out
+
+
+def _build_review_message(
+    first_recommendation: dict,
+    quality_warnings: list[dict],
+    drift: list[dict],
+    previous_session: dict | None,
+) -> str:
+    previous_meta = {
+        "source": (previous_session or {}).get("_session_file"),
+        "recommendations": (previous_session or {}).get("recommendations", [])[:12],
+    }
+    return "\n".join([
+        "SECOND PASS QUALITY REVIEW.",
+        "Revise the recommendation JSON using the deterministic warnings and drift below.",
+        "Return one complete valid JSON object only, using the same schema.",
+        "Hard requirements:",
+        "- Fix or explicitly surface every high/medium quality warning.",
+        "- Downgrade BUY/ADD to HOLD when catalyst verification is missing.",
+        "- Keep risk_controls, catalyst fields, hedge_suggestions, and decision-tree wording populated.",
+        "- Preserve useful recommendations, but reduce unsupported drift versus the previous session.",
+        "",
+        "FIRST_PASS_JSON:",
+        json.dumps(first_recommendation, indent=2, default=str),
+        "",
+        "QUALITY_WARNINGS_JSON:",
+        json.dumps(quality_warnings, indent=2, default=str),
+        "",
+        "DRIFT_VS_PREVIOUS_JSON:",
+        json.dumps(drift, indent=2, default=str),
+        "",
+        "PREVIOUS_SESSION_CONTEXT_JSON:",
+        json.dumps(previous_meta, indent=2, default=str),
+    ])
+
+
 def call_claude(
     session_type: str,
     portfolio: dict,
@@ -524,6 +812,11 @@ def call_claude(
     price_alerts: list = None,
     drift: list = None,
     enriched: dict = None,
+    previous_session: dict = None,
+    risk_dashboard: dict = None,
+    company_exposure: dict = None,
+    market_context: dict = None,
+    hedge_suggestions: list = None,
 ) -> tuple[dict, dict]:
     """
     Call Claude API and return (recommendation, usage_stats).
@@ -535,6 +828,10 @@ def call_claude(
         settings.update(settings_override)
     model = settings.get("claude_model", "claude-sonnet-4-6")
 
+    deterministic_hedges = hedge_suggestions
+    if deterministic_hedges is None:
+        deterministic_hedges = build_hedge_suggestions(risk_dashboard or {}, company_exposure or {}, settings)
+
     user_message = build_user_message(
         session_type, portfolio, market_data, news_by_ticker, fee_snapshot, settings,
         recent_activities=recent_activities,
@@ -543,48 +840,92 @@ def call_claude(
         price_alerts=price_alerts,
         drift=drift,
         enriched=enriched,
+        previous_session=previous_session,
+        risk_dashboard=risk_dashboard,
+        company_exposure=company_exposure,
+        market_context=market_context,
+        hedge_suggestions=deterministic_hedges,
     )
 
-    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    client = anthropic.Anthropic(
+        api_key=os.environ.get("ANTHROPIC_API_KEY"),
+        timeout=settings.get("claude_timeout_seconds", 240),
+    )
 
-    # Cache the system prompt with 1h TTL — saves ~90% on repeated runs within an hour.
-    response = client.messages.create(
-        model=model,
-        max_tokens=settings.get("claude_max_tokens", 20000),
-        system=[
-            {
-                "type": "text",
-                "text": SYSTEM_PROMPT,
-                "cache_control": {"type": "ephemeral", "ttl": "1h"},
-            }
+    # Pass 1: produce the initial recommendation JSON.
+    first_response = _create_message(
+        client,
+        model,
+        settings,
+        [{"role": "user", "content": user_message}],
+    )
+    first_recommendation = _parse_validate_recommendation(first_response.content[0].text)
+    first_usage = estimate_cost(first_response.usage, model)
+
+    first_drift = compute_drift(
+        first_recommendation,
+        previous_session,
+        conviction_delta_threshold=settings.get("drift_conviction_delta", 2),
+    )
+    first_warnings = evaluate_report_quality(
+        first_recommendation,
+        market_data,
+        portfolio=portfolio,
+        news_by_ticker=news_by_ticker,
+        enriched=enriched,
+        settings=settings,
+    )
+
+    # Pass 2: always-on critique/revision using deterministic warnings and drift.
+    review_message = _build_review_message(
+        first_recommendation,
+        first_warnings,
+        first_drift,
+        previous_session,
+    )
+    second_response = _create_message(
+        client,
+        model,
+        settings,
+        [
+            {"role": "user", "content": user_message},
+            {"role": "user", "content": review_message},
         ],
-        messages=[{"role": "user", "content": user_message}],
+    )
+    recommendation = _parse_validate_recommendation(second_response.content[0].text)
+    second_usage = estimate_cost(second_response.usage, model)
+
+    final_drift = compute_drift(
+        recommendation,
+        previous_session,
+        conviction_delta_threshold=settings.get("drift_conviction_delta", 2),
+    )
+    final_warnings = evaluate_report_quality(
+        recommendation,
+        market_data,
+        portfolio=portfolio,
+        news_by_ticker=news_by_ticker,
+        enriched=enriched,
+        settings=settings,
     )
 
-    raw_text = response.content[0].text.strip()
+    recommendation = apply_quality_gates(recommendation, final_warnings)
+    recommendation["review_passes"] = 2
+    recommendation["drift_vs_previous"] = final_drift
+    recommendation["first_pass_quality_warnings"] = first_warnings
+    recommendation["first_pass_drift_vs_previous"] = first_drift
+    recommendation["quality_warnings"] = recommendation.get("quality_warnings") or final_warnings
 
-    # Strip markdown fences if Claude added them despite instructions
-    if raw_text.startswith("```"):
-        lines_raw = raw_text.split("\n")
-        raw_text = "\n".join(lines_raw[1:-1] if lines_raw[-1].strip() == "```" else lines_raw[1:])
+    ph = recommendation.setdefault("portfolio_health", {})
+    if risk_dashboard:
+        ph["risk_dashboard"] = risk_dashboard
+    if deterministic_hedges and not recommendation.get("hedge_suggestions"):
+        recommendation["hedge_suggestions"] = deterministic_hedges
 
-    try:
-        recommendation = json.loads(raw_text)
-    except json.JSONDecodeError as e:
-        raise ValueError(
-            f"Claude returned non-JSON response. Parse error: {e}\n\nRaw response:\n{raw_text[:500]}"
-        )
-
-    # ── Schema validation ────────────────────────────────────────────────
-    try:
-        jsonschema.validate(recommendation, RECOMMENDATION_SCHEMA)
-    except jsonschema.ValidationError as e:
-        path = " → ".join(str(p) for p in e.absolute_path) or "<root>"
-        raise ValueError(
-            f"Claude response failed schema validation at {path}: {e.message}"
-        )
-
-    recommendation = normalize_recommendation(recommendation)
-
-    usage_stats = estimate_cost(response.usage, model)
+    usage_stats = _combine_usage_stats(first_usage, second_usage)
+    recommendation["usage_summary"] = {
+        "passes": usage_stats.get("passes"),
+        "total_tokens": usage_stats.get("total_tokens"),
+        "cost_usd": usage_stats.get("cost_usd"),
+    }
     return recommendation, usage_stats

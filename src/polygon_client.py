@@ -1,20 +1,18 @@
 """
 polygon_client.py
-Polygon.io API client — stock snapshot data (free tier).
+Polygon.io API client — previous-session aggregate data (free tier).
 
 Free tier: unlimited delayed data, stock aggregates, and market-wide snapshots.
 Note: Options chain data requires a paid Polygon plan. This module uses only
-free-tier endpoints: stock snapshot (volume, VWAP, pre/after market moves).
+free-tier endpoint: previous-session aggregate OHLCV and VWAP.
 Docs: https://polygon.io/docs/stocks
 
 Provides:
-  - stock_snapshot(ticker): today's price, volume, VWAP, pre/after market change
-  - volume_context(ticker): today's volume vs VWAP — confirms trend strength
+  - stock_snapshot(ticker): previous-session close, volume, VWAP, and day range
 
 These signal institutional participation via volume analysis:
-  - High volume + price above VWAP = strong bullish momentum
-  - Low volume + price above VWAP = weak move, likely to fade
-  - Pre/after market changes hint at overnight catalyst positioning
+  - Prior close above VWAP = bullish prior-session participation
+  - Prior close below VWAP = bearish prior-session participation
 All functions return None on error or missing API key — never raise.
 """
 
@@ -109,12 +107,13 @@ def _fetch_stock_snapshot(ticker: str) -> dict | None:
         "vwap_pct": vwap_pct,
         "vwap_signal": vwap_signal,
         "day_range_pct": day_range_pct,
-        "source": "polygon",
+        "price_basis": "previous_session_aggregate",
+        "source": "polygon_previous_day_aggregate",
     }
 
 
 def stock_snapshot(ticker: str) -> dict | None:
-    """Today's stock data from Polygon: price, volume, VWAP, after-hours move."""
+    """Previous-session Polygon aggregate data: close, volume, VWAP, day range."""
     if not _api_key():
         return None
     settings = load_settings()

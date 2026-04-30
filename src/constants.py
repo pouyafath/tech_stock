@@ -59,3 +59,26 @@ SECTOR_ALIASES = {
     "GOOG": "GOOGL",
     "BRK.B": "BRK.A",
 }
+
+
+COMPANY_GROUPS = {
+    "AAPL": {"AAPL"},
+    "GOOGL": {"GOOGL", "GOOG"},
+    "COST": {"COST"},
+}
+
+
+COMPANY_ALIASES = {
+    alias: company
+    for company, aliases in COMPANY_GROUPS.items()
+    for alias in aliases
+}
+
+
+RISK_BENCHMARK_TICKERS = ("SPY", "QQQ", "SMH")
+
+
+SECTOR_ROTATION_TICKERS = ("XLK", "XLV", "XLF", "XLE", "XLY", "XLP", "XLU", "XLI")
+
+
+CROSS_ASSET_TICKERS = ("UUP", "TLT", "GLD", "HYG")

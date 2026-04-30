@@ -14,7 +14,9 @@ Adds workflow-polish sections (Phase 5):
 from datetime import datetime
 from pathlib import Path
 
+from src.activity_loader import holding_days_by_ticker
 from src.constants import LEVERAGED_ETFS
+from src.portfolio_analytics import aggregate_company_exposure, aggregate_positions
 
 ACTION_EMOJI = {
     "BUY":  "🟢",
@@ -88,23 +90,7 @@ def leveraged_etf_warnings(
     if not holdings:
         return []
 
-    # Build {ticker: earliest_buy_date} from activities (if provided)
-    earliest_buy = {}
-    for a in activities or []:
-        ticker = a.get("ticker", "")
-        if ticker not in LEVERAGED_ETFS:
-            continue
-        sub = (a.get("sub_type") or "").upper()
-        if "BUY" not in sub:
-            continue
-        date_str = a.get("date")
-        if not date_str:
-            continue
-        prev = earliest_buy.get(ticker)
-        if prev is None or date_str < prev:
-            earliest_buy[ticker] = date_str
-
-    today = datetime.now().date()
+    holding_days = holding_days_by_ticker(activities or [], holdings or [])
     warnings = []
     for h in holdings:
         ticker = h.get("ticker", "")
@@ -113,19 +99,15 @@ def leveraged_etf_warnings(
         if not h.get("quantity"):
             continue
 
-        buy_date_str = earliest_buy.get(ticker)
-        days_held = None
-        if buy_date_str:
-            try:
-                buy_date = datetime.strptime(buy_date_str, "%Y-%m-%d").date()
-                days_held = (today - buy_date).days
-            except ValueError:
-                days_held = None
+        holding_info = holding_days.get(ticker) or {}
+        days_held = holding_info.get("days_held")
 
         if days_held is None or days_held > max_hold_days:
             warnings.append({
                 "ticker": ticker,
                 "days_held": days_held,
+                "earliest_open_buy": holding_info.get("earliest_open_buy"),
+                "duration_unknown": holding_info.get("duration_unknown", True),
                 "max_hold_days": max_hold_days,
                 "pnl_pct": h.get("unrealized_pnl_pct"),
                 "market_value": h.get("market_value"),
@@ -348,42 +330,8 @@ def _render_fee_assumptions_section(settings: dict) -> list[str]:
     return lines
 
 
-def _aggregate_positions(holdings: list, cad_per_usd: float) -> tuple[dict, float]:
-    """Aggregate reported holdings to approximate USD-equivalent position values."""
-    positions = {}
-    total_usd = 0.0
-    for holding in holdings or []:
-        ticker = holding.get("ticker")
-        if not ticker or ticker == "CASH":
-            continue
-        value = holding.get("market_value")
-        currency = holding.get("market_value_currency")
-        if not value or not currency:
-            continue
-        if currency == "USD":
-            value_usd = float(value)
-        elif currency == "CAD" and cad_per_usd:
-            value_usd = float(value) / cad_per_usd
-        else:
-            continue
-
-        position = positions.setdefault(
-            ticker,
-            {"ticker": ticker, "value_usd": 0.0, "reported_values": [], "quantity": 0.0},
-        )
-        position["value_usd"] += value_usd
-        position["quantity"] += holding.get("quantity") or 0.0
-        position["reported_values"].append(f"${value:,.0f} {currency}")
-        total_usd += value_usd
-
-    if total_usd > 0:
-        for position in positions.values():
-            position["pct"] = position["value_usd"] / total_usd * 100
-    return positions, total_usd
-
-
 def _render_position_sizing_section(holdings: list, settings: dict) -> list[str]:
-    positions, total_usd = _aggregate_positions(
+    positions, total_usd = aggregate_positions(
         holdings,
         settings.get("cad_per_usd_assumption", 1.37),
     )
@@ -445,6 +393,163 @@ def _render_data_quality_section(market_data: dict) -> list[str]:
         lines.append("| " + " | ".join(_table_cell(v) for v in row) + " |")
     lines += ["", "---", ""]
     return lines
+
+
+def _render_quality_warnings_section(warnings: list[dict]) -> list[str]:
+    if not warnings:
+        return []
+    severity_rank = {"high": 0, "medium": 1, "low": 2}
+    rows = sorted(warnings, key=lambda w: (severity_rank.get(w.get("severity"), 9), w.get("ticker") or ""))
+    lines = [
+        "## Report Quality Warnings",
+        "",
+        "| Severity | Code | Ticker | Issue | Required Action |",
+        "|---|---|---|---|---|",
+    ]
+    for warning in rows:
+        lines.append(
+            "| "
+            + " | ".join(_table_cell(v) for v in [
+                (warning.get("severity") or "").upper(),
+                warning.get("code", ""),
+                warning.get("ticker") or "Portfolio",
+                warning.get("message", ""),
+                warning.get("action_required", ""),
+            ])
+            + " |"
+        )
+    lines += ["", "---", ""]
+    return lines
+
+
+def _render_data_coverage_section(enriched: dict) -> list[str]:
+    degradation = (enriched or {}).get("degradation") or []
+    if not degradation:
+        return []
+    lines = [
+        "## Data Coverage Notes",
+        "",
+        "| Source | Ticker | Operation | Status |",
+        "|---|---|---|---|",
+    ]
+    for item in degradation[:25]:
+        lines.append(
+            "| "
+            + " | ".join(_table_cell(v) for v in [
+                item.get("source", ""),
+                item.get("ticker") or "portfolio",
+                item.get("operation", ""),
+                item.get("error", ""),
+            ])
+            + " |"
+        )
+    lines += ["", "---", ""]
+    return lines
+
+
+def _render_risk_dashboard_section(risk_dashboard: dict) -> list[str]:
+    if not risk_dashboard:
+        return []
+    lines = [
+        "## Portfolio Risk Dashboard",
+        "",
+        "| Metric | Value |",
+        "|---|---:|",
+    ]
+    metric_rows = [
+        ("Total value in risk model", f"${risk_dashboard.get('total_value_usd', 0):,.0f} USD"),
+        ("Annualized volatility", f"{risk_dashboard.get('annualized_volatility_pct'):.1f}%" if risk_dashboard.get("annualized_volatility_pct") is not None else "N/A"),
+        ("Max drawdown estimate", f"{risk_dashboard.get('max_drawdown_estimate_pct'):.1f}%" if risk_dashboard.get("max_drawdown_estimate_pct") is not None else "N/A"),
+        ("Top-3 concentration", f"{risk_dashboard.get('top3_concentration_pct'):.1f}%" if risk_dashboard.get("top3_concentration_pct") is not None else "N/A"),
+    ]
+    beta = risk_dashboard.get("beta") or {}
+    if beta:
+        metric_rows.append(("Beta", ", ".join(f"{k} {v:.2f}" for k, v in beta.items())))
+    pairs = risk_dashboard.get("correlated_pairs") or []
+    if pairs:
+        metric_rows.append(("Highly correlated pairs", ", ".join(f"{p['pair']} ({p['correlation']:+.2f})" for p in pairs)))
+    for label, value in metric_rows:
+        lines.append(f"| {label} | {_table_cell(value)} |")
+    lines += ["", "---", ""]
+    return lines
+
+
+def _render_company_exposure_section(company_exposure: dict) -> list[str]:
+    if not company_exposure:
+        return []
+    lines = [
+        "## Company Exposure Rollup",
+        "",
+        "| Company | Approx Value | Portfolio % | Tradeable Rows |",
+        "|---|---:|---:|---|",
+    ]
+    for row in list(company_exposure.values())[:12]:
+        lines.append(
+            f"| **{row.get('company', '')}** | ${row.get('value_usd', 0):,.0f} | "
+            f"{row.get('pct', 0):.1f}% | {_table_cell(', '.join(row.get('tickers') or []))} |"
+        )
+    lines += ["", "---", ""]
+    return lines
+
+
+def _render_market_context_section(market_context: dict) -> list[str]:
+    if not market_context:
+        return []
+    lines = [
+        "## Sector And Cross-Asset Context",
+        "",
+        "| Symbol | Price | 5D | 20D | Source |",
+        "|---|---:|---:|---:|---|",
+    ]
+    for symbol, row in sorted(market_context.items()):
+        if row.get("error"):
+            lines.append(f"| {symbol} | ERROR |  |  | {_table_cell(row.get('error'))} |")
+            continue
+        lines.append(
+            f"| {symbol} | ${row.get('current_price', 'N/A')} | "
+            f"{row.get('change_pct_5d', 'N/A')}% | {row.get('change_pct_20d', 'N/A')}% | "
+            f"{_table_cell(row.get('quote_source', 'N/A'))} |"
+        )
+    lines += ["", "---", ""]
+    return lines
+
+
+def _render_hedge_suggestions_section(suggestions: list[dict]) -> list[str]:
+    if not suggestions:
+        return []
+    lines = [
+        "## Hedge And Rebalance Suggestions",
+        "",
+        "| Priority | Instrument | Action | Cap | Rationale | Risk Note |",
+        "|---:|---|---|---:|---|---|",
+    ]
+    for idx, suggestion in enumerate(suggestions, start=1):
+        cap = suggestion.get("max_portfolio_pct")
+        cap_str = f"{cap:.1f}%" if isinstance(cap, (int, float)) else "N/A"
+        lines.append(
+            f"| {idx} | **{_table_cell(suggestion.get('instrument', ''))}** | "
+            f"{_table_cell(suggestion.get('action', ''))} | {cap_str} | "
+            f"{_table_cell(suggestion.get('rationale', ''))} | "
+            f"{_table_cell(suggestion.get('risk_note', ''))} |"
+        )
+    lines += ["", "---", ""]
+    return lines
+
+
+def _render_cost_footer(usage: dict) -> list[str]:
+    if not usage:
+        return []
+    return [
+        "",
+        "---",
+        "",
+        "## Run Cost",
+        "",
+        f"Claude passes: {usage.get('passes', 1)} | "
+        f"tokens: {usage.get('total_tokens', 0):,} | "
+        f"estimated cost: ${usage.get('cost_usd', 0):.4f}",
+        "",
+    ]
 
 
 def _render_catalyst_section(market_data: dict, news_by_ticker: dict, threshold_pct: float) -> list[str]:
@@ -530,6 +635,8 @@ def _render_leveraged_etf_section(warnings: list) -> list[str]:
     ]
     for w in warnings:
         held = f"{w['days_held']} days" if w.get("days_held") is not None else "duration unknown"
+        if w.get("earliest_open_buy"):
+            held += f" (oldest open lot {w['earliest_open_buy']})"
         pnl = w.get("pnl_pct")
         pnl_str = f" | P&L {pnl:+.1f}%" if pnl is not None else ""
         lines.append(
@@ -552,16 +659,27 @@ def generate_markdown(
     drift: list = None,
     price_alerts: list = None,
     recent_activities: list = None,
+    enriched: dict = None,
+    risk_dashboard: dict = None,
+    company_exposure: dict = None,
+    market_context: dict = None,
+    usage: dict = None,
     settings: dict = None,
 ) -> str:
     """Generate the full markdown report from Claude's JSON output + extras."""
     settings = settings or {}
     portfolio = portfolio or {}
     holdings = portfolio.get("holdings", [])
-    positions, _ = _aggregate_positions(
+    positions, _ = aggregate_positions(
         holdings,
         settings.get("cad_per_usd_assumption", 1.37),
     )
+    if company_exposure is None:
+        company_exposure, _ = aggregate_company_exposure(
+            holdings,
+            settings.get("cad_per_usd_assumption", 1.37),
+        )
+    risk_dashboard = risk_dashboard or (recommendation.get("portfolio_health") or {}).get("risk_dashboard") or {}
 
     now = datetime.now()
     timestamp = now.strftime("%Y-%m-%d %H:%M")
@@ -595,6 +713,9 @@ def generate_markdown(
         ]
     lines += ["", "---", ""]
 
+    lines += _render_quality_warnings_section(recommendation.get("quality_warnings") or [])
+    lines += _render_drift_section(drift or recommendation.get("drift_vs_previous") or [])
+
     # ── Priority actions (do-this-today list) ─────────────────────────────
     lines += _render_priority_actions_section(
         recommendation.get("priority_actions") or [],
@@ -603,10 +724,16 @@ def generate_markdown(
 
     # ── Data quality and cost assumptions ─────────────────────────────────
     lines += _render_data_quality_section(market_data or {})
+    lines += _render_data_coverage_section(enriched or {})
     lines += _render_fee_assumptions_section(settings)
 
     catalyst_threshold = settings.get("news_catalyst_move_threshold_pct", 5)
     lines += _render_catalyst_section(market_data or {}, news_by_ticker or {}, catalyst_threshold)
+
+    lines += _render_risk_dashboard_section(risk_dashboard or {})
+    lines += _render_company_exposure_section(company_exposure or {})
+    lines += _render_hedge_suggestions_section(recommendation.get("hedge_suggestions") or [])
+    lines += _render_market_context_section(market_context or {})
 
     lines += _render_position_sizing_section(holdings, settings)
 
@@ -615,8 +742,6 @@ def generate_markdown(
     lines += _render_sector_section(sector_exposure or {}, threshold_pct)
 
     lines += _render_alerts_section(price_alerts or [])
-
-    lines += _render_drift_section(drift or [])
 
     lines += _render_track_record_section(backtest_summary or {})
 
@@ -660,6 +785,14 @@ def generate_markdown(
 
             lines += [f"**Invalidation:** {rec.get('risk_or_invalidation', 'N/A')}", ""]
 
+            catalyst_source = rec.get("catalyst_source") or "Not provided"
+            catalyst_status = "verified" if rec.get("catalyst_verified") else "unverified"
+            manual_review = "yes" if rec.get("manual_review_required") else "no"
+            lines += [
+                f"**Catalyst:** {catalyst_status}; source: {catalyst_source}; manual review: {manual_review}",
+                "",
+            ]
+
             md = market_data.get(ticker, {})
             if md and not md.get("error"):
                 lines += ["| | |", "|---|---|",
@@ -683,6 +816,24 @@ def generate_markdown(
                     lines.append(f"| MACD hist | {ind['macd_hist']:+.3f} |")
                 if ind.get("price_vs_sma200_pct") is not None:
                     lines.append(f"| vs SMA(200) | {ind['price_vs_sma200_pct']:+.1f}% |")
+                if ind.get("atr_pct_of_price") is not None:
+                    lines.append(f"| ATR(14) | ${ind.get('atr_14', 0):.2f} ({ind['atr_pct_of_price']:.1f}%) |")
+                if ind.get("volatility_20d_pct") is not None:
+                    lines.append(f"| 20D Annualized Volatility | {ind['volatility_20d_pct']:.1f}% ({ind.get('vol_regime', 'N/A')}) |")
+                if ind.get("sma_50_above_200") is not None:
+                    lines.append(f"| SMA Cross | SMA50 above SMA200 = {ind['sma_50_above_200']} |")
+                if md.get("forward_pe") is not None:
+                    lines.append(f"| Forward P/E | {md['forward_pe']} |")
+                if md.get("price_to_sales") is not None:
+                    lines.append(f"| Price/Sales | {md['price_to_sales']} |")
+                if md.get("enterprise_to_ebitda") is not None:
+                    lines.append(f"| EV/EBITDA | {md['enterprise_to_ebitda']} |")
+                options_move = md.get("options_implied_move")
+                if options_move:
+                    lines.append(
+                        f"| Options Implied Move | {options_move.get('implied_move_pct')}% by "
+                        f"{options_move.get('expiry')} |"
+                    )
                 if rec.get("liquidity_tier"):
                     lines.append(f"| Liquidity Tier | {rec['liquidity_tier']} |")
                 position = positions.get(ticker)
@@ -700,28 +851,41 @@ def generate_markdown(
                     lines.append(f"| Suggested Shares | {rec['shares']} |")
                 lines.append("")
 
+            controls = rec.get("risk_controls") or {}
+            if controls:
+                def _pct_cell(value):
+                    return f"{value:+.1f}%" if isinstance(value, (int, float)) else "N/A"
+
+                lines += [
+                    "| Risk Control | % From Current Price |",
+                    "|---|---:|",
+                    f"| Entry Zone Low | {_pct_cell(controls.get('entry_zone_low_pct'))} |",
+                    f"| Entry Zone High | {_pct_cell(controls.get('entry_zone_high_pct'))} |",
+                    f"| Stop / Invalidation | {_pct_cell(controls.get('stop_loss_pct'))} |",
+                    f"| Take Profit | {_pct_cell(controls.get('take_profit_pct'))} |",
+                    "",
+                ]
+
             # Bottom table: expected move + exit plan
             target_exit = rec.get("target_exit_date", "")
             lo = rec.get("price_target_low_pct")
             hi = rec.get("price_target_high_pct")
-            range_str = (
-                f"{lo:+.0f}% / {hi:+.0f}%"
-                if lo is not None and hi is not None
-                else "N/A"
-            )
+            bear_case = f"{lo:+.0f}%" if lo is not None else "N/A"
+            bull_case = f"{hi:+.0f}%" if hi is not None else "N/A"
             exit_str = target_exit if target_exit else "—"
             expected_header = "Expected Stock Move / Risk" if action in ("SELL", "TRIM") else "Expected Stock Move"
             net_header = "Expected Action Benefit" if action in ("SELL", "TRIM") else "Net After Fees"
 
             lines += [
-                f"| {expected_header} | Fee Hurdle | {net_header} | Time Horizon | Exit Target | Price Range |",
-                "|---|---|---|---|---|---|",
+                f"| {expected_header} | Fee Hurdle | {net_header} | Time Horizon | Exit Target | Bear Case | Bull Case |",
+                "|---|---|---|---|---|---|---|",
                 f"| {rec.get('expected_move_pct', 0):+.2f}% | "
                 f"{rec.get('fee_hurdle_pct', 0):.3f}% | "
                 f"**{rec.get('net_expected_pct', 0):+.2f}%** | "
                 f"{rec.get('time_horizon', 'N/A')} | "
                 f"{exit_str} | "
-                f"{range_str} |",
+                f"{bear_case} | "
+                f"{bull_case} |",
                 "",
                 "---",
                 "",
@@ -750,6 +914,8 @@ def generate_markdown(
         for w in warnings:
             lines.append(f"- {w}")
         lines += ["", "---", ""]
+
+    lines += _render_cost_footer(usage or recommendation.get("usage_summary") or {})
 
     lines += [
         "_Recommendations are advisory only. Execute trades manually in Wealthsimple._",

@@ -29,8 +29,9 @@ from src.constants import DEDUP_PAIRS, SKIP_MARKET_DATA
 from src.drift_tracker import compute_drift, get_previous_session
 from src.enriched_data import enrich
 from src.fee_calculator import build_fee_snapshot
-from src.market_data import get_market_data
+from src.market_data import add_options_implied_moves, get_context_moves, get_market_data
 from src.news_fetcher import get_news_for_tickers
+from src.portfolio_analytics import aggregate_company_exposure, build_hedge_suggestions, compute_risk_dashboard
 from src.portfolio_loader import compute_sector_exposure, parse_holdings_csv
 from src.report_generator import generate_markdown, save_report, watchlist_price_alerts
 
@@ -41,7 +42,7 @@ RECS_LOG_DIR = DATA_DIR / "recommendations_log"
 UPLOAD_DIR  = ROOT / "temporary_upload"
 
 MODELS = {
-    "1": ("claude-sonnet-4-6", "Sonnet 4.6", "~$0.09/run — fast, recommended"),
+    "1": ("claude-sonnet-4-6", "Sonnet 4.6", "~$0.22/run — two-pass, recommended"),
     "2": ("claude-opus-4-7",   "Opus 4.7",   "~$0.45/run — deeper analysis, slower"),
 }
 
@@ -413,7 +414,8 @@ def save_recommendations_csv(
                 "Ticker", "Action", "Hold Tier", "Conviction",
                 "Invest USD", "Expected Stock Move %",
                 "Expected Benefit of Action %", "Net Expected %",
-                "Time Horizon", "Exit Target", "Price Range Low%", "Price Range High%",
+                "Time Horizon", "Exit Target", "Bear Case %", "Bull Case %",
+                "Stop Loss %", "Take Profit %", "Catalyst Verified", "Catalyst Source", "Manual Review",
                 "Quote", "Previous Close", "Quote Time UTC", "Quote Source",
                 "Earnings Alert", "Thesis",
             ],
@@ -427,6 +429,7 @@ def save_recommendations_csv(
             md = (market_data or {}).get(ticker, {})
             expected_move = r.get("expected_move_pct", 0)
             net_expected = r.get("net_expected_pct", 0)
+            controls = r.get("risk_controls") or {}
             writer.writerow({
                 "Ticker":           ticker,
                 "Action":           r.get("action", "HOLD"),
@@ -438,8 +441,13 @@ def save_recommendations_csv(
                 "Net Expected %":   f"{net_expected:+.2f}%",
                 "Time Horizon":     r.get("time_horizon", ""),
                 "Exit Target":      r.get("target_exit_date", ""),
-                "Price Range Low%": f"{lo:+.0f}%" if lo is not None else "",
-                "Price Range High%":f"{hi:+.0f}%" if hi is not None else "",
+                "Bear Case %":      f"{lo:+.0f}%" if lo is not None else "",
+                "Bull Case %":      f"{hi:+.0f}%" if hi is not None else "",
+                "Stop Loss %":      f"{controls.get('stop_loss_pct'):+.1f}%" if controls.get("stop_loss_pct") is not None else "",
+                "Take Profit %":    f"{controls.get('take_profit_pct'):+.1f}%" if controls.get("take_profit_pct") is not None else "",
+                "Catalyst Verified": "YES" if r.get("catalyst_verified") else "NO",
+                "Catalyst Source":  r.get("catalyst_source", ""),
+                "Manual Review":    "YES" if r.get("manual_review_required") else "NO",
                 "Quote":            f"{md.get('current_price')} {md.get('currency', '')}".strip() if md.get("current_price") is not None else "",
                 "Previous Close":   f"{md.get('previous_close')} {md.get('currency', '')}".strip() if md.get("previous_close") is not None else "",
                 "Quote Time UTC":   md.get("quote_timestamp_utc", ""),
@@ -497,10 +505,12 @@ def print_usage(usage: dict, model_name: str):
     """Print a compact cost summary after Claude returns."""
     hit = f"{C.GREEN}cache HIT ✓{C.RESET}" if usage.get("cache_hit") else f"{C.DIM}cache miss{C.RESET}"
     cost = usage.get("cost_usd", 0)
-    cost_color = C.GREEN if cost < 0.10 else C.YELLOW
+    cost_color = C.GREEN if cost < 0.30 else C.YELLOW
     total_tok = usage.get("total_tokens", 0)
+    passes = usage.get("passes", 1)
     print(
         f"  {C.DIM}[{model_name}]{C.RESET}  "
+        f"passes: {passes}  "
         f"tokens: {total_tok:,}  "
         f"cost: {cost_color}${cost:.4f}{C.RESET}  "
         f"{hit}"
@@ -562,7 +572,9 @@ def run(
     print(f"{C.DIM}[tech_stock] Tracking {len(tickers)} tickers: {', '.join(tickers)}{C.RESET}")
 
     print(f"{C.DIM}[tech_stock] Fetching market data...{C.RESET}")
-    market_data = get_market_data(tickers)
+    risk_benchmarks = settings.get("risk_benchmark_tickers", ["SPY", "QQQ", "SMH"])
+    market_data_all = get_market_data(sorted(set(tickers) | set(risk_benchmarks)))
+    market_data = {ticker: market_data_all.get(ticker, {}) for ticker in tickers}
 
     print(f"{C.DIM}[tech_stock] Fetching news...{C.RESET}")
     news_by_ticker = get_news_for_tickers(tickers)
@@ -574,11 +586,32 @@ def run(
     else:
         print(f"{C.DIM}[tech_stock] Enrichment: no external sources active (add API keys to .env){C.RESET}")
 
+    if settings.get("enable_options_implied_move_for_earnings", False):
+        earnings_tickers = []
+        for ticker, data in (enriched.get("per_ticker") or {}).items():
+            earnings = data.get("upcoming_earnings") or {}
+            if earnings.get("date"):
+                earnings_tickers.append(ticker)
+        if earnings_tickers:
+            print(f"{C.DIM}[tech_stock] Fetching options implied moves for earnings tickers: {', '.join(earnings_tickers)}{C.RESET}")
+            add_options_implied_moves(market_data, earnings_tickers)
+
     print(f"{C.DIM}[tech_stock] Calculating fees...{C.RESET}")
     fee_snapshot = build_fee_snapshot(tickers)
 
     # ── Sector exposure ───────────────────────────────────────────────────
     sector_exposure = compute_sector_exposure(portfolio.get("holdings", []), market_data)
+
+    # ── Portfolio risk / exposure dashboard ───────────────────────────────
+    company_exposure, _ = aggregate_company_exposure(
+        portfolio.get("holdings", []),
+        settings.get("cad_per_usd_assumption", 1.37),
+    )
+    risk_dashboard = compute_risk_dashboard(portfolio.get("holdings", []), market_data_all, settings)
+    hedge_suggestions = build_hedge_suggestions(risk_dashboard, company_exposure, settings)
+
+    context_symbols = sorted(set(settings.get("sector_rotation_tickers", [])) | set(settings.get("cross_asset_tickers", [])))
+    market_context = get_context_moves(context_symbols) if context_symbols else {}
 
     # ── Watchlist price alerts ────────────────────────────────────────────
     price_alerts = watchlist_price_alerts(watchlist, market_data)
@@ -614,7 +647,11 @@ def run(
             sector_exposure=sector_exposure,
             backtest_summary=backtest_summary,
             price_alerts=price_alerts,
-            drift=None,  # drift compares vs previous, not vs self — computed below
+            previous_session=previous_session,
+            risk_dashboard=risk_dashboard,
+            company_exposure=company_exposure,
+            market_context=market_context,
+            hedge_suggestions=hedge_suggestions,
             enriched=enriched,
         )
     except ValueError as e:
@@ -622,7 +659,7 @@ def run(
         sys.exit(1)
 
     # ── Compute drift between this run and the previous session ───────────
-    drift = compute_drift(
+    drift = recommendation.get("drift_vs_previous") or compute_drift(
         recommendation,
         previous_session,
         conviction_delta_threshold=settings.get("drift_conviction_delta", 2),
@@ -642,6 +679,11 @@ def run(
         drift=drift,
         price_alerts=price_alerts,
         recent_activities=recent_activities,
+        enriched=enriched,
+        risk_dashboard=risk_dashboard,
+        company_exposure=company_exposure,
+        market_context=market_context,
+        usage=usage,
         settings=settings,
     )
     report_path = save_report(md_content, session_type, REPORTS_DIR)
