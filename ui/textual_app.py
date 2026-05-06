@@ -9,7 +9,7 @@ from pathlib import Path
 from rich.table import Table
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Button, Footer, Header, Input, RichLog, Select, Static, TabbedContent, TabPane, TextArea
+from textual.widgets import Button, Footer, Header, Input, Markdown, RichLog, Select, Static, TabbedContent, TabPane, TextArea
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -33,7 +33,7 @@ from src.ui_support import (  # noqa: E402
 )
 
 
-ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+ANSI_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 
 class TechStockTUI(App):
@@ -71,10 +71,17 @@ class TechStockTUI(App):
         margin-top: 1;
     }
 
-    #dashboard_log, #connectivity_log, #today_markdown, #history_markdown, #backtest_log {
+    #dashboard_log, #connectivity_log, #backtest_log {
         height: 1fr;
         border: solid $primary;
         padding: 1;
+    }
+
+    #today_markdown, #history_markdown {
+        height: 1fr;
+        border: solid $primary;
+        padding: 1;
+        overflow-y: scroll;
     }
 
     #editor_text {
@@ -140,12 +147,12 @@ class TechStockTUI(App):
             with TabPane("Today's Report", id="today"):
                 yield Button("Refresh report", id="refresh_today")
                 yield Static("", id="today_path")
-                yield RichLog(id="today_markdown", wrap=True, highlight=True)
+                yield Markdown("", id="today_markdown")
             with TabPane("History", id="history"):
                 yield Button("Refresh history", id="refresh_history")
                 yield Select(history_options, value=history_options[0][1], allow_blank=False, id="history_select")
                 yield Button("Load selected report", id="load_history", disabled=history_options[0][1] == "__none__")
-                yield RichLog(id="history_markdown", wrap=True, highlight=True)
+                yield Markdown("", id="history_markdown")
             with TabPane("Backtest", id="backtest"):
                 yield Button("Refresh backtest", id="refresh_backtest")
                 yield RichLog(id="backtest_log", wrap=True, highlight=True)
@@ -161,7 +168,10 @@ class TechStockTUI(App):
         self._load_dashboard()
         self._load_today_report()
         self._load_history_report()
-        self._load_backtest()
+        # Backtest is NOT loaded on mount — it fetches live price data from
+        # yfinance for every past recommendation, which can take 20-30 s.
+        # User triggers it explicitly with the "Refresh backtest" button.
+        self._show_backtest_placeholder()
         self._load_editor_text()
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -180,7 +190,7 @@ class TechStockTUI(App):
         elif button_id == "load_history":
             self._load_history_report()
         elif button_id == "refresh_backtest":
-            self._load_backtest()
+            self.run_worker(self._load_backtest_async(), exclusive=True)
         elif button_id == "load_json":
             self._load_editor_text()
         elif button_id == "save_json":
@@ -208,7 +218,7 @@ class TechStockTUI(App):
             self._refresh_history_select()
             self._load_history_report()
         elif active == "backtest":
-            self._load_backtest()
+            self.run_worker(self._load_backtest_async(), exclusive=True)
         elif active == "editor":
             self._load_editor_text()
 
@@ -365,23 +375,22 @@ class TechStockTUI(App):
     def _load_today_report(self, preferred: Path | None = None) -> None:
         path = preferred or latest_report()
         self.query_one("#today_path", Static).update(relative_to_root(path) if path else "No report found.")
-        self._replace_log_text("#today_markdown", read_text_file(path) if path else "")
+        self._update_markdown("#today_markdown", read_text_file(path) if path else "")
 
     def _load_history_report(self) -> None:
         value = self.query_one("#history_select", Select).value
         path = Path(value) if isinstance(value, str) and value and value != "__none__" else latest_report()
-        self._replace_log_text("#history_markdown", read_text_file(path) if path else "")
+        self._update_markdown("#history_markdown", read_text_file(path) if path else "")
 
-    def _replace_log_text(self, selector: str, text: str) -> None:
-        log = self.query_one(selector, RichLog)
-        log.clear()
-        if text:
-            log.write(text)
+    def _update_markdown(self, selector: str, text: str) -> None:
+        widget = self.query_one(selector, Markdown)
+        widget.update(text or "_No report content found._")
 
-    def _load_backtest(self) -> None:
+    async def _load_backtest_async(self) -> None:
+        self._show_backtest_placeholder()
+        summary = await asyncio.to_thread(run_backtest_summary)
         log = self.query_one("#backtest_log", RichLog)
         log.clear()
-        summary = run_backtest_summary()
         overall = summary.get("overall") or {}
         metrics = Table(title=f"Backtest — {summary.get('n_samples', 0)} samples")
         metrics.add_column("Metric")
@@ -398,6 +407,12 @@ class TechStockTUI(App):
             summary.get("recent_realized_examples") or [],
             ["ticker", "session_date", "action", "conviction", "expected_pct", "actual_pct", "hit"],
         )
+
+    def _show_backtest_placeholder(self) -> None:
+        log = self.query_one("#backtest_log", RichLog)
+        log.clear()
+        log.write("Press 'Refresh backtest' to evaluate past recommendations.\nThis fetches live price data and may take 20–30 seconds.")
+
 
     def _write_bucket_table(self, log: RichLog, title: str, bucket: dict) -> None:
         rows = []

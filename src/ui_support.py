@@ -160,8 +160,8 @@ def preview_holdings_csv(path: str | Path | None, limit: int = 25) -> dict[str, 
             "ticker": holding.get("ticker"),
             "quantity": holding.get("quantity"),
             "market_price": holding.get("market_price"),
-            "market_currency": holding.get("market_currency"),
-            "value_usd": holding.get("market_value_usd"),
+            "currency": holding.get("market_value_currency") or holding.get("market_currency"),
+            "market_value": holding.get("market_value"),
             "unrealized_pnl_pct": holding.get("unrealized_pnl_pct"),
         })
     return {

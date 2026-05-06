@@ -45,6 +45,17 @@
 
 ---
 
+## ✨ What's New in v1.6.0 (May 2026)
+
+**Native App Packaging + Unified Launcher:** Run tech_stock as a native macOS or Windows application — no terminal required.
+
+- **`./run.sh` Unified Entry Point** — Running `./run.sh` with no arguments now shows an interactive menu (CLI / Streamlit / Textual). Existing callers with arguments (e.g. `./run.sh morning`) still work unchanged.
+- **Native macOS App** — `build_macos.sh` builds `dist/tech_stock.dmg` using PyInstaller. Double-click to install; dark-themed tkinter launcher window opens with three one-click buttons.
+- **Native Windows App** — `build_windows.bat` builds `dist\tech_stock\tech_stock.exe`. Optionally wrap in an Inno Setup installer via `installer_windows.iss`.
+- **GitHub Actions Release CI** — Push a version tag (`git tag v1.0.0 && git push --tags`) and GitHub Actions automatically builds both the `.dmg` and Windows `.exe`, then uploads them as release artifacts.
+- **Backtest On-Demand** — Backtest tab no longer blocks app startup; yfinance price fetches now happen only when you click "Run backtest".
+- **Report Rendering Fixed (Textual)** — Today's Report and History tabs now use the Textual `Markdown` widget (was `RichLog` — headings and tables previously appeared as raw text).
+
 ## ✨ What's New in v1.5.1 (April 30, 2026)
 
 **Optional UI Layer:** Added and upgraded two extra interfaces without changing the original way to run the program.
@@ -52,7 +63,7 @@
 - **Original CLI Preserved** — `python src/main.py` and `./run.sh` still behave as before
 - **Streamlit Dashboard** — Run reports from a browser UI with live progress, CSV upload/preview, first-class dashboard metrics, markdown history/compare, structured backtests, downloads, connectivity checks, and config JSON validation
 - **Textual TUI** — Run reports from a terminal dashboard with live progress, dashboard tables, history, structured backtest tables, CSV discovery helpers, keyboard shortcuts, connectivity checks, and portfolio/config editing
-- **UI Launcher** — `./run-ui.sh` or `python src/ui_launcher.py` lets you choose CLI, Streamlit, or Textual from one menu
+- **UI Launcher** — `./run.sh` (or `./run-ui.sh`) lets you choose CLI, Streamlit, or Textual from one menu
 - **Shared UI Runtime** — Both UIs call the same `src.main.run()` pipeline as the CLI, with auto-open disabled and generated artifact paths returned to the UI
 - **Latest JSON Dashboard** — Optional UIs surface `risk_dashboard`, `quality_warnings`, `priority_actions`, `hedge_suggestions`, `drift_vs_previous`, and Claude cost/tokens without requiring a long markdown scroll
 
@@ -144,11 +155,35 @@ cp .env.example .env
 # Edit .env and paste all your API keys
 ```
 
-### First Run (Interactive Mode — Recommended)
+### First Run — Choose Your Interface
 
 ```bash
 source .venv/bin/activate
-ANTHROPIC_API_KEY=your_key_here python src/main.py
+chmod +x run.sh run-ui.sh   # make executable (first time only)
+./run.sh
+```
+
+You'll see a menu:
+```
+  [1]  CLI             — Terminal, fastest, pass session flags directly
+  [2]  Streamlit UI    — Web dashboard, open in browser, full feature set
+  [3]  Textual TUI     — Rich terminal UI, keyboard-driven, no browser needed
+
+  Choose [1/2/3, Enter = 1]:
+```
+
+**No terminal?** Download `tech_stock.dmg` from the [Releases page](https://github.com/pouyafath/tech_stock/releases) and double-click — a native launcher window opens with the same three choices.
+
+**Shortcut — skip the menu:**
+```bash
+./run.sh morning          # → CLI, morning session
+./run.sh 2                # → Streamlit (opens browser automatically)
+./run.sh 3                # → Textual TUI
+```
+
+**Original interactive CLI (unchanged from before):**
+```bash
+python src/main.py
 ```
 
 You'll be walked through 5 questions:
@@ -213,25 +248,17 @@ python src/main.py afternoon --holdings ~/Downloads/holdings-report-2026-04-24.c
 python src/main.py morning --holdings ~/Holdings.csv --model opus
 ```
 
-### Optional UI Launcher
+### Running the Application
 
-The original CLI remains the default path. To choose between all available interfaces:
+| Command | What happens |
+|---------|-------------|
+| `./run.sh` | Interactive menu — pick CLI / Streamlit / Textual |
+| `./run.sh morning` | Skip menu → CLI, morning session |
+| `./run.sh afternoon --model opus` | Skip menu → CLI, Opus model |
+| `./run.sh 2` | Skip menu → Streamlit (browser opens automatically) |
+| `./run.sh 3` | Skip menu → Textual TUI |
 
-```bash
-./run-ui.sh
-# or
-python src/ui_launcher.py
-```
-
-The launcher offers:
-
-| Option | Interface | Best For |
-|---|---|---|
-| 1 | Original CLI | Fastest path, scripts, cron, current workflow |
-| 2 | Streamlit dashboard | Browser-based report viewing, CSV upload, history, backtest, JSON config editing |
-| 3 | Textual terminal UI | Terminal-native dashboard with tabs, forms, scrollable output, and no browser workflow |
-
-All three options call the same report engine. UI runs disable automatic markdown file opening and return the generated markdown/CSV/JSON paths inside the interface.
+All three interface options call the **same report engine** (`src/main.run()`). UI runs disable automatic file opening and return the generated markdown/CSV/JSON paths inside the interface.
 
 ### Streamlit Dashboard
 
@@ -270,18 +297,79 @@ Useful keyboard shortcuts:
 
 ### Schedule Recurring Sessions
 
-To run every Wednesday at 10:00 AM:
-
+**Linux / macOS (cron):**
 ```bash
-# Create a launchd plist or use cron:
-# (0 10 * * 3) = Wednesday 10:00 AM
-
-# Or use a simple shell script wrapper:
-#!/bin/bash
-cd /path/to/tech_stock
-source .venv/bin/activate
-ANTHROPIC_API_KEY=your_key python src/main.py morning --holdings ~/Downloads/latest_holdings.csv
+crontab -e
+# Morning 9:30 AM ET weekdays:
+30 9 * * 1-5 /path/to/tech_stock/run.sh morning --holdings ~/Downloads/latest_holdings.csv
 ```
+
+**macOS (launchd — more reliable than cron):**
+
+Save as `~/Library/LaunchAgents/com.techstock.morning.plist`:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>         <string>com.techstock.morning</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/path/to/tech_stock/run.sh</string>
+    <string>morning</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>30</integer></dict>
+  <key>StandardOutPath</key> <string>/tmp/tech_stock_morning.log</string>
+  <key>StandardErrorPath</key><string>/tmp/tech_stock_morning.log</string>
+</dict>
+</plist>
+```
+```bash
+launchctl load ~/Library/LaunchAgents/com.techstock.morning.plist
+```
+
+**Windows (Task Scheduler):**
+```bat
+schtasks /create /tn "tech_stock morning" /tr "C:\path\to\tech_stock\build_windows.bat" /sc WEEKLY /d MON,TUE,WED,THU,FRI /st 09:30
+```
+
+---
+
+## 🖥️ Native App (macOS .dmg / Windows .exe)
+
+For users who don't want a terminal, tech_stock ships as a native desktop application.
+
+### Building Locally
+
+**macOS:**
+```bash
+./build_macos.sh          # installs PyInstaller, builds dist/tech_stock.dmg
+```
+Double-click `tech_stock.dmg` → drag `tech_stock.app` to Applications → double-click.
+
+**Windows:**
+```bat
+build_windows.bat         :: builds dist\tech_stock\tech_stock.exe
+```
+Distribute the entire `dist\tech_stock\` folder. Users double-click `tech_stock.exe`.
+
+### Pre-built Releases (GitHub Actions)
+
+Push a version tag to trigger automatic builds for both platforms:
+```bash
+git tag v1.0.0 && git push --tags
+```
+GitHub Actions builds `.dmg` (macOS runner) and `.exe` (Windows runner) and attaches them to a GitHub Release. Download from the [Releases page](https://github.com/pouyafath/tech_stock/releases).
+
+### What the App Does
+
+On launch the native app shows a dark-themed launcher window (built with tkinter — no extra dependency):
+- **Streamlit Web UI** — starts the Streamlit server and opens your browser
+- **Textual Terminal UI** — opens the keyboard-driven terminal dashboard
+- **Command-Line (CLI)** — opens a terminal and runs the original CLI
+
+Your `.env` / `API_KEYS.txt` must exist in the same directory as the app or its parent.
 
 ---
 
@@ -595,8 +683,9 @@ Wealthsimple CSVs
 | `backtester.py` | Evaluate mature recommendations by action, conviction, ticker, and recent realized examples for calibration |
 | `report_generator.py` | Format markdown + CSV with priority actions, quality warnings, risk dashboard, hold tiers, earnings badges, risk controls, and Bear/Bull ranges |
 | `main.py` | CLI entry point, interactive setup, API key loading (API_KEYS.txt first, then .env), enrichment orchestration, risk analytics, and CSV export |
-| `ui_launcher.py` | Optional menu for choosing the original CLI, Streamlit dashboard, or Textual TUI |
+| `ui_launcher.py` | Shell menu for choosing the original CLI, Streamlit, or Textual; called by `run.sh` |
 | `ui_support.py` | Shared helpers for UI progress streaming, report/log discovery, latest-log dashboards, holdings preview, JSON validation, connectivity checks, and canonical report runs |
+| `app_gui.py` | Native tkinter launcher window used by the PyInstaller `.app`/`.exe` bundle |
 
 **Optional UI Entry Points**:
 
@@ -604,6 +693,17 @@ Wealthsimple CSVs
 |------|---------|
 | `ui/streamlit_app.py` | Browser dashboard for CSV upload, report generation, markdown viewing, history, backtest, and JSON config editing |
 | `ui/textual_app.py` | Terminal dashboard for the same workflow using Textual widgets and scrollable panes |
+
+**Packaging**:
+
+| File | Purpose |
+|------|---------|
+| `tech_stock.spec` | PyInstaller build specification (data files, hidden imports, macOS `.app` bundle) |
+| `build_macos.sh` | One-command macOS build: installs deps → PyInstaller → `.app` → `.dmg` |
+| `build_windows.bat` | One-command Windows build: installs deps → PyInstaller → `.exe` |
+| `installer_windows.iss` | Optional Inno Setup script for a polished Windows installer |
+| `pyinstaller_hooks/` | Custom hooks to ensure Streamlit static assets are bundled |
+| `.github/workflows/build_release.yml` | CI release workflow: tags trigger `.dmg` + `.exe` builds |
 
 ### Claude System Prompt (32 Rules)
 
@@ -676,6 +776,23 @@ The parser also normalizes missing per-row fields such as `action`, `conviction`
 ---
 
 ## 🤔 FAQ
+
+### Q: Sonnet vs Opus — which should I use?
+
+**A:** Sonnet 4.6 covers ~90% of use cases at roughly 20% of the cost. Use **Opus 4.7** when:
+- Your portfolio has many positions and the conviction scores feel too uniform
+- You want extended thinking enabled (deeper chain-of-thought reasoning)
+- You're analysing an unusual macro environment (yield curve inversion, crypto correlation)
+
+Typical costs: Sonnet two-pass ≈ $0.30–$0.55 · Opus two-pass ≈ $1.50–$3.00 depending on portfolio size.
+
+### Q: What if an enrichment API is down?
+
+**A:** The app degrades gracefully. Each enrichment source (Finnhub, Polygon, Twelve Data, FRED, CoinGecko) is fetched in parallel inside a try/except block. A failed source is recorded in the report's "Data Coverage" section but does not stop the run. Claude still receives all available data and generates a full recommendation. You'll see something like `[Finnhub: ERROR — rate limit]` in the report header.
+
+### Q: How does two-pass review work?
+
+**A:** After Pass 1, the app runs deterministic quality checks (13 warning codes: stale quotes, missing catalyst, reversed price ranges, etc.) and compares this session's actions against the previous session's drift. Pass 2 sends Claude the Pass 1 JSON *plus* all quality warnings and drift data, and asks it to revise. This is why BUY recommendations on names that moved 7% overnight with no verified news typically get downgraded to HOLD — the quality gate is deterministic, but Claude also sees the warning in Pass 2 and adjusts its thesis.
 
 ### Q: What's the "invest_amount_usd" in the CSV?
 
@@ -840,10 +957,26 @@ tech_stock/
 ├── ui/
 │   ├── streamlit_app.py         ← Optional browser dashboard
 │   └── textual_app.py           ← Optional terminal dashboard
-├── run-ui.sh                    ← Optional UI launcher wrapper
-├── requirements.txt             ← Python dependencies
-├── .env.example                 ← Template for API key
-├── .gitignore                   ← Excludes .env, .venv, reports/
+├── src/
+│   ├── app_gui.py               ← Native tkinter launcher (used by .app/.exe bundle)
+│   └── ui_launcher.py           ← Shell menu wrapper (used by run.sh)
+├── ui/
+│   ├── streamlit_app.py         ← Optional browser dashboard
+│   └── textual_app.py           ← Optional terminal dashboard
+├── assets/
+│   ├── icon.png                 ← App icon source
+│   └── icon.icns                ← macOS icon (generated by build_macos.sh)
+├── pyinstaller_hooks/
+│   └── hook-streamlit.py        ← Ensures Streamlit static assets are bundled
+├── run.sh                       ← Unified entry point (menu when no args, CLI passthrough with args)
+├── run-ui.sh                    ← Alias for run.sh (backward compat)
+├── build_macos.sh               ← macOS build: → dist/tech_stock.dmg
+├── build_windows.bat            ← Windows build: → dist/tech_stock/tech_stock.exe
+├── installer_windows.iss        ← Optional Inno Setup installer script
+├── tech_stock.spec              ← PyInstaller build specification
+├── requirements.txt             ← Python runtime + UI dependencies
+├── .env.example                 ← Template for API keys
+├── .gitignore                   ← Excludes .env, .venv, reports/, dist/, build/
 ├── README.md                    ← This file
 └── LICENSE                      ← MIT
 ```
@@ -894,6 +1027,6 @@ For issues or questions:
 
 ---
 
-**Last updated:** April 30, 2026 (UI dashboards, live progress, JSON validation, report downloads, history compare, and connectivity checks added; original CLI preserved)
-**Version:** 1.5.1
-**Status:** Production-ready with deterministic quality checks and actionable recommendations
+**Last updated:** May 2026 — native macOS/Windows app packaging, unified `./run.sh` launcher, on-demand backtest, Markdown widget fix, doc rewrite
+**Version:** 1.6.0
+**Status:** Production-ready with deterministic quality checks, three interface options, and native app distribution

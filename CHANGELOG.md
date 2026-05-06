@@ -4,6 +4,96 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.6.0] — 2026-05-06
+
+### Added
+- **Native macOS `.app` + `.dmg`** via PyInstaller (`build_macos.sh`) — double-click to install, no terminal required
+- **Native Windows `.exe`** via PyInstaller (`build_windows.bat`); optional Inno Setup installer (`installer_windows.iss`)
+- **GitHub Actions release workflow** (`.github/workflows/build_release.yml`) — push a version tag → both `.dmg` and `.exe` built and uploaded as release artifacts automatically
+- **tkinter GUI launcher** (`src/app_gui.py`) — dark-themed window with three one-click cards (Streamlit / Textual / CLI); used by the packaged app bundle
+- **Unified `./run.sh` entry point** — with no args shows the interface choice menu; existing callers with `morning`/`afternoon`/`--model` args are forwarded unchanged (fully backward-compatible)
+- **PyInstaller spec** (`tech_stock.spec`) with full Streamlit static asset collection, Textual CSS, and all hidden imports
+- **App icon** (`assets/icon.png`, `assets/icon.icns`)
+
+### Fixed
+- **Backtest tab blocked app startup** — `run_backtest_summary()` was called on every Streamlit page load, triggering live yfinance price fetches for all past recommendations and freezing the UI. It is now on-demand only (click "Run backtest").
+- **Textual `RichLog` rendered markdown as plain text** — Today's Report and History tabs now use the Textual `Markdown` widget; headings, tables, and bold text render correctly.
+- **Backtest button in Textual was synchronous** — now runs in `asyncio.to_thread` so the UI stays responsive during the yfinance fetch.
+- **`run-ui.sh` was missing `.env` loading and API key check** — simplified to `exec ./run.sh "$@"` so all env setup is in one place.
+- **`preview_holdings_csv` always returned `None` for the value column** — `market_value_usd` key does not exist; fixed to use `market_value` + `currency`.
+- **Upload fingerprinting used file size** — two different files of identical byte size were treated as the same upload; fixed to use `hashlib.md5(data).hexdigest()`.
+- **ANSI escape regex too narrow** — `r"\x1b\[[0-9;]*m"` missed non-SGR sequences (e.g. charset switches); broadened to cover all standard ANSI escape sequences in both UIs.
+
+---
+
+## [1.5.0] — 2026-04-30
+
+### Added
+- **Streamlit web dashboard** (`ui/streamlit_app.py`) — Dashboard, Run Report, Today's Report, History, Backtest, Portfolio Editor tabs
+- **Textual terminal UI** (`ui/textual_app.py`) — same workflow, keyboard-driven, no browser needed
+- **Shared UI helpers** (`src/ui_support.py`) — `run_report_from_ui()`, `TeeProgressIO` for live progress streaming, `latest_log_summary()`, `check_connectivity()`, holdings preview, JSON validation
+- **Live progress streaming** during report run — `TeeProgressIO` tees stdout/stderr to the UI in real time so users see each phase as it runs
+- **Dashboard tab** — surfaces `risk_dashboard`, `quality_warnings`, `priority_actions`, `hedge_suggestions`, `drift_vs_previous`, and Claude cost/tokens from the latest JSON log without scrolling a 700-line report
+- **Holdings CSV preview** — parse and display a dataframe before spending Claude tokens
+- **JSON editor with live validation** — settings, watchlist, and fallback portfolio editable in-browser with per-keystroke parse errors
+- **Connectivity check** — one-click health check for Anthropic, yfinance, Finnhub, and Polygon with latency display
+- **Download buttons** for markdown report, CSV, and JSON log after a successful Streamlit run
+- **History tab compare** — side-by-side markdown diff of two historical reports
+- **Keyboard shortcuts in Textual** — `Ctrl+R` run, `Ctrl+S` save editor, `r` refresh current tab
+- `run-ui.sh` launcher script
+
+---
+
+## [1.4.0] — 2026-04-30
+
+### Added
+- **Two-pass Claude review** — Pass 1 generates initial JSON; Pass 2 receives quality warnings + drift and revises. Prevents stale-catalyst and overbought-entry recommendations from slipping through.
+- **Prompt caching** — system prompt cached for 1 hour (Anthropic `cache_control: ephemeral, ttl: 1h`); user message also cached on Pass 2. Reduces typical run cost ~40%.
+- **Opus extended thinking** — configurable via `enable_opus_extended_thinking` + `opus_thinking_budget_tokens`; activates only when Opus is selected
+- **Drift tracker** — detects action flips (BUY→SELL) and conviction changes between consecutive sessions; fed into Pass 2 prompt
+- **Critical Actions section** — top-of-report checklist consolidates high/medium quality warnings, manual catalyst reviews, leveraged ETF duration risk, and major drift items
+- **Richer market data** — premarket/after-hours moves, FCF yield, gross/operating margins, dividend yield, ex-dividend dates
+- **Enrichment signals** — Finnhub analyst upgrade/downgrade events; deterministic macro calendar estimates for NFP/CPI/FOMC verification; optional Polygon current snapshot
+- **Leveraged ETF decay estimate** — includes holding days + estimated volatility-decay drag when 20-day vol is available
+- **Previous session execution check** — compares prior actionable recommendations against recent activities CSV rows
+- **Data freshness footnotes** — quote-quality section explains provider quote vs daily-close fallback semantics
+
+---
+
+## [1.3.0] — 2026-04-30
+
+### Added
+- **Report quality warnings** — 13 deterministic warning codes: `stale_or_unstamped_quote`, `missing_catalyst_verification`, `missing_decision_tree`, `oversized_company_exposure`, `reversed_price_range`, and more
+- **Hard quality gates** — `apply_quality_gates()` auto-downgrades BUY/ADD to HOLD-watch and caps conviction ≤5 when catalyst is unverified for large movers or near-earnings names
+- **Portfolio risk dashboard** — `compute_risk_dashboard()`: annualized volatility, max drawdown estimate, beta vs SPY/QQQ/SMH, correlated pairs, top-3 concentration
+- **Company exposure rollup** — `aggregate_company_exposure()` groups tickers by economic entity (e.g. GOOGL + GOOG + GOOGL.TO) via `COMPANY_GROUPS` in `constants.py`
+- **Hedge suggestions** — `build_hedge_suggestions()`: trim-first recommendations + capped PSQ hedge when beta or concentration is high
+- **Priority actions** — "Do This Today" ranked list by urgency, fed from Claude's structured `priority_actions` array
+- **Investment sizing** — exact USD amounts per trade scaled by conviction (8–10 = 40% of budget, 7 = 25%, 6 = 15%)
+- **Hold tiers** — HOLD labeled as watch / keep / add_on_dip for clear next steps
+- **Earnings alerts** — flags tickers with earnings within 7 days; independently verified from enrichment data (not only from Claude's flag)
+- **Exit planning** — every recommendation includes target exit date and Bear Case / Bull Case ranges
+- **6 enrichment APIs** — Finnhub, Polygon, Twelve Data, FRED, CoinGecko, optional Alpha Vantage
+- **`src/report_quality.py`**, **`src/portfolio_analytics.py`**, **`src/fred_client.py`** — new modules
+- **Test suite + CI** — pytest coverage for parsers, quality gates, rendering, drift, analytics; GitHub Actions workflow
+
+### Fixed
+- **Decision-tree regex false negatives** — `_has_decision_tree` now handles "action if condition" form (e.g. "Trim 20% if RSI exceeds 78") in addition to "if condition, action"
+- **FRED `_macro_summary` operator-precedence bug** — adjacent f-string concatenation silently dropped CPI and VIX from the summary string; fixed with explicit `list.append()` pattern
+- **`reversed_price_range` quality warning was dead code** — `normalize_recommendation()` now sets `range_was_normalized = True` before `evaluate()` runs, so the check fires correctly
+
+---
+
+## [1.2.0] — 2026-01
+
+### Added
+- **FRED macro context client** (`src/fred_client.py`) — Fed Funds Rate, CPI inflation (YoY), yield curve (T10Y2Y), VIX; derives regime labels (INVERTED, HIGH, ELEVATED, etc.)
+- **Economic calendar estimates** — deterministic NFP/CPI/FOMC window estimates (no live source required)
+- **Enrichment pipeline** — Phase 1 parallel dispatch (Finnhub, Polygon, Twelve Data, FRED, CoinGecko); Phase 2 sequential optional (Alpha Vantage)
+- **Backtester** (`src/backtester.py`) — loads all past recommendation JSON logs, compares expected vs actual price moves via yfinance historical data, aggregates by action/conviction/ticker; summary fed into Claude prompt for conviction calibration
+
+---
+
 ## [1.1.0] — 2026-04-24
 
 ### 🎯 Summary

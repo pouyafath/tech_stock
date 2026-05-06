@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sys
@@ -31,7 +32,7 @@ from src.ui_support import (  # noqa: E402
 )
 
 
-ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+ANSI_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 
 def _clean_console_line(line: str) -> str:
@@ -42,7 +43,7 @@ def _stored_upload_path(uploaded, state_key: str) -> Path | None:
     if uploaded is None:
         return None
     data = uploaded.getvalue()
-    fingerprint = (uploaded.name, len(data))
+    fingerprint = (uploaded.name, hashlib.md5(data).hexdigest())
     if st.session_state.get(f"{state_key}_fingerprint") != fingerprint:
         path = save_uploaded_bytes(uploaded.name, data)
         st.session_state[f"{state_key}_fingerprint"] = fingerprint
@@ -352,40 +353,45 @@ with tab_history:
                 st.markdown(read_text_file(selected_report))
 
 with tab_backtest:
-    if st.button("Refresh backtest"):
-        st.session_state["backtest_summary"] = run_backtest_summary()
-    backtest = st.session_state.get("backtest_summary") or run_backtest_summary()
-    col_samples, col_return, col_hit = st.columns(3)
-    overall = backtest.get("overall") or {}
-    col_samples.metric("Samples", backtest.get("n_samples", 0))
-    col_return.metric("Average return", f"{overall.get('avg_return_pct', 0):+.2f}%")
-    col_hit.metric("Hit rate", f"{overall.get('hit_rate', 0):.0%}")
+    st.caption("Backtest evaluates past recommendations against actual price moves via yfinance. Click to run — it may take 10–30 seconds.")
+    if st.button("Run backtest", type="primary"):
+        with st.spinner("Fetching historical prices and evaluating recommendations..."):
+            st.session_state["backtest_summary"] = run_backtest_summary()
+    backtest = st.session_state.get("backtest_summary")
+    if backtest is None:
+        st.info("Click **Run backtest** to evaluate your past recommendations.")
+    else:
+        col_samples, col_return, col_hit = st.columns(3)
+        overall = backtest.get("overall") or {}
+        col_samples.metric("Samples", backtest.get("n_samples", 0))
+        col_return.metric("Average return", f"{overall.get('avg_return_pct', 0):+.2f}%")
+        col_hit.metric("Hit rate", f"{overall.get('hit_rate', 0):.0%}")
 
-    _render_backtest_table(
-        "By Action",
-        _rows_from_bucket(backtest.get("avg_return_by_action") or {}, "action"),
-        "action",
-    )
-    _render_backtest_table(
-        "By Conviction",
-        _rows_from_bucket(backtest.get("avg_return_by_conviction") or {}, "conviction"),
-        "conviction",
-    )
-    _render_backtest_table(
-        "By Ticker",
-        _rows_from_bucket(backtest.get("avg_return_by_ticker") or {}, "ticker"),
-        "ticker",
-    )
+        _render_backtest_table(
+            "By Action",
+            _rows_from_bucket(backtest.get("avg_return_by_action") or {}, "action"),
+            "action",
+        )
+        _render_backtest_table(
+            "By Conviction",
+            _rows_from_bucket(backtest.get("avg_return_by_conviction") or {}, "conviction"),
+            "conviction",
+        )
+        _render_backtest_table(
+            "By Ticker",
+            _rows_from_bucket(backtest.get("avg_return_by_ticker") or {}, "ticker"),
+            "ticker",
+        )
 
-    with st.expander("Recent Realized Examples", expanded=True):
-        examples = backtest.get("recent_realized_examples") or []
-        if examples:
-            st.dataframe(pd.DataFrame(examples), hide_index=True, width="stretch")
-        else:
-            st.caption("No realized examples yet.")
+        with st.expander("Recent Realized Examples", expanded=True):
+            examples = backtest.get("recent_realized_examples") or []
+            if examples:
+                st.dataframe(pd.DataFrame(examples), hide_index=True, width="stretch")
+            else:
+                st.caption("No realized examples yet.")
 
-    with st.expander("Raw backtest JSON"):
-        st.json(backtest)
+        with st.expander("Raw backtest JSON"):
+            st.json(backtest)
 
 with tab_editor:
     selected_label = st.selectbox("File", list(EDITABLE_JSON_FILES.keys()))

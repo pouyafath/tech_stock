@@ -1,15 +1,8 @@
 #!/usr/bin/env bash
-# Optional interface launcher for tech_stock.
-# Keeps ./run.sh unchanged for the original CLI workflow.
+# run-ui.sh — Alias for ./run.sh with no arguments (shows the UI-choice menu).
+# Kept for backward compatibility.  ./run.sh is now the canonical launcher.
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
-
-if [ -d ".venv" ]; then
-    # shellcheck disable=SC1091
-    source .venv/bin/activate
-fi
-
-python src/ui_launcher.py
+exec "$SCRIPT_DIR/run.sh" "$@"
