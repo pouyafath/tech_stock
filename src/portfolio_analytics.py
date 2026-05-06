@@ -208,3 +208,85 @@ def build_hedge_suggestions(
         })
 
     return suggestions
+
+
+def detect_drawdown(holdings: list, market_data: dict, settings: dict) -> dict:
+    """Compute portfolio-level drawdown from peak using yfinance history.
+
+    Approach:
+      1. Build per-ticker daily close series from `market_data.history` for the
+         last ~30 days (already fetched).
+      2. Weight by current `market_value` to construct a portfolio time series.
+      3. Compute peak-to-current drawdown as a percentage.
+      4. Trigger when drawdown ≤ -threshold (default -6%).
+
+    The returned dict feeds both the prompt and `apply_quality_gates`. When the
+    inputs are insufficient (no history, no holdings), returns
+    {"triggered": False, "reason": "insufficient_data"}.
+    """
+    threshold_pct = float(settings.get("drawdown_circuit_breaker_pct", -6.0))
+    lookback_days = int(settings.get("drawdown_lookback_days", 30))
+
+    if not holdings:
+        return {"triggered": False, "reason": "no_holdings"}
+
+    cad_per_usd = float(settings.get("cad_per_usd_assumption", 1.37) or 1.37)
+    series_per_ticker: dict[str, pd.Series] = {}
+    weights: dict[str, float] = {}
+    for holding in holdings:
+        ticker = holding.get("ticker")
+        if not ticker or ticker == "CASH":
+            continue
+        data = (market_data or {}).get(ticker) or {}
+        history = data.get("history") or []
+        if not history:
+            continue
+
+        # Closes by date (last `lookback_days` rows, plus a small buffer)
+        closes = {}
+        for row in history[-(lookback_days + 5):]:
+            date = row.get("date")
+            close = row.get("close")
+            if date and close:
+                closes[date] = float(close)
+        if len(closes) < 3:  # 3+ points enough for peak/current comparison
+            continue
+        series_per_ticker[ticker] = pd.Series(closes).sort_index()
+
+        # USD weight = current market value in USD-equivalent
+        mv = holding.get("market_value") or 0.0
+        currency = (holding.get("market_value_currency") or "USD").upper()
+        weight = float(mv) / cad_per_usd if currency == "CAD" else float(mv)
+        weights[ticker] = weight
+
+    if not series_per_ticker:
+        return {"triggered": False, "reason": "no_history"}
+
+    # Weighted portfolio price index — normalize each series to its own first
+    # observation, then weight-average.
+    df = pd.DataFrame(series_per_ticker).dropna(how="all")
+    if df.empty:
+        return {"triggered": False, "reason": "no_history"}
+    normalized = df / df.iloc[0]
+    weights_series = pd.Series({t: weights.get(t, 0.0) for t in normalized.columns})
+    if weights_series.sum() <= 0:
+        return {"triggered": False, "reason": "zero_weight"}
+    weights_series = weights_series / weights_series.sum()
+
+    portfolio_index = (normalized * weights_series).sum(axis=1)
+    if portfolio_index.empty:
+        return {"triggered": False, "reason": "no_history"}
+
+    peak = portfolio_index.max()
+    current = portfolio_index.iloc[-1]
+    drawdown_pct = (current / peak - 1.0) * 100.0 if peak else 0.0
+
+    triggered = bool(drawdown_pct <= threshold_pct)
+    return {
+        "triggered":         triggered,
+        "drawdown_pct":      round(float(drawdown_pct), 2),
+        "threshold_pct":     threshold_pct,
+        "peak_label":        f"{lookback_days}d peak",
+        "lookback_days":     lookback_days,
+        "samples":           int(len(portfolio_index)),
+    }

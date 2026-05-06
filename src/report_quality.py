@@ -248,18 +248,65 @@ def evaluate(
     return [warning.to_dict() for warning in warnings]
 
 
-def apply_quality_gates(recommendation: dict, warnings: list[dict]) -> dict:
-    """Apply hard safety gates after model output."""
+def vix_size_multiplier(vix: float | None, settings: dict | None = None) -> float:
+    """Map VIX level to a position-size multiplier.
+
+    Defaults intentionally cautious:
+        VIX < 15 → 1.0×    (calm, full size)
+        15-25    → 0.85×   (normal)
+        25-35    → 0.6×    (elevated — half-size new BUYs)
+        > 35     → 0.4×    (panic — only the highest-conviction trades)
+
+    Override via settings.json["vix_size_thresholds"] = {"low":15,"med":25,"high":35,
+                                                          "low_mult":1.0,"med_mult":0.85,...}
+    """
+    if vix is None:
+        return 1.0
+    cfg = (settings or {}).get("vix_size_thresholds") or {}
+    low      = float(cfg.get("low", 15))
+    med      = float(cfg.get("med", 25))
+    high     = float(cfg.get("high", 35))
+    low_m    = float(cfg.get("low_mult", 1.0))
+    med_m    = float(cfg.get("med_mult", 0.85))
+    high_m   = float(cfg.get("high_mult", 0.6))
+    panic_m  = float(cfg.get("panic_mult", 0.4))
+    if vix < low:
+        return low_m
+    if vix < med:
+        return med_m
+    if vix < high:
+        return high_m
+    return panic_m
+
+
+def apply_quality_gates(
+    recommendation: dict,
+    warnings: list[dict],
+    drawdown_state: dict | None = None,
+    market_context: dict | None = None,
+    settings: dict | None = None,
+    aging_summary_data: dict | None = None,
+    backtest_summary: dict | None = None,
+) -> dict:
+    """Apply hard safety gates after model output.
+
+    Layers, in order:
+      1. Catalyst gate — downgrade BUY/ADD lacking verified catalyst to HOLD-watch.
+      2. Stale-position gate — force EXIT recommendations on positions >2y old
+         that aren't already SELL/TRIM.
+      3. VIX-regime sizing — scale invest_amount_usd by VIX-derived multiplier.
+      4. Drawdown circuit breaker — if portfolio is N% from peak: halve sizes,
+         force HOLD-watch on conviction <7, drop ADD/BUY recommendations.
+    """
     out = deepcopy(recommendation)
+    settings = settings or {}
+
+    # ── 1. Catalyst gate (existing behaviour) ──────────────────────────────
     blocked = {
         warning.get("ticker")
         for warning in warnings or []
         if warning.get("code") == "missing_catalyst_verification"
     }
-    if not blocked:
-        out["quality_warnings"] = warnings or []
-        return out
-
     for rec in out.get("recommendations", []) or []:
         ticker = rec.get("ticker")
         if ticker not in blocked:
@@ -281,6 +328,101 @@ def apply_quality_gates(recommendation: dict, warnings: list[dict]) -> dict:
                 "Manual catalyst verification required before trading. "
                 + (rec.get("thesis") or "")
             ).strip()
+
+    # ── 2. Stale-position gate (>2y holds: force exit candidate) ────────────
+    stale_tickers = set((aging_summary_data or {}).get("stale_tickers") or [])
+    if stale_tickers:
+        existing_tickers = {(r.get("ticker") or "") for r in out.get("recommendations", [])}
+        for rec in out.get("recommendations", []) or []:
+            if rec.get("ticker") in stale_tickers and rec.get("action") not in {"SELL", "TRIM"}:
+                rec["action"] = "TRIM"
+                rec["thesis"] = (
+                    "POSITION OVER 2-YEAR CAP — forced trim per strategy rule (no permanent holds). "
+                    + (rec.get("thesis") or "")
+                ).strip()
+                rec["manual_review_required"] = True
+        # Make sure stale tickers without an explicit recommendation surface as TRIM.
+        for ticker in stale_tickers - existing_tickers:
+            out.setdefault("recommendations", []).append({
+                "ticker": ticker,
+                "action": "TRIM",
+                "conviction": 7,
+                "thesis": "POSITION OVER 2-YEAR CAP — strategy rule forces trim or exit.",
+                "manual_review_required": True,
+                "auto_generated": True,
+            })
+
+    # ── 3. VIX-regime sizing ─────────────────────────────────────────────────
+    vix = None
+    macro = (market_context or {}).get("macro") if market_context else None
+    if isinstance(macro, dict):
+        vix = macro.get("vix")
+    elif isinstance(market_context, dict):
+        vix = market_context.get("vix")
+    vix_mult = vix_size_multiplier(vix, settings)
+    if vix_mult != 1.0:
+        for rec in out.get("recommendations", []) or []:
+            amount = rec.get("invest_amount_usd")
+            if amount is None:
+                continue
+            try:
+                rec["invest_amount_usd"] = round(float(amount) * vix_mult, 0) or None
+            except (TypeError, ValueError):
+                pass
+        out.setdefault("session_summary", "")
+        out["vix_size_multiplier"] = vix_mult
+
+    # ── 3.5. Conviction-stratified sizing (uses actual hit rates from backtester)
+    conv_multipliers = {}
+    if backtest_summary:
+        conv_multipliers = backtest_summary.get("sizing_multipliers_by_conviction") or {}
+    if conv_multipliers:
+        for rec in out.get("recommendations", []) or []:
+            amount = rec.get("invest_amount_usd")
+            if amount is None:
+                continue
+            try:
+                conv = int(float(rec.get("conviction", 0)))
+            except (TypeError, ValueError):
+                continue
+            mult = conv_multipliers.get(conv) or conv_multipliers.get(str(conv))
+            if mult is None:
+                continue
+            try:
+                rec["invest_amount_usd"] = round(float(amount) * float(mult), 0) or None
+                rec["sizing_multiplier_applied"] = round(float(mult), 3)
+            except (TypeError, ValueError):
+                pass
+
+    # ── 4. Drawdown circuit breaker ─────────────────────────────────────────
+    if drawdown_state and drawdown_state.get("triggered"):
+        for rec in out.get("recommendations", []) or []:
+            action = (rec.get("action") or "").upper()
+            conviction = rec.get("conviction")
+            if action in {"BUY", "ADD"}:
+                # Halve and downgrade ADDs; cancel BUYs entirely.
+                if action == "ADD":
+                    amount = rec.get("invest_amount_usd")
+                    if amount is not None:
+                        try:
+                            rec["invest_amount_usd"] = round(float(amount) * 0.5, 0) or None
+                        except (TypeError, ValueError):
+                            pass
+                else:  # BUY
+                    rec["action"] = "HOLD"
+                    rec["hold_tier"] = "watch"
+                    rec["invest_amount_usd"] = None
+                rec["thesis"] = (
+                    f"DRAWDOWN MODE ({drawdown_state.get('drawdown_pct', 0):+.1f}%): "
+                    + (rec.get("thesis") or "")
+                ).strip()
+            # Force HOLD-watch on weak-conviction holds during drawdown.
+            try:
+                if action == "HOLD" and conviction is not None and float(conviction) < 7:
+                    rec["hold_tier"] = "watch"
+            except (TypeError, ValueError):
+                pass
+        out["drawdown_state"] = drawdown_state
 
     out["priority_actions"] = [
         action for action in out.get("priority_actions", []) or []

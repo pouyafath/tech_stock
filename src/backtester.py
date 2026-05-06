@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from src._utils import parse_session_filename, safe_float
+from src.fee_calculator import calculate_round_trip_cost
 from src.market_data import price_at
 
 # Approximate horizon windows in calendar days.
@@ -177,6 +178,19 @@ def evaluate_recommendations(recs: list[dict], as_of: datetime = None) -> list[d
         else:  # BUY, ADD
             actual_for_action = raw_move_pct
 
+        # Subtract round-trip fees + estimated slippage so the reported edge is
+        # what the user would actually have captured.  Slippage is half the
+        # one-way bid-ask (a market-order tax).  Without this, a 0.5% Sonnet
+        # edge can be entirely consumed by midcap costs.
+        try:
+            fees = calculate_round_trip_cost(ticker, notional_usd=1000.0)
+            round_trip_cost_pct = fees.get("total_pct", 0.0)
+            slippage_pct = fees.get("bid_ask_pct_one_way", 0.0) * 0.5
+        except (KeyError, ValueError):
+            round_trip_cost_pct = 0.0
+            slippage_pct = 0.0
+        net_actual_for_action = actual_for_action - round_trip_cost_pct - slippage_pct
+
         expected_pct = rec.get("net_expected_pct") or rec.get("expected_move_pct") or 0.0
         if action in ("SELL", "TRIM") and expected_pct < 0:
             # User expects the stock to drop; align sign with "our bet paid off"
@@ -184,7 +198,9 @@ def evaluate_recommendations(recs: list[dict], as_of: datetime = None) -> list[d
         else:
             expected_for_action = expected_pct
 
-        hit = actual_for_action > 0
+        # Hit-rate now uses the after-fee return so we don't reward marginal moves
+        # that lose money after slippage.
+        hit = net_actual_for_action > 0
 
         results.append({
             "ticker": ticker,
@@ -193,7 +209,11 @@ def evaluate_recommendations(recs: list[dict], as_of: datetime = None) -> list[d
             "conviction": rec.get("conviction"),
             "time_horizon": rec.get("time_horizon", ""),
             "expected_pct": round(float(expected_for_action), 2),
-            "actual_pct": round(float(actual_for_action), 2),
+            # actual_pct is now the NET return (after fees + slippage) for honesty
+            "actual_pct": round(float(net_actual_for_action), 2),
+            # gross_pct preserves the pre-fee number for calibration / debugging
+            "gross_pct": round(float(actual_for_action), 2),
+            "fee_drag_pct": round(float(round_trip_cost_pct + slippage_pct), 4),
             "start_price": start_price,
             "end_price": end_price,
             "hit": hit,
@@ -266,11 +286,26 @@ def summarize(results: list[dict]) -> dict:
         reverse=True,
     )[:8]
 
+    # Conviction-stratified sizing multipliers — feed actual hit rates back into
+    # position sizing.  Multiplier formula (Kelly-lite, dampened):
+    #     mult = clamp(0.4, hit_rate * (1 + avg_return / 10), 1.4)
+    # Applied to invest_amount_usd downstream of Rule 18.  Only computed when
+    # the bucket has ≥3 mature samples — otherwise falls back to 1.0.
+    sizing_multipliers = {}
+    for conv, stats in by_conv.items():
+        if stats.get("n", 0) < 3:
+            continue
+        hit_rate = float(stats.get("hit_rate", 0.0))
+        avg_return = float(stats.get("avg_return_pct", 0.0))
+        raw = hit_rate * (1.0 + avg_return / 10.0)
+        sizing_multipliers[int(conv)] = max(0.4, min(raw, 1.4))
+
     return {
         "n_samples": len(results),
         "avg_return_by_action": by_action,
         "avg_return_by_conviction": by_conv,
         "avg_return_by_ticker": by_ticker,
+        "sizing_multipliers_by_conviction": sizing_multipliers,
         "recent_realized_examples": recent_examples,
         "overall": _avg_and_hit_rate(results),
     }

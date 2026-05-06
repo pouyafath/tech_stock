@@ -22,7 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-from src.activity_loader import parse_activities_csv
+from src.activity_loader import holding_days_by_ticker, parse_activities_csv
 from src.backtester import run_backtest
 from src.claude_analyst import call_claude
 from src.constants import DEDUP_PAIRS, SKIP_MARKET_DATA
@@ -31,7 +31,12 @@ from src.enriched_data import enrich
 from src.fee_calculator import build_fee_snapshot
 from src.market_data import add_options_implied_moves, get_context_moves, get_market_data
 from src.news_fetcher import get_news_for_tickers
-from src.portfolio_analytics import aggregate_company_exposure, build_hedge_suggestions, compute_risk_dashboard
+from src.portfolio_analytics import (
+    aggregate_company_exposure,
+    build_hedge_suggestions,
+    compute_risk_dashboard,
+    detect_drawdown,
+)
 from src.portfolio_loader import compute_sector_exposure, parse_holdings_csv
 from src.report_generator import generate_markdown, save_report, watchlist_price_alerts
 
@@ -611,6 +616,19 @@ def run(
     risk_dashboard = compute_risk_dashboard(portfolio.get("holdings", []), market_data_all, settings)
     hedge_suggestions = build_hedge_suggestions(risk_dashboard, company_exposure, settings)
 
+    # ── Position aging: how long has each holding been held?  Powers the
+    #    deterministic 3-6 month sweet-spot / 2-year cap rules in the prompt.
+    holding_days_map = holding_days_by_ticker(recent_activities or [], portfolio.get("holdings", []))
+
+    # ── Drawdown circuit breaker.  If portfolio is N% off its rolling peak,
+    #    halve sizes, force HOLD-watch on conviction <7, and skip ADDs.
+    drawdown_state = detect_drawdown(portfolio.get("holdings", []), market_data_all, settings)
+    if drawdown_state.get("triggered"):
+        print(
+            f"{C.YELLOW}[tech_stock] Drawdown circuit breaker active: "
+            f"{drawdown_state['drawdown_pct']:+.1f}% from {drawdown_state['peak_label']}{C.RESET}"
+        )
+
     context_symbols = sorted(set(settings.get("sector_rotation_tickers", [])) | set(settings.get("cross_asset_tickers", [])))
     market_context = get_context_moves(context_symbols) if context_symbols else {}
 
@@ -654,6 +672,8 @@ def run(
             market_context=market_context,
             hedge_suggestions=hedge_suggestions,
             enriched=enriched,
+            holding_days_map=holding_days_map,
+            drawdown_state=drawdown_state,
         )
     except ValueError as e:
         print(f"{C.RED}[ERROR]{C.RESET} Claude response parsing failed: {e}")

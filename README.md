@@ -45,6 +45,19 @@
 
 ---
 
+## ✨ What's New in v1.7.0 (May 6, 2026)
+
+**Strategy alignment — every recommendation now respects your trading rules deterministically.**
+
+- **Position aging** — Every holding is classified `fresh`/`core`/`mature`/`aged`/`stale`. Mature positions (6-12 months without a fresh catalyst) auto-drop conviction by 1; stale (>2 years) are force-converted to TRIM regardless of Claude's output.
+- **VIX-regime sizing** — `invest_amount_usd` automatically scales by VIX: 0.85× when 15–25, 0.6× when 25–35, 0.4× above 35.
+- **Drawdown circuit breaker** — When portfolio is ≥6% off its 30-day peak: ADDs halve, BUYs become HOLD-watch, and weak HOLDs (conviction <7) get forced to watch.
+- **Conviction sizing from your actual hit rates** — After 3+ mature trades per conviction bucket, position sizes follow your real edge, not just Claude's conviction prior.
+- **Catalyst windows** — Earnings ±5 days = lockdown; T-30 to T-5 = setup window; T+1 to T+3 = post-earnings drift. Plus session-level FOMC/CPI/NFP tags pre-position you 1-2 days before macro events.
+- **Cache pricing fixed** — Code uses 1-hour cache TTL; pricing table was billing at 5-minute rates (under-reported costs by ~25%).
+
+41 new tests, 80 total, all passing.
+
 ## ✨ What's New in v1.6.0 (May 2026)
 
 **Native App Packaging + Unified Launcher:** Run tech_stock as a native macOS or Windows application — no terminal required.

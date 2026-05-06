@@ -23,11 +23,19 @@ from src.report_quality import apply_quality_gates, evaluate as evaluate_report_
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 # Pricing per 1M tokens (USD) — update when Anthropic changes rates
+# Pricing per 1M tokens. cache_write_5m is the 5-minute ephemeral write multiplier
+# (1.25× input). cache_write_1h is the 1-hour ephemeral write multiplier (2× input)
+# — this is what the code actually uses (ttl: "1h" set at lines 794 and 808).
+# cache_read is 0.1× input.  See https://docs.anthropic.com/en/docs/prompt-caching
 MODEL_PRICING = {
-    "claude-sonnet-4-6": {"input": 3.00,  "output": 15.00, "cache_write": 3.75,  "cache_read": 0.30},
-    "claude-opus-4-7":   {"input": 5.00,  "output": 25.00, "cache_write": 6.25,  "cache_read": 0.50},
-    "claude-haiku-4-5":  {"input": 1.00,  "output": 5.00,  "cache_write": 1.25,  "cache_read": 0.10},
+    "claude-sonnet-4-6": {"input": 3.00,  "output": 15.00, "cache_write_5m": 3.75,  "cache_write_1h": 6.00,  "cache_read": 0.30},
+    "claude-opus-4-7":   {"input": 5.00,  "output": 25.00, "cache_write_5m": 6.25,  "cache_write_1h": 10.00, "cache_read": 0.50},
+    "claude-haiku-4-5":  {"input": 1.00,  "output": 5.00,  "cache_write_5m": 1.25,  "cache_write_1h": 2.00,  "cache_read": 0.10},
 }
+
+# Which cache TTL the analyst actually uses (must match the cache_control TTL passed to
+# the Anthropic SDK below).  Bump to "5m" only if you also change the cache_control values.
+_CACHE_TTL = "1h"
 
 
 SYSTEM_PROMPT = """You are a disciplined, fee-aware portfolio advisor for a Canadian retail investor using Wealthsimple Premium with a USD account ($10/month plan). The investor prefers holding positions for 1 month to 3 years, with a sweet spot of 3–12 months. They invest $50–$700 per session and can buy fractional shares, so always express trade size as a dollar amount (invest_amount_usd), not share counts.
@@ -67,6 +75,30 @@ RULES YOU MUST FOLLOW:
 30. RANGE LABELS: price_target_low_pct is the Bear Case and price_target_high_pct is the Bull Case. Keep the JSON field names unchanged for compatibility.
 31. HEDGE SUGGESTIONS: If concentration, beta, or volatility risk is high, include hedge_suggestions. Trim/rebalance suggestions should come before inverse ETFs. Inverse ETF hedges are allowed only as small short-term hedges with risk notes and sizing caps.
 32. COMPACT JSON: Return at most 12 recommendation rows. Include all priority/actionable trades, all holdings with material risk, and the strongest watchlist opportunities. Do not include every low-signal ticker as a recommendation; summarize the rest in watchlist_flags, sector_warnings, or warnings.
+33. POSITION AGING (3-6 month sweet spot, 2-year hard cap): Every existing holding has a `held [days] [tier]` tag in PORTFOLIO. Tiers and required actions:
+    - fresh (0-90d) → normal evaluation; ADD freely if conviction ≥7
+    - core (91-180d) → sweet spot; HOLD-keep or HOLD-add_on_dip with strong thesis
+    - mature (181-365d) → re-validate the original thesis; if no fresh catalyst since entry, drop conviction by 1 and bias toward TRIM
+    - aged (366-730d) → must have a fresh catalyst from enrichment data; otherwise TRIM
+    - stale (>730d) → output TRIM (no permanent holds; the user explicitly capped holds at 2 years). The deterministic gate enforces this regardless of your output.
+   Use the POSITION AGING summary block (when present) as a checklist.
+34. VIX-REGIME SIZING: When MARKET DATA shows VIX, scale your invest_amount_usd values:
+    - VIX < 15  → full size (1.00× of conviction-based amount)
+    - 15 to 25  → 0.85× (mild caution)
+    - 25 to 35  → 0.60× (elevated; only top 1-2 BUYs per session)
+    - VIX > 35  → 0.40× (panic; require conviction 9+ for any new BUY, prefer TRIM/HEDGE)
+   Mention the VIX level explicitly in the session_summary when above 20.
+35. DRAWDOWN MODE: When the user message contains a "DRAWDOWN CIRCUIT BREAKER ACTIVE" line, follow these rules without exception:
+    - No new BUY recommendations this session.
+    - Existing ADD candidates: keep but halve invest_amount_usd.
+    - Force HOLD-watch on every position with conviction <7 (monitor for further weakness or exit).
+    - Bias toward defensive sector trims (XLY, XLK) and toward defensive HOLDs (XLP, XLU).
+    - The deterministic gate enforces these rules; align your JSON output with them.
+36. CATALYST WINDOWS: When the user message contains a "CATALYST WINDOWS" block, treat its tags as constraints, not suggestions:
+    - LOCKDOWN (≤5 days before earnings) → no new BUY/ADD on that ticker; existing recommendations stay HOLD.
+    - SETUP (T-30 to T-6 days) → entries OK if conviction ≥7 with cited catalyst.
+    - DRIFT (T+1 to T+3) → high-conviction adds OK only if post-earnings move confirms thesis direction.
+    - FOMC_TODAY / CPI_WEEK / NFP_DAY → reduce session-wide aggressiveness; consider trimming highest-beta names; defer non-urgent BUYs.
 
 OUTPUT FORMAT (return exactly this structure):
 {
@@ -422,9 +454,16 @@ def build_user_message(
     company_exposure: dict = None,
     market_context: dict = None,
     hedge_suggestions: list = None,
+    holding_days_map: dict | None = None,
+    drawdown_state: dict | None = None,
 ) -> str:
     """Construct the full user message with all context."""
     from src.news_fetcher import aggregate_sentiment
+    from src.position_aging import (
+        annotate_holdings,
+        aging_summary,
+        format_aging_for_prompt,
+    )
 
     now_dt = datetime.now()
     now = now_dt.strftime("%Y-%m-%d %H:%M")
@@ -434,6 +473,9 @@ def build_user_message(
     news_by_ticker = news_by_ticker or {}
 
     holdings = portfolio.get("holdings", [])
+    aging_tiers = settings.get("position_aging_tiers") or None
+    annotated_holdings = annotate_holdings(holdings, holding_days_map or {}, aging_tiers)
+    holdings = annotated_holdings  # downstream rendering uses days_held + aging_tier
     cash_cad = portfolio.get("cash_cad", 0)
     exported_at = portfolio.get("exported_at", "")
 
@@ -463,6 +505,15 @@ def build_user_message(
         usd_holdings = [h for h in holdings if not h.get("is_cdr") and h.get("market_currency") == "USD"]
         cad_holdings = [h for h in holdings if h.get("is_cdr") or h.get("market_currency") == "CAD"]
 
+        def _age_label(h: dict) -> str:
+            tier = h.get("aging_tier")
+            days = h.get("days_held")
+            if tier and days is not None:
+                return f" | held {days}d [{tier}]"
+            if h.get("holding_duration_unknown"):
+                return " | held >90d (entry pre-dates activities window)"
+            return ""
+
         if usd_holdings:
             lines.append("USD Holdings:")
             for h in usd_holdings:
@@ -478,7 +529,7 @@ def build_user_message(
                 price_str = f"now ${price:.2f}" if price else ""
                 mv_str = f"value ${mv:,.0f}" if mv else ""
                 lines.append(
-                    f"  {ticker:8s} {qty:8.4f} sh | {avg_str} | {price_str} | {mv_str}{pnl_str}"
+                    f"  {ticker:8s} {qty:8.4f} sh | {avg_str} | {price_str} | {mv_str}{pnl_str}{_age_label(h)}"
                 )
 
         if cad_holdings:
@@ -496,7 +547,7 @@ def build_user_message(
                 avg_str = f"avg ${avg:.2f} CAD" if avg else ""
                 price_str = f"now ${price:.2f} CAD" if price else ""
                 lines.append(
-                    f"  {ticker:8s}{cdr_flag:6s} {qty:8.4f} sh | {avg_str} | {price_str}{pnl_str}"
+                    f"  {ticker:8s}{cdr_flag:6s} {qty:8.4f} sh | {avg_str} | {price_str}{pnl_str}{_age_label(h)}"
                 )
     else:
         lines.append("No current holdings — all cash.")
@@ -515,6 +566,35 @@ def build_user_message(
 
     lines += _format_company_exposure(company_exposure)
     lines += _format_risk_dashboard(risk_dashboard)
+
+    # ── Position aging (drives weekly small actions on existing holdings) ─
+    aging = aging_summary(annotated_holdings)
+    aging_block = format_aging_for_prompt(annotated_holdings, aging)
+    if aging_block:
+        lines.append("")
+        lines.append(aging_block)
+
+    # ── Catalyst windows (earnings ±5d, FOMC, CPI, NFP) ─────────────────
+    from src.catalyst_windows import annotate_tickers, macro_session_tags, format_for_prompt
+    enriched_per_ticker = (enriched or {}).get("per_ticker") or {}
+    macro_calendar = ((enriched or {}).get("macro_context") or {}).get("calendar")
+    ticker_windows = annotate_tickers(enriched_per_ticker)
+    session_tags = macro_session_tags(macro_calendar)
+    catalyst_block = format_for_prompt(ticker_windows, session_tags)
+    if catalyst_block:
+        lines.append("")
+        lines.append(catalyst_block)
+
+    # ── Drawdown circuit-breaker context (set by main.py / analytics) ────
+    if drawdown_state and drawdown_state.get("triggered"):
+        dd = drawdown_state
+        lines.append("")
+        lines.append(
+            "DRAWDOWN CIRCUIT BREAKER ACTIVE — portfolio is "
+            f"{dd.get('drawdown_pct', 0):+.1f}% from {dd.get('peak_label', '30d peak')}. "
+            "Apply rules in §32-34 (no new ADD; halve all invest_amount_usd; "
+            "force HOLD-watch on conviction <7)."
+        )
     if hedge_suggestions:
         lines.append("\n=== DETERMINISTIC HEDGE / REBALANCE SUGGESTIONS ===")
         for suggestion in hedge_suggestions:
@@ -723,13 +803,18 @@ def build_user_message(
 
 
 def estimate_cost(usage, model: str) -> dict:
-    """Estimate the USD cost of an API call from usage statistics."""
+    """Estimate the USD cost of an API call from usage statistics.
+
+    Uses the 1-hour cache write rate by default since that is what
+    `_CACHE_TTL` controls and the analyst sets on every Pass 1 call.
+    """
     pricing = MODEL_PRICING.get(model, MODEL_PRICING["claude-sonnet-4-6"])
     M = 1_000_000
+    cache_write_rate = pricing.get(f"cache_write_{_CACHE_TTL}", pricing.get("cache_write_1h"))
 
     input_cost    = (getattr(usage, "input_tokens", 0) / M) * pricing["input"]
     output_cost   = (getattr(usage, "output_tokens", 0) / M) * pricing["output"]
-    cache_w_cost  = (getattr(usage, "cache_creation_input_tokens", 0) / M) * pricing["cache_write"]
+    cache_w_cost  = (getattr(usage, "cache_creation_input_tokens", 0) / M) * cache_write_rate
     cache_r_cost  = (getattr(usage, "cache_read_input_tokens", 0) / M) * pricing["cache_read"]
     total_cost    = input_cost + output_cost + cache_w_cost + cache_r_cost
 
@@ -892,6 +977,8 @@ def call_claude(
     company_exposure: dict = None,
     market_context: dict = None,
     hedge_suggestions: list = None,
+    holding_days_map: dict | None = None,
+    drawdown_state: dict | None = None,
 ) -> tuple[dict, dict]:
     """
     Call Claude API and return (recommendation, usage_stats).
@@ -920,6 +1007,8 @@ def call_claude(
         company_exposure=company_exposure,
         market_context=market_context,
         hedge_suggestions=deterministic_hedges,
+        holding_days_map=holding_days_map,
+        drawdown_state=drawdown_state,
     )
 
     client = anthropic.Anthropic(
@@ -984,7 +1073,24 @@ def call_claude(
         settings=settings,
     )
 
-    recommendation = apply_quality_gates(recommendation, final_warnings)
+    # Build the aging summary so the gate can enforce the 2-year cap.
+    from src.position_aging import annotate_holdings, aging_summary
+    annotated = annotate_holdings(
+        portfolio.get("holdings", []),
+        holding_days_map or {},
+        settings.get("position_aging_tiers"),
+    )
+    aging = aging_summary(annotated)
+
+    recommendation = apply_quality_gates(
+        recommendation,
+        final_warnings,
+        drawdown_state=drawdown_state,
+        market_context=market_context,
+        settings=settings,
+        aging_summary_data=aging,
+        backtest_summary=backtest_summary,
+    )
     recommendation["review_passes"] = 2
     recommendation["drift_vs_previous"] = final_drift
     recommendation["first_pass_quality_warnings"] = first_warnings

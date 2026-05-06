@@ -4,6 +4,30 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.7.0] — 2026-05-06
+
+### Added — Strategy alignment (3-6 month sweet spot, weekly small actions, 2-year hard cap)
+- **Position-aging tiers** (`src/position_aging.py`) — every holding is classified as `fresh` (0-90d), `core` (91-180d), `mature` (181-365d), `aged` (366-730d), or `stale` (>730d). Tags appear in the prompt and drive deterministic actions.
+- **2-year hard cap enforcement** — `apply_quality_gates` automatically converts any non-SELL/TRIM action on a `stale` ticker to TRIM, and appends an auto-generated TRIM for stale holdings Claude omitted. Implements the user's explicit "no permanent holds" rule.
+- **VIX-regime sizing** (`vix_size_multiplier`) — invest_amount_usd scaled by VIX level: <15 = 1.0×, 15-25 = 0.85×, 25-35 = 0.6×, >35 = 0.4×. Configurable via `vix_size_thresholds` in settings.json.
+- **Drawdown circuit breaker** (`portfolio_analytics.detect_drawdown`) — when portfolio is ≥6% off its 30-day rolling peak (configurable), `apply_quality_gates` halves all ADD sizes, converts BUYs to HOLD-watch, and forces HOLD-watch on conviction <7. Threshold configurable via `drawdown_circuit_breaker_pct`.
+- **Conviction-stratified sizing from actual hit rates** (`backtester.summarize`) — each conviction bucket with ≥3 mature samples gets a Kelly-lite sizing multiplier `clamp(0.4, hit_rate × (1 + avg_return/10), 1.4)`. Applied automatically in `apply_quality_gates` so position sizes follow your real edge, not just your conviction.
+- **Catalyst-window classifier** (`src/catalyst_windows.py`) — annotates each ticker by earnings proximity:
+  - `setup` (T-30 to T-6): entries OK if conviction ≥7
+  - `lockdown` (T-5 to T+0): no new BUY/ADD (IV crush risk)
+  - `drift` (T+1 to T+3): post-earnings adds OK if direction confirmed
+  - Plus session-level macro tags: `FOMC_TODAY`, `FOMC_IN_2D`, `CPI_WEEK`, `NFP_DAY`. Auto-detected from FRED calendar and date math; piped into the prompt as constraints.
+- **Position aging exposed in prompt** — `holding_days_by_ticker` output (already computed) is now threaded into Claude's user message. Each holding gets a `held 200d [mature]` tag inline, plus a top-level POSITION AGING summary block when any positions need re-validation.
+- **4 new system prompt rules** (33-36): position aging, VIX sizing, drawdown mode, catalyst windows. Each with explicit thresholds and required actions.
+
+### Fixed
+- **`MODEL_PRICING` was using 5-minute cache write rates** (1.25× input) for code that actually uses 1-hour cache (`ttl: "1h"` → 2× input rate). Costs were under-reported by ~25% per session. New `cache_write_5m` and `cache_write_1h` keys; `estimate_cost` reads the right one based on `_CACHE_TTL` constant.
+
+### Tests
+- 41 new tests across `test_position_aging.py`, `test_catalyst_windows.py`, `test_strategy_gates.py`, `test_pricing_and_drawdown.py`, `test_backtester_fees.py`. Total suite now 80 tests, all passing.
+
+---
+
 ## [1.6.0] — 2026-05-06
 
 ### Added
