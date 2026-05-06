@@ -45,6 +45,18 @@
 
 ---
 
+## ✨ What's New in v1.8.0 (May 6, 2026)
+
+**P2 polish — execution quality and weekly action density.**
+
+- **Trailing stops** — stops automatically tighten as positions appreciate (+10% → breakeven, +20% → 8% trail, +40% → 12% trail). Breached stops auto-generate TRIM regardless of Claude's output. Locks in gains without manual intervention.
+- **Sector rotation rhythm** — sector ETFs ranked by 1-month relative strength. Detects leadership shifts vs the previous session ("rotating in" / "rotating out"). Generates timely rotation trades aligned with your weekly cadence.
+- **Tranched entry/exit plans** — every BUY/ADD now ships with a 3-step entry plan (40% now / 30% on pullback / 30% on confirmation). Same for SELL/TRIM exits. Lowers average entry by ~0.5–1% historically and turns each trade idea into 3 weekly small actions.
+- **Live USD→CAD FX rate** from FRED DEXCAUS — replaces the static 1.37 assumption (real range: 1.32–1.42). CAD-denominated holdings now valued accurately.
+- **Fixed:** News cache now date-keyed (no more stale headlines on the afternoon run); drift tracker now skips quick re-runs and prefers same-session-type from the previous trading day.
+
+31 new tests, 111 total, all passing.
+
 ## ✨ What's New in v1.7.0 (May 6, 2026)
 
 **Strategy alignment — every recommendation now respects your trading rules deterministically.**
@@ -1040,6 +1052,6 @@ For issues or questions:
 
 ---
 
-**Last updated:** May 2026 — native macOS/Windows app packaging, unified `./run.sh` launcher, on-demand backtest, Markdown widget fix, doc rewrite
-**Version:** 1.6.0
-**Status:** Production-ready with deterministic quality checks, three interface options, and native app distribution
+**Last updated:** May 2026 — strategy-aligned gates (aging/VIX/drawdown/catalysts/conviction sizing in v1.7.0), then trailing stops + sector rotation + tranched plans + live FX in v1.8.0
+**Version:** 1.8.0
+**Status:** Production-ready with 13 deterministic quality gates, three interface options, and native app distribution

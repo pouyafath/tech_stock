@@ -4,6 +4,24 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.8.0] — 2026-05-06
+
+### Added — P2 strategy polish
+- **Trailing stops** (`src/trailing_stops.py`) — stops auto-tighten as positions appreciate: +10% gain → breakeven; +20% → trail by 8% from peak; +40% → trail by 12% from peak. Schedule configurable via `trailing_stop_schedule`. Breached stops auto-generate TRIM via `apply_quality_gates`.
+- **Sector rotation rhythm** (`src/sector_rotation.py`) — ranks sector ETFs by 1-month relative strength, identifies leaders/laggards, and detects "rotating in" / "rotating out" tickers vs the previous session (uses persisted `market_context_snapshot`). Rotating-in sectors get add bias; rotating-out get trim bias.
+- **Tranched entry/exit plans** — `normalize_recommendation` backfills a 3-step `entry_plan` (40% now / 30% on pullback / 30% on confirmation) for every BUY/ADD and a 3-step `exit_plan` for every TRIM/SELL when Claude omits them. Lowers average entry by ~0.5–1% historically and produces 3 weekly small actions per trade idea.
+- **Live FX rate** (`fred_client.live_cad_per_usd`) — fetches USD→CAD daily from FRED `DEXCAUS`, cached 24h, with 1.20–1.55 sanity range. Falls back to static `cad_per_usd_assumption` on failure. Replaces ±3% pricing error on CAD-denominated holdings.
+- **3 new SYSTEM_PROMPT rules (37–39)**: trailing stops, sector rotation, tranched plans.
+
+### Fixed
+- **News cache returned stale headlines on second daily run** — cache key now includes `YYYYMMDD`, so a Friday-afternoon run after a Friday-morning run no longer returns morning's headlines.
+- **Drift tracker self-compared on quick re-runs** — `get_previous_session` now skips files newer than `min_age_hours` (default 4h) and prefers the same session-type from the previous trading day. Keeps drift signal meaningful when you re-run morning at 9:35am after running at 9:30am.
+
+### Tests
+- 31 new tests across `test_trailing_stops.py`, `test_sector_rotation.py`, `test_p2_polish.py`. Total suite now 111 tests, all passing.
+
+---
+
 ## [1.7.0] — 2026-05-06
 
 ### Added — Strategy alignment (3-6 month sweet spot, weekly small actions, 2-year hard cap)

@@ -47,6 +47,10 @@ SERIES = {
     "VIXCLS":   ("VIX (Fear Index)",       "pts",  False),
 }
 
+# Separate from SERIES because FX has a different consumer (portfolio_loader),
+# different cache TTL, and we don't want it in the macro context output.
+FX_SERIES = "DEXCAUS"  # Canadian Dollars to One U.S. Dollar (daily)
+
 
 def _macro_summary(dff: float, curve: float | None, cpi: float | None, vix: float | None) -> str:
     parts = [f"Rates: {dff:.2f}%"]
@@ -251,6 +255,33 @@ def macro_context() -> dict | None:
             key="context",
             ttl_seconds=ttl,
             loader=_fetch_macro_context,
+            enabled=settings.get("cache_enabled", True),
+        )
+    except Exception:
+        return None
+
+
+def live_cad_per_usd() -> float | None:
+    """Latest USD→CAD spot rate from FRED DEXCAUS (Canadian Dollars to One U.S. Dollar).
+
+    Cached for 24 hours by default — DEXCAUS only updates daily after market
+    close. Returns None if FRED API key is missing or the call fails; callers
+    should fall back to settings["cad_per_usd_assumption"] (default 1.37).
+
+    Real CAD/USD has ranged 1.32–1.42 over the last year. With a static
+    assumption of 1.37, CAD-denominated holdings can be valued ±3% off, which
+    distorts portfolio totals and concentration percentages.
+    """
+    if not _api_key():
+        return None
+    settings = load_settings()
+    ttl = settings.get("fx_cache_ttl_seconds", 86400)  # 24h
+    try:
+        return cached(
+            namespace="fred_fx",
+            key="DEXCAUS",
+            ttl_seconds=ttl,
+            loader=lambda: _fetch_series_latest(FX_SERIES),
             enabled=settings.get("cache_enabled", True),
         )
     except Exception:

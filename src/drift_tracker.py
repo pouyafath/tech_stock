@@ -9,19 +9,37 @@ self-correct (and into the markdown report so the user sees it).
 """
 
 import json
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from src._utils import parse_session_filename
 
 
-def get_previous_session(log_dir: str | Path, skip_newest: bool = False) -> dict | None:
+def get_previous_session(
+    log_dir: str | Path,
+    skip_newest: bool = False,
+    current_session_type: str | None = None,
+    min_age_hours: float = 4.0,
+) -> dict | None:
     """
-    Return the most recently-saved recommendation JSON before the current run.
+    Return the most recently-saved recommendation JSON *before* the current run.
 
-    During normal app execution the current run has not been saved yet, so the
-    newest existing file is the previous session. When comparing two already
-    saved logs in the standalone script, pass skip_newest=True to treat the
-    newest file as current and return the second-newest.
+    Improvements over the naive "newest file" approach:
+
+    1. **Skip re-runs of the same session.** If you ran morning at 9:30am and
+       again at 9:35am, the 9:35am run treats the 9:30am one as "previous",
+       which produces zero useful drift signal. Files within `min_age_hours`
+       of now are skipped.
+
+    2. **Prefer same-session-type from the previous trading day.** If
+       `current_session_type` is "morning", we'd rather compare against
+       yesterday's morning than this afternoon's report. We try same-type
+       first, then fall back to any session.
+
+    During normal app execution the current run has not been saved yet, so
+    the newest existing file is a candidate for "previous". When comparing
+    two already saved logs in the standalone script, pass skip_newest=True
+    to treat the newest file as current and return the second-newest.
 
     Returns the parsed JSON dict (with extra `_session_file` key) or None.
     """
@@ -34,18 +52,54 @@ def get_previous_session(log_dir: str | Path, skip_newest: bool = False) -> dict
         key=lambda p: p.name,
         reverse=True,
     )
-    index = 1 if skip_newest else 0
-    if len(files) <= index:
+    if skip_newest and files:
+        files = files[1:]
+    if not files:
         return None
 
-    prev_path = files[index]
+    cutoff = datetime.now() - timedelta(hours=min_age_hours)
+
+    # Filenames look like 20260506_0930_morning.json — extract date+time directly.
+    import re as _re
+    _filename_pattern = _re.compile(r"^(\d{8})_(\d{4})_(morning|afternoon)\.json$")
+
+    def _file_dt(path: Path) -> datetime | None:
+        m = _filename_pattern.match(path.name)
+        if not m:
+            return None
+        date_str, time_str, _ = m.groups()
+        try:
+            return datetime.strptime(f"{date_str} {time_str}", "%Y%m%d %H%M")
+        except ValueError:
+            return None
+
+    aged_files = [p for p in files if (_file_dt(p) or datetime.min) <= cutoff]
+
+    # Pass 1: prefer same session type
+    chosen = None
+    if current_session_type:
+        for path in aged_files:
+            parsed = parse_session_filename(path.name)
+            if parsed and parsed[1] == current_session_type:
+                chosen = path
+                break
+
+    # Pass 2: any aged file
+    if chosen is None and aged_files:
+        chosen = aged_files[0]
+
+    # Pass 3: nothing aged enough — fall back to absolute newest (preserves
+    # legacy behaviour for users who only ever run once a day).
+    if chosen is None:
+        chosen = files[0]
+
     try:
-        with open(prev_path) as f:
+        with open(chosen) as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError):
         return None
 
-    data["_session_file"] = prev_path.name
+    data["_session_file"] = chosen.name
     return data
 
 

@@ -287,6 +287,7 @@ def apply_quality_gates(
     settings: dict | None = None,
     aging_summary_data: dict | None = None,
     backtest_summary: dict | None = None,
+    trailing_alerts: list[dict] | None = None,
 ) -> dict:
     """Apply hard safety gates after model output.
 
@@ -351,6 +352,49 @@ def apply_quality_gates(
                 "manual_review_required": True,
                 "auto_generated": True,
             })
+
+    # ── 2.5. Trailing-stop breaches (auto-TRIM positions where stop hit) ────
+    breached_alerts = [a for a in (trailing_alerts or []) if a.get("breached")]
+    if breached_alerts:
+        existing_tickers = {(r.get("ticker") or "") for r in out.get("recommendations", [])}
+        breached_tickers = {a["ticker"] for a in breached_alerts}
+        # Modify in-place if already in recs
+        for rec in out.get("recommendations", []) or []:
+            if rec.get("ticker") in breached_tickers and rec.get("action") not in {"SELL", "TRIM"}:
+                rec["action"] = "TRIM"
+                alert = next(a for a in breached_alerts if a["ticker"] == rec["ticker"])
+                rec["thesis"] = (
+                    f"TRAILING STOP BREACHED at ${alert['stop_price']:.2f} "
+                    f"(peak +{alert['peak_gain_pct']:.0f}% → now +{alert['current_gain_pct']:.0f}%). "
+                    + (rec.get("thesis") or "")
+                ).strip()
+                rec["manual_review_required"] = True
+                rsc = rec.setdefault("risk_controls", {})
+                rsc["stop_loss_pct"] = round(
+                    (alert["stop_price"] / alert["current_price"] - 1.0) * 100.0, 2
+                )
+        # Append for breached tickers Claude didn't surface
+        for alert in breached_alerts:
+            if alert["ticker"] not in existing_tickers:
+                out.setdefault("recommendations", []).append({
+                    "ticker": alert["ticker"],
+                    "action": "TRIM",
+                    "conviction": 8,
+                    "thesis": (
+                        f"TRAILING STOP BREACHED at ${alert['stop_price']:.2f} "
+                        f"(peak +{alert['peak_gain_pct']:.0f}% → now "
+                        f"+{alert['current_gain_pct']:.0f}%). Strategy rule: lock in "
+                        f"gains when {alert['trail_kind']} trail is hit."
+                    ),
+                    "manual_review_required": True,
+                    "auto_generated": True,
+                    "risk_controls": {
+                        "stop_loss_pct": round(
+                            (alert["stop_price"] / alert["current_price"] - 1.0) * 100.0, 2
+                        ),
+                    },
+                })
+        out["trailing_stop_breaches"] = breached_alerts
 
     # ── 3. VIX-regime sizing ─────────────────────────────────────────────────
     vix = None

@@ -143,10 +143,17 @@ def get_news(ticker: str, lookback_days: int = 7, max_articles: int = 5) -> list
     ttl = settings.get("cache_ttl_seconds", 3600)
     enable_sentiment = settings.get("enable_sentiment", True)
 
+    # Include today's date in the cache key so a Friday-afternoon run after a
+    # Friday-morning run doesn't return Friday-morning's headlines. With this,
+    # cache hits only happen within the same calendar day — typically only for
+    # the morning/afternoon split, which is the desired behavior.
+    from datetime import datetime as _dt
+    today_key = _dt.now().strftime("%Y%m%d")
+
     try:
         return cached(
             namespace="news",
-            key=f"{ticker}_{lookback_days}_{max_articles}_{int(enable_sentiment)}",
+            key=f"{ticker}_{today_key}_{lookback_days}_{max_articles}_{int(enable_sentiment)}",
             ttl_seconds=ttl,
             loader=lambda: _fetch_news_raw(ticker, lookback_days, max_articles, enable_sentiment),
             enabled=cache_enabled,

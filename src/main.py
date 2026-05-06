@@ -608,10 +608,23 @@ def run(
     # ── Sector exposure ───────────────────────────────────────────────────
     sector_exposure = compute_sector_exposure(portfolio.get("holdings", []), market_data)
 
+    # ── Live FX rate (FRED DEXCAUS) — overrides the static assumption when
+    #    available, so CAD-denominated holdings get valued accurately. Falls
+    #    back to settings["cad_per_usd_assumption"] (default 1.37) on failure.
+    from src.fred_client import live_cad_per_usd
+    live_fx = live_cad_per_usd()
+    if live_fx and 1.20 < live_fx < 1.55:  # sanity check vs historical range
+        cad_per_usd = live_fx
+        # Persist for downstream consumers (drawdown, analytics) that read settings
+        settings["cad_per_usd_assumption"] = cad_per_usd
+        print(f"{C.DIM}[tech_stock] Live FX rate from FRED: 1 USD = {cad_per_usd:.4f} CAD{C.RESET}")
+    else:
+        cad_per_usd = settings.get("cad_per_usd_assumption", 1.37)
+
     # ── Portfolio risk / exposure dashboard ───────────────────────────────
     company_exposure, _ = aggregate_company_exposure(
         portfolio.get("holdings", []),
-        settings.get("cad_per_usd_assumption", 1.37),
+        cad_per_usd,
     )
     risk_dashboard = compute_risk_dashboard(portfolio.get("holdings", []), market_data_all, settings)
     hedge_suggestions = build_hedge_suggestions(risk_dashboard, company_exposure, settings)
@@ -639,7 +652,7 @@ def run(
 
     # ── Drift vs previous session ─────────────────────────────────────────
     print(f"{C.DIM}[tech_stock] Computing drift vs previous session...{C.RESET}")
-    previous_session = get_previous_session(RECS_LOG_DIR)
+    previous_session = get_previous_session(RECS_LOG_DIR, current_session_type=session_type)
 
     # ── Backtest summary (fed back into prompt for self-calibration) ──────
     print(f"{C.DIM}[tech_stock] Running backtest on past recommendations...{C.RESET}")
@@ -687,6 +700,10 @@ def run(
     )
     if drift:
         recommendation["drift_vs_previous"] = drift  # persist into log
+
+    # Persist this session's sector context so the *next* session's drift
+    # tracker can detect rotation (sector_rotation.classify() needs both).
+    recommendation["market_context_snapshot"] = market_context
 
     log_path = save_recommendation_log(recommendation, session_type)
     md_content = generate_markdown(

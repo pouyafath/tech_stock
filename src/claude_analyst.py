@@ -99,6 +99,12 @@ RULES YOU MUST FOLLOW:
     - SETUP (T-30 to T-6 days) → entries OK if conviction ≥7 with cited catalyst.
     - DRIFT (T+1 to T+3) → high-conviction adds OK only if post-earnings move confirms thesis direction.
     - FOMC_TODAY / CPI_WEEK / NFP_DAY → reduce session-wide aggressiveness; consider trimming highest-beta names; defer non-urgent BUYs.
+37. TRAILING STOPS: When the user message contains a "TRAILING STOPS" block, the deterministic trailing-stop logic has already calculated a tightened stop level. For BREACHED alerts, output TRIM (the deterministic gate enforces this). For active alerts, set risk_controls.stop_loss_pct so the absolute stop matches the listed stop_price; do not loosen the stop. The schedule is: +10% gain → breakeven; +20% gain → trail by 8% from peak; +40% gain → trail by 12% from peak.
+38. SECTOR ROTATION: When the user message contains a "SECTOR ROTATION" block, use the leadership ranking to bias trade ideas:
+    - "Rotating IN" sectors → favor adding leaders or BUY single names within those sectors (1-month leaders persist for several weeks).
+    - "Rotating OUT" sectors → favor trimming holdings concentrated in those sectors before underperformance compounds.
+    - Static "Leaders" → maintain or modestly add; static "Laggards" → only add on strong contrarian thesis.
+39. TRANCHED PLANS: For every BUY/ADD include an `entry_plan` array; for every SELL/TRIM include an `exit_plan` array. Each entry is `{trigger, fraction, price_pct, note}`. Default split is 40% / 30% / 30% across (now / pullback to lower entry zone / confirmation above upper entry zone). This produces 3 small actions over 1-2 weeks instead of a single bet — fits the user's weekly-action cadence and lowers average entry by ~0.5-1% historically. If you omit these arrays, the system fills in a deterministic default using the entry_zone and stop_loss percentages.
 
 OUTPUT FORMAT (return exactly this structure):
 {
@@ -282,6 +288,51 @@ RECOMMENDATION_SCHEMA = {
 }
 
 
+def _default_entry_plan(rec: dict) -> list[dict]:
+    """Build a deterministic 3-tranche entry plan when Claude omits one.
+
+    Splits the position 40% / 30% / 30% across:
+        - 40% now (immediate execution)
+        - 30% if the price pulls back to the lower half of the entry zone
+          (or -3% if no zone was provided)
+        - 30% on confirmation (price clears the upper half of the entry zone
+          or +2% if no zone was provided)
+
+    Lowers the user's average entry by ~0.5-1% historically and produces 3
+    weekly small actions instead of 1 big bet — fits the user's cadence.
+    """
+    controls = rec.get("risk_controls") or {}
+    low = controls.get("entry_zone_low_pct")
+    high = controls.get("entry_zone_high_pct")
+    pullback_pct = (low / 2.0) if isinstance(low, (int, float)) else -3.0
+    confirm_pct = (high / 2.0) if isinstance(high, (int, float)) else 2.0
+    return [
+        {"trigger": "now",                "fraction": 0.4, "price_pct": 0,             "note": "immediate"},
+        {"trigger": "pullback",           "fraction": 0.3, "price_pct": round(pullback_pct, 2), "note": "if price pulls back"},
+        {"trigger": "confirmation",       "fraction": 0.3, "price_pct": round(confirm_pct, 2),  "note": "on upside confirmation"},
+    ]
+
+
+def _default_exit_plan(rec: dict) -> list[dict]:
+    """Build a deterministic 3-tranche exit plan when Claude omits one.
+
+    Trims:
+        - 40% now (lock in some at current price)
+        - 30% if price recovers to entry zone high
+        - 30% if price falls to stop_loss (full exit)
+    """
+    controls = rec.get("risk_controls") or {}
+    high = controls.get("entry_zone_high_pct")
+    stop = controls.get("stop_loss_pct")
+    recover_pct = (high / 2.0) if isinstance(high, (int, float)) else 2.0
+    stop_pct = stop if isinstance(stop, (int, float)) else -7.0
+    return [
+        {"trigger": "now",         "fraction": 0.4, "price_pct": 0,                  "note": "lock in at current"},
+        {"trigger": "recovery",    "fraction": 0.3, "price_pct": round(recover_pct, 2), "note": "if price bounces"},
+        {"trigger": "stop_loss",   "fraction": 0.3, "price_pct": round(stop_pct, 2),    "note": "full exit at stop"},
+    ]
+
+
 def normalize_recommendation(recommendation: dict) -> dict:
     """Normalize model output before it is logged or rendered."""
     for rec in recommendation.get("recommendations", []) or []:
@@ -317,6 +368,21 @@ def normalize_recommendation(recommendation: dict) -> dict:
         rec.setdefault("manual_review_required", False)
         if rec.get("action") == "HOLD" and not rec.get("hold_tier"):
             rec["hold_tier"] = "watch"
+
+        # Tranched plans — backfill defaults when Claude omits them so the user
+        # always sees a 3-step "now / pullback / confirmation" plan instead of
+        # a single bet.  Claude can override by returning its own entry_plan /
+        # exit_plan.
+        action = rec.get("action")
+        if action in {"BUY", "ADD"}:
+            if not isinstance(rec.get("entry_plan"), list) or not rec.get("entry_plan"):
+                rec["entry_plan"] = _default_entry_plan(rec)
+                rec["entry_plan_auto_generated"] = True
+        elif action in {"SELL", "TRIM"}:
+            if not isinstance(rec.get("exit_plan"), list) or not rec.get("exit_plan"):
+                rec["exit_plan"] = _default_exit_plan(rec)
+                rec["exit_plan_auto_generated"] = True
+
     recommendation.setdefault("hedge_suggestions", [])
     return recommendation
 
@@ -584,6 +650,29 @@ def build_user_message(
     if catalyst_block:
         lines.append("")
         lines.append(catalyst_block)
+
+    # ── Trailing stops (lock in gains as positions appreciate) ──────────
+    from src.trailing_stops import evaluate as _eval_trailing_stops, format_for_prompt as _fmt_ts
+    trailing = _eval_trailing_stops(holdings, market_data, holding_days_map, settings)
+    trailing_block = _fmt_ts(trailing)
+    if trailing_block:
+        lines.append("")
+        lines.append(trailing_block)
+
+    # ── Sector rotation rhythm (1-month relative strength) ───────────────
+    if market_context:
+        from src.sector_rotation import classify as _classify_sectors, format_for_prompt as _fmt_sectors
+        prev_context = (previous_session or {}).get("market_context_snapshot")
+        sector_universe = settings.get("sector_rotation_tickers")
+        rotation = _classify_sectors(
+            market_context,
+            previous_market_context=prev_context,
+            sector_universe=sector_universe,
+        )
+        rotation_block = _fmt_sectors(rotation)
+        if rotation_block:
+            lines.append("")
+            lines.append(rotation_block)
 
     # ── Drawdown circuit-breaker context (set by main.py / analytics) ────
     if drawdown_state and drawdown_state.get("triggered"):
@@ -1082,6 +1171,15 @@ def call_claude(
     )
     aging = aging_summary(annotated)
 
+    # Compute trailing-stop alerts for the gate.
+    from src.trailing_stops import evaluate as _eval_trailing_stops
+    trailing_alerts = _eval_trailing_stops(
+        portfolio.get("holdings", []),
+        market_data,
+        holding_days_map or {},
+        settings,
+    )
+
     recommendation = apply_quality_gates(
         recommendation,
         final_warnings,
@@ -1090,6 +1188,7 @@ def call_claude(
         settings=settings,
         aging_summary_data=aging,
         backtest_summary=backtest_summary,
+        trailing_alerts=trailing_alerts,
     )
     recommendation["review_passes"] = 2
     recommendation["drift_vs_previous"] = final_drift
