@@ -288,6 +288,7 @@ def apply_quality_gates(
     aging_summary_data: dict | None = None,
     backtest_summary: dict | None = None,
     trailing_alerts: list[dict] | None = None,
+    thesis_forced_exits: list[dict] | None = None,
 ) -> dict:
     """Apply hard safety gates after model output.
 
@@ -352,6 +353,35 @@ def apply_quality_gates(
                 "manual_review_required": True,
                 "auto_generated": True,
             })
+
+    # ── 2.25. Thesis decay — force SELL on positions with 4+ "not_yet" reviews
+    if thesis_forced_exits:
+        forced_tickers = {entry["ticker"] for entry in thesis_forced_exits if entry.get("ticker")}
+        existing_tickers = {(r.get("ticker") or "") for r in out.get("recommendations", [])}
+        for rec in out.get("recommendations", []) or []:
+            if rec.get("ticker") in forced_tickers and rec.get("action") not in {"SELL"}:
+                rec["action"] = "SELL"
+                rec["thesis"] = (
+                    "THESIS DECAY: 4+ consecutive quarterly reviews returned 'not_yet' — "
+                    "strategy rule forces exit. Original thesis has not materialized within ~12 months. "
+                    + (rec.get("thesis") or "")
+                ).strip()
+                rec["manual_review_required"] = True
+        for entry in thesis_forced_exits:
+            ticker = entry.get("ticker")
+            if ticker and ticker not in existing_tickers:
+                out.setdefault("recommendations", []).append({
+                    "ticker": ticker,
+                    "action": "SELL",
+                    "conviction": 8,
+                    "thesis": (
+                        f"THESIS DECAY: Position entered {entry.get('entry_date', '?')}; "
+                        "4+ consecutive quarterly reviews returned 'not_yet'. "
+                        "Strategy rule forces exit (original thesis has not materialized)."
+                    ),
+                    "manual_review_required": True,
+                    "auto_generated": True,
+                })
 
     # ── 2.5. Trailing-stop breaches (auto-TRIM positions where stop hit) ────
     breached_alerts = [a for a in (trailing_alerts or []) if a.get("breached")]

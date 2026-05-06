@@ -4,6 +4,25 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.9.0] — 2026-05-06
+
+### Added — Report visibility + P3 strategy infrastructure
+- **All v1.7+ strategy gates now visible in the markdown report** (`src/report_sections.py`):
+  - **Active Risk Modifiers banner** at top of report — shows drawdown circuit breaker status and VIX-regime sizing multiplier when active
+  - **Position Aging table** — counts per tier (fresh/core/mature/aged/stale) plus actionable ticker lists
+  - **Trailing Stops section** — breached stops in their own callout block; active trails as informational table
+  - **Sector Rotation table** — leaders, laggards, and rotating-in/out arrows with trade bias guidance
+  - **Tranched Entry/Exit Plan** sub-table inside each recommendation showing the 3-step execution plan
+  - CSV export now includes `Tranche 1 (now) / Tranche 2 (pullback) / Tranche 3 (confirmation)` columns
+- **Thesis-decay tracker** (`src/thesis_tracker.py`) — every BUY records its original thesis to `data/thesis_log.json`. After 90 days, an automatic verdict (`materialized` / `partial` / `not_yet` / `invalidated`) is appended. After 4 consecutive `not_yet` reviews (~12 months), the position is added to `force_exit_candidates` and `apply_quality_gates` converts it to SELL — even if Claude tries to keep it.
+- **Paper-trading mode** (`src/paper_trading.py`, `--paper` flag) — applies every Claude recommendation to a parallel simulated portfolio in `data/paper_portfolio.json`. Tracks cash, fractional shares, fees, and value history. Lets you quantify the **discretion penalty** — the gap between recommendations and what you actually traded. Summary appears at the top of the markdown report.
+- **2 new SYSTEM_PROMPT rules (40)** for thesis decay + clarification of forced exits.
+
+### Tests
+- 21 new tests across `test_report_sections.py`, `test_thesis_tracker.py`, `test_paper_trading.py`. Total suite now 147 tests, all passing.
+
+---
+
 ## [1.8.0] — 2026-05-06
 
 ### Added — P2 strategy polish

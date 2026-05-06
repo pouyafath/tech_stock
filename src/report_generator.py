@@ -792,6 +792,8 @@ def generate_markdown(
     usage: dict = None,
     settings: dict = None,
     previous_session: dict = None,
+    holding_days_map: dict | None = None,
+    drawdown_state: dict | None = None,
 ) -> str:
     """Generate the full markdown report from Claude's JSON output + extras."""
     settings = settings or {}
@@ -845,6 +847,27 @@ def generate_markdown(
     quality_warnings = recommendation.get("quality_warnings") or []
     drift_rows = drift or recommendation.get("drift_vs_previous") or []
     recs_for_report = recommendation.get("recommendations") or []
+
+    # ── Active risk modifiers banner (drawdown + VIX) right at the top ────
+    from src.report_sections import (
+        render_market_state_banner,
+        render_position_aging,
+        render_sector_rotation,
+        render_trailing_stops,
+        render_entry_or_exit_plan,
+    )
+
+    # Paper portfolio summary (when --paper was passed)
+    paper_summary = recommendation.get("paper_summary")
+    if paper_summary:
+        from src.paper_trading import format_for_report as _fmt_paper
+        lines += _fmt_paper(paper_summary)
+    lines += render_market_state_banner(
+        drawdown_state or recommendation.get("drawdown_state"),
+        market_context,
+        recommendation.get("vix_size_multiplier"),
+    )
+
     lines += _render_quality_warnings_section(quality_warnings)
     lines += _render_critical_actions_section(
         quality_warnings,
@@ -873,6 +896,24 @@ def generate_markdown(
     lines += _render_company_exposure_section(company_exposure or {})
     lines += _render_hedge_suggestions_section(recommendation.get("hedge_suggestions") or [])
     lines += _render_market_context_section(market_context or {})
+
+    # ── New strategy gates: aging, trailing stops, sector rotation ────────
+    lines += render_position_aging(holdings, holding_days_map, settings)
+
+    # Trailing stops: prefer the alerts attached by apply_quality_gates;
+    # otherwise compute on the fly so the report works even when called
+    # outside the main run() pipeline.
+    trailing_alerts = recommendation.get("trailing_stop_breaches")
+    if trailing_alerts is None:
+        try:
+            from src.trailing_stops import evaluate as _eval_trailing_stops
+            trailing_alerts = _eval_trailing_stops(holdings, market_data, holding_days_map, settings)
+        except Exception:
+            trailing_alerts = []
+    lines += render_trailing_stops(trailing_alerts)
+
+    prev_market_context = (previous_session or {}).get("market_context_snapshot")
+    lines += render_sector_rotation(market_context, prev_market_context, settings)
 
     lines += _render_position_sizing_section(holdings, settings)
 
@@ -1014,6 +1055,9 @@ def generate_markdown(
                     f"| Take Profit | {_pct_cell(controls.get('take_profit_pct'))} |",
                     "",
                 ]
+
+            # Tranched entry/exit plan (3-step "now / pullback / confirmation")
+            lines += render_entry_or_exit_plan(rec)
 
             # Bottom table: expected move + exit plan
             target_exit = rec.get("target_exit_date", "")

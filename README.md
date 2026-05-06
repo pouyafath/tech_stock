@@ -45,6 +45,16 @@
 
 ---
 
+## ✨ What's New in v1.9.0 (May 6, 2026)
+
+**All strategy gates now visible + thesis tracker + paper-trading mode.**
+
+- **Markdown report shows everything** — Active Risk Modifiers banner at top, Position Aging table, Trailing Stops with breached/active sections, Sector Rotation leaders/laggards/arrows, Tranched Entry/Exit Plans inside each recommendation. CSV gets 3 new tranche columns.
+- **Thesis-decay tracker** — every BUY's original thesis is stored. Quarterly auto-reviews classify progress as `materialized`/`partial`/`not_yet`/`invalidated`. After 4 consecutive `not_yet` reviews (~12 months), the position is force-exited regardless of Claude's output. Frees capital from theses that haven't materialized.
+- **Paper-trading mode** (`./run.sh morning --paper`) — every Claude recommendation is applied to a simulated portfolio in `data/paper_portfolio.json`. Tracks cash, shares, fees, value history. Lets you quantify your **discretion penalty** — the gap between recommendations and what you actually traded.
+
+21 new tests, 147 total, all passing.
+
 ## ✨ What's New in v1.8.0 (May 6, 2026)
 
 **P2 polish — execution quality and weekly action density.**
@@ -1052,6 +1062,6 @@ For issues or questions:
 
 ---
 
-**Last updated:** May 2026 — strategy-aligned gates (aging/VIX/drawdown/catalysts/conviction sizing in v1.7.0), then trailing stops + sector rotation + tranched plans + live FX in v1.8.0
-**Version:** 1.8.0
-**Status:** Production-ready with 13 deterministic quality gates, three interface options, and native app distribution
+**Last updated:** May 2026 — strategy gates (v1.7), trailing stops + sector rotation + tranched plans (v1.8), report visibility + thesis tracker + paper trading (v1.9)
+**Version:** 1.9.0
+**Status:** Production-ready — 16 deterministic strategy gates surfaced in markdown reports, three interface options, native app distribution, paper-trading mode

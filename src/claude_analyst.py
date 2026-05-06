@@ -105,6 +105,9 @@ RULES YOU MUST FOLLOW:
     - "Rotating OUT" sectors → favor trimming holdings concentrated in those sectors before underperformance compounds.
     - Static "Leaders" → maintain or modestly add; static "Laggards" → only add on strong contrarian thesis.
 39. TRANCHED PLANS: For every BUY/ADD include an `entry_plan` array; for every SELL/TRIM include an `exit_plan` array. Each entry is `{trigger, fraction, price_pct, note}`. Default split is 40% / 30% / 30% across (now / pullback to lower entry zone / confirmation above upper entry zone). This produces 3 small actions over 1-2 weeks instead of a single bet — fits the user's weekly-action cadence and lowers average entry by ~0.5-1% historically. If you omit these arrays, the system fills in a deterministic default using the entry_zone and stop_loss percentages.
+40. THESIS DECAY: When the user message contains a "THESIS DECAY" block, treat it as the official quarterly review:
+    - For "Due for review" tickers: explicitly state in your thesis whether the original thesis has materialized, partial, not_yet, or invalidated. The system will auto-classify your verdict from the action/conviction.
+    - For "FORCED EXIT" tickers: output SELL. The deterministic gate enforces this — output anything else and the gate will overwrite. These positions have failed 4 consecutive quarterly reviews; the strategy is to free up capital for fresh ideas.
 
 OUTPUT FORMAT (return exactly this structure):
 {
@@ -522,6 +525,8 @@ def build_user_message(
     hedge_suggestions: list = None,
     holding_days_map: dict | None = None,
     drawdown_state: dict | None = None,
+    thesis_due_for_review: list | None = None,
+    thesis_forced_exits: list | None = None,
 ) -> str:
     """Construct the full user message with all context."""
     from src.news_fetcher import aggregate_sentiment
@@ -673,6 +678,14 @@ def build_user_message(
         if rotation_block:
             lines.append("")
             lines.append(rotation_block)
+
+    # ── Thesis decay (90-day reviews + forced exits after 4 negative reviews)
+    if thesis_due_for_review or thesis_forced_exits:
+        from src.thesis_tracker import format_for_prompt as _fmt_thesis
+        thesis_block = _fmt_thesis(thesis_due_for_review or [], thesis_forced_exits or [])
+        if thesis_block:
+            lines.append("")
+            lines.append(thesis_block)
 
     # ── Drawdown circuit-breaker context (set by main.py / analytics) ────
     if drawdown_state and drawdown_state.get("triggered"):
@@ -1068,6 +1081,8 @@ def call_claude(
     hedge_suggestions: list = None,
     holding_days_map: dict | None = None,
     drawdown_state: dict | None = None,
+    thesis_due_for_review: list | None = None,
+    thesis_forced_exits: list | None = None,
 ) -> tuple[dict, dict]:
     """
     Call Claude API and return (recommendation, usage_stats).
@@ -1098,6 +1113,8 @@ def call_claude(
         hedge_suggestions=deterministic_hedges,
         holding_days_map=holding_days_map,
         drawdown_state=drawdown_state,
+        thesis_due_for_review=thesis_due_for_review,
+        thesis_forced_exits=thesis_forced_exits,
     )
 
     client = anthropic.Anthropic(
@@ -1189,6 +1206,7 @@ def call_claude(
         aging_summary_data=aging,
         backtest_summary=backtest_summary,
         trailing_alerts=trailing_alerts,
+        thesis_forced_exits=thesis_forced_exits,
     )
     recommendation["review_passes"] = 2
     recommendation["drift_vs_previous"] = final_drift

@@ -42,6 +42,7 @@ from src.report_generator import generate_markdown, save_report, watchlist_price
 
 CONFIG_DIR  = ROOT / "config"
 DATA_DIR    = ROOT / "data"
+THESIS_LOG_PATH = ROOT / "data" / "thesis_log.json"
 REPORTS_DIR = ROOT / "reports"
 RECS_LOG_DIR = DATA_DIR / "recommendations_log"
 UPLOAD_DIR  = ROOT / "temporary_upload"
@@ -421,6 +422,7 @@ def save_recommendations_csv(
                 "Expected Benefit of Action %", "Net Expected %",
                 "Time Horizon", "Exit Target", "Bear Case %", "Bull Case %",
                 "Stop Loss %", "Take Profit %", "Catalyst Verified", "Catalyst Source", "Manual Review",
+                "Tranche 1 (now)", "Tranche 2 (pullback)", "Tranche 3 (confirmation)",
                 "Quote", "Previous Close", "Quote Time UTC", "Quote Source",
                 "Earnings Alert", "Thesis",
             ],
@@ -435,6 +437,21 @@ def save_recommendations_csv(
             expected_move = r.get("expected_move_pct", 0)
             net_expected = r.get("net_expected_pct", 0)
             controls = r.get("risk_controls") or {}
+
+            # Tranched plan (entry for BUY/ADD, exit for SELL/TRIM). Each cell
+            # is "fraction% @ price%" (e.g. "40% @ 0%", "30% @ -3%", "30% @ +2%")
+            plan = r.get("entry_plan") or r.get("exit_plan") or []
+            def _fmt_tranche(t):
+                if not isinstance(t, dict):
+                    return ""
+                try:
+                    frac = float(t.get("fraction", 0)) * 100
+                    price = float(t.get("price_pct", 0))
+                    return f"{frac:.0f}% @ {price:+.1f}%"
+                except (TypeError, ValueError):
+                    return ""
+            tranche_cells = [_fmt_tranche(t) for t in plan[:3]] + [""] * 3
+
             writer.writerow({
                 "Ticker":           ticker,
                 "Action":           r.get("action", "HOLD"),
@@ -453,6 +470,9 @@ def save_recommendations_csv(
                 "Catalyst Verified": "YES" if r.get("catalyst_verified") else "NO",
                 "Catalyst Source":  r.get("catalyst_source", ""),
                 "Manual Review":    "YES" if r.get("manual_review_required") else "NO",
+                "Tranche 1 (now)":          tranche_cells[0],
+                "Tranche 2 (pullback)":     tranche_cells[1],
+                "Tranche 3 (confirmation)": tranche_cells[2],
                 "Quote":            f"{md.get('current_price')} {md.get('currency', '')}".strip() if md.get("current_price") is not None else "",
                 "Previous Close":   f"{md.get('previous_close')} {md.get('currency', '')}".strip() if md.get("previous_close") is not None else "",
                 "Quote Time UTC":   md.get("quote_timestamp_utc", ""),
@@ -544,6 +564,7 @@ def run(
     model_id: str = None,
     model_name: str = None,
     open_report: bool = True,
+    paper_trade: bool = False,
 ):
     validate_environment()
 
@@ -633,6 +654,17 @@ def run(
     #    deterministic 3-6 month sweet-spot / 2-year cap rules in the prompt.
     holding_days_map = holding_days_by_ticker(recent_activities or [], portfolio.get("holdings", []))
 
+    # ── Thesis-decay tracker: pull due-for-review and forced-exit lists
+    #    so the prompt can show them; we update reviews after the gate runs.
+    from src.thesis_tracker import (
+        quarterly_reviews_due,
+        force_exit_candidates,
+        update_reviews_from_recommendation,
+        record_new_entries,
+    )
+    thesis_due = quarterly_reviews_due(THESIS_LOG_PATH)
+    thesis_forced_exits = force_exit_candidates(THESIS_LOG_PATH)
+
     # ── Drawdown circuit breaker.  If portfolio is N% off its rolling peak,
     #    halve sizes, force HOLD-watch on conviction <7, and skip ADDs.
     drawdown_state = detect_drawdown(portfolio.get("holdings", []), market_data_all, settings)
@@ -687,6 +719,8 @@ def run(
             enriched=enriched,
             holding_days_map=holding_days_map,
             drawdown_state=drawdown_state,
+            thesis_due_for_review=thesis_due,
+            thesis_forced_exits=thesis_forced_exits,
         )
     except ValueError as e:
         print(f"{C.RED}[ERROR]{C.RESET} Claude response parsing failed: {e}")
@@ -705,7 +739,47 @@ def run(
     # tracker can detect rotation (sector_rotation.classify() needs both).
     recommendation["market_context_snapshot"] = market_context
 
+    # ── Thesis-tracker bookkeeping ────────────────────────────────────────
+    # Record fresh BUY entries for tickers we don't already hold.
+    holdings_pre = portfolio.get("holdings", [])
+    holdings_by_ticker = {h.get("ticker"): h for h in holdings_pre if h.get("ticker")}
+    new_thesis_entries = record_new_entries(
+        recommendation,
+        THESIS_LOG_PATH,
+        session_file=f"{datetime.now().strftime('%Y%m%d_%H%M')}_{session_type}.json",
+        holdings_pre_run=holdings_pre,
+    )
+    if new_thesis_entries:
+        print(
+            f"{C.DIM}[tech_stock] Thesis tracker: recorded {len(new_thesis_entries)} new entries{C.RESET}"
+        )
+    # Append review verdicts for any thesis past its quarterly mark.
+    update_reviews_from_recommendation(
+        THESIS_LOG_PATH,
+        recommendation,
+        holdings_by_ticker,
+    )
+
     log_path = save_recommendation_log(recommendation, session_type)
+
+    # ── Paper trading: apply this session to the simulated portfolio ──────
+    paper_summary = None
+    if paper_trade:
+        from src.paper_trading import apply_session, performance_summary
+        paper_path = DATA_DIR / "paper_portfolio.json"
+        paper_state = apply_session(
+            paper_path, recommendation, market_data,
+            session_file=log_path.name,
+        )
+        paper_summary = performance_summary(paper_state, market_data)
+        print(
+            f"{C.DIM}[tech_stock] Paper portfolio: ${paper_summary['current_value_usd']:,.0f} "
+            f"({paper_summary['total_return_pct']:+.2f}% from start, "
+            f"{paper_summary['n_trades']} trades, "
+            f"{paper_summary['n_open_positions']} open){C.RESET}"
+        )
+        recommendation["paper_summary"] = paper_summary
+
     md_content = generate_markdown(
         session_type,
         recommendation,
@@ -724,6 +798,8 @@ def run(
         usage=usage,
         settings=settings,
         previous_session=previous_session,
+        holding_days_map=holding_days_map,
+        drawdown_state=drawdown_state,
     )
     report_path = save_report(md_content, session_type, REPORTS_DIR)
     csv_path = save_recommendations_csv(recommendation, session_type, REPORTS_DIR, market_data)
@@ -772,6 +848,9 @@ CLI examples:
                         help="Path to Wealthsimple Activities CSV export (optional)")
     parser.add_argument("--model", "-m", choices=["sonnet", "opus"],
                         help="Model: sonnet = claude-sonnet-4-6, opus = claude-opus-4-7")
+    parser.add_argument("--paper", action="store_true",
+                        help="Also apply this run's recommendations to the paper portfolio "
+                             "(data/paper_portfolio.json) so you can quantify discretion penalty.")
 
     args = parser.parse_args()
 
@@ -804,6 +883,7 @@ CLI examples:
         activities_csv=args.activities,
         model_id=model_id,
         model_name=model_name,
+        paper_trade=args.paper,
     )
 
 
