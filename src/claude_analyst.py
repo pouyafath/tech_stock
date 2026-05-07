@@ -585,22 +585,54 @@ def build_user_message(
                 return " | held >90d (entry pre-dates activities window)"
             return ""
 
+        def _fmt_pnl(pnl_pct, pnl_dollars, currency_suffix: str = "") -> str:
+            """Build a P&L string that survives None values defensively.
+
+            Cases:
+              - both None       → ""
+              - only pct known  → " | P&L +5.2%"
+              - both known      → " | P&L +5.2% ($+1,234{ currency_suffix})"
+              - only dollars    → " | P&L $+1,234{ currency_suffix}"
+            """
+            try:
+                pct_part = f"{float(pnl_pct):+.1f}%" if pnl_pct is not None else None
+            except (TypeError, ValueError):
+                pct_part = None
+            try:
+                dollar_part = f"${float(pnl_dollars):+,.0f}{currency_suffix}" if pnl_dollars is not None else None
+            except (TypeError, ValueError):
+                dollar_part = None
+            if pct_part and dollar_part:
+                return f" | P&L {pct_part} ({dollar_part})"
+            if pct_part:
+                return f" | P&L {pct_part}"
+            if dollar_part:
+                return f" | P&L {dollar_part}"
+            return ""
+
+        def _fmt_qty(qty) -> str:
+            try:
+                return f"{float(qty):8.4f}"
+            except (TypeError, ValueError):
+                return "       ?"
+
+        def _fmt_dollar(value, prefix: str = "$", precision: int = 2, suffix: str = "") -> str:
+            try:
+                return f"{prefix}{float(value):,.{precision}f}{suffix}"
+            except (TypeError, ValueError):
+                return ""
+
         if usd_holdings:
             lines.append("USD Holdings:")
             for h in usd_holdings:
                 ticker = h.get("ticker", "")
-                qty = h.get("quantity", 0)
-                avg = h.get("avg_cost_market")
-                price = h.get("market_price")
-                pnl_pct = h.get("unrealized_pnl_pct")
-                pnl = h.get("unrealized_pnl")
-                mv = h.get("market_value")
-                pnl_str = f" | P&L {pnl_pct:+.1f}% (${pnl:+.0f})" if pnl_pct is not None else ""
-                avg_str = f"avg ${avg:.2f}" if avg else ""
-                price_str = f"now ${price:.2f}" if price else ""
-                mv_str = f"value ${mv:,.0f}" if mv else ""
+                qty_str = _fmt_qty(h.get("quantity", 0))
+                avg_str = _fmt_dollar(h.get("avg_cost_market"), prefix="avg $")
+                price_str = _fmt_dollar(h.get("market_price"), prefix="now $")
+                mv_str = _fmt_dollar(h.get("market_value"), prefix="value $", precision=0)
+                pnl_str = _fmt_pnl(h.get("unrealized_pnl_pct"), h.get("unrealized_pnl"))
                 lines.append(
-                    f"  {ticker:8s} {qty:8.4f} sh | {avg_str} | {price_str} | {mv_str}{pnl_str}{_age_label(h)}"
+                    f"  {ticker:8s} {qty_str} sh | {avg_str} | {price_str} | {mv_str}{pnl_str}{_age_label(h)}"
                 )
 
         if cad_holdings:
@@ -608,17 +640,13 @@ def build_user_message(
             for h in cad_holdings:
                 ticker = h.get("ticker", "")
                 name = h.get("name", "")
-                qty = h.get("quantity", 0)
-                avg = h.get("avg_cost_market")
-                price = h.get("market_price")
-                pnl_pct = h.get("unrealized_pnl_pct")
-                pnl = h.get("unrealized_pnl")
+                qty_str = _fmt_qty(h.get("quantity", 0))
+                avg_str = _fmt_dollar(h.get("avg_cost_market"), prefix="avg $", suffix=" CAD")
+                price_str = _fmt_dollar(h.get("market_price"), prefix="now $", suffix=" CAD")
                 cdr_flag = " [CDR]" if h.get("is_cdr") and "CDR" in name else ""
-                pnl_str = f" | P&L {pnl_pct:+.1f}% (${pnl:+.0f} CAD)" if pnl_pct is not None else ""
-                avg_str = f"avg ${avg:.2f} CAD" if avg else ""
-                price_str = f"now ${price:.2f} CAD" if price else ""
+                pnl_str = _fmt_pnl(h.get("unrealized_pnl_pct"), h.get("unrealized_pnl"), currency_suffix=" CAD")
                 lines.append(
-                    f"  {ticker:8s}{cdr_flag:6s} {qty:8.4f} sh | {avg_str} | {price_str}{pnl_str}{_age_label(h)}"
+                    f"  {ticker:8s}{cdr_flag:6s} {qty_str} sh | {avg_str} | {price_str}{pnl_str}{_age_label(h)}"
                 )
     else:
         lines.append("No current holdings — all cash.")

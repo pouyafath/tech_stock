@@ -433,13 +433,21 @@ def get_ticker_data(ticker: str, history_months: int = 10) -> dict:
 
 
 def get_market_data(tickers: list, history_months: int = None) -> dict:
-    """Fetch data for a list of tickers in parallel. Returns {ticker: data_dict}."""
+    """Fetch data for a list of tickers in parallel. Returns {ticker: data_dict}.
+
+    `yfinance_max_workers` in settings.json controls concurrency. Default is 4
+    (down from 8 in earlier versions): with 30+ tickers × 4 endpoint types per
+    ticker, 8 concurrent workers can trip yfinance's implicit rate limiting on
+    cold cache. 4 keeps us comfortably under the throttle threshold while
+    still ~5× faster than sequential.
+    """
     settings = load_settings()
     if history_months is None:
         history_months = settings.get("history_months", 10)
 
     result = {}
-    max_workers = min(8, len(tickers)) if tickers else 1
+    cap = int(settings.get("yfinance_max_workers", 4))
+    max_workers = min(cap, len(tickers)) if tickers else 1
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(get_ticker_data, t, history_months): t for t in tickers}

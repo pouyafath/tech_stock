@@ -175,7 +175,9 @@ def get_news_for_tickers(tickers: list, lookback_days: int = None) -> dict:
         lookback_days = settings.get("news_lookback_days", 7)
 
     result = {}
-    max_workers = min(8, len(tickers)) if tickers else 1
+    # yfinance shares a backend with market_data; reuse the same throttle cap.
+    cap = int(settings.get("yfinance_max_workers", 4))
+    max_workers = min(cap, len(tickers)) if tickers else 1
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(get_news, t, lookback_days): t for t in tickers}

@@ -18,12 +18,34 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # ── Load .env if present ────────────────────────────────────────────────────
+# We use a `while read` loop instead of `source <(grep ...)` because macOS
+# ships bash 3.2, where process substitution can return before the subprocess
+# finishes writing — leading to silently-empty environment variables. This
+# pattern works on bash 3.2+ and any POSIX-compatible shell.
 if [ -f ".env" ]; then
-    # Export KEY=VALUE lines, skip comments and blanks
-    set -a
-    # shellcheck disable=SC1091
-    source <(grep -E '^[A-Z_]+=.+' .env | grep -v '^#')
-    set +a
+    while IFS='=' read -r key value; do
+        case "$key" in
+            ''|\#*) continue ;;        # skip blanks and comments
+        esac
+        # Strip optional surrounding quotes from the value
+        value="${value%\"}"
+        value="${value#\"}"
+        value="${value%\'}"
+        value="${value#\'}"
+        export "$key"="$value"
+    done < .env
+fi
+
+# Also load API_KEYS.txt if .env didn't have a key but the legacy file does.
+if [ -z "$ANTHROPIC_API_KEY" ] && [ -f "API_KEYS.txt" ]; then
+    while IFS='=' read -r key value; do
+        case "$key" in
+            ''|\#*) continue ;;
+        esac
+        value="${value%\"}"; value="${value#\"}"
+        value="${value%\'}"; value="${value#\'}"
+        export "$key"="$value"
+    done < API_KEYS.txt
 fi
 
 # ── Check API key ────────────────────────────────────────────────────────────
@@ -36,12 +58,16 @@ if [ -z "$ANTHROPIC_API_KEY" ]; then
     exit 1
 fi
 
-# ── Activate virtual environment ─────────────────────────────────────────────
-if [ -d ".venv" ]; then
-    # shellcheck disable=SC1091
-    source .venv/bin/activate
+# ── Pick the Python interpreter ──────────────────────────────────────────────
+# Use .venv/bin/python directly when available — `source .venv/bin/activate`
+# can be silently overridden when Anaconda has injected its own python earlier
+# in PATH.  Direct invocation is unambiguous.
+if [ -x ".venv/bin/python" ]; then
+    PYTHON_BIN=".venv/bin/python"
 elif command -v python3 &>/dev/null; then
-    echo "No .venv found — running with system Python. Consider: python3 -m venv .venv && pip install -r requirements.txt"
+    PYTHON_BIN="python3"
+    echo "  Note: no .venv/bin/python found — falling back to system python3."
+    echo "  For best results: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"
 else
     echo "ERROR: Python 3 not found. Install Python 3.11+ first."
     exit 1
@@ -55,7 +81,7 @@ fi
 
 if [ $# -eq 0 ]; then
     # No args: interactive menu
-    python src/ui_launcher.py
+    "$PYTHON_BIN" src/ui_launcher.py
 else
-    python src/ui_launcher.py "$@"
+    "$PYTHON_BIN" src/ui_launcher.py "$@"
 fi

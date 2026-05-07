@@ -173,7 +173,11 @@ def enrich(tickers: list[str]) -> dict:
     }
 
     # ── Phase 1: Parallel fast sources ───────────────────────────────────────
-    max_workers = min(8, len(tickers) + 2) if tickers else 2
+    # Enrichment hits 5 different APIs (Finnhub/Polygon/TwelveData/FRED/CoinGecko)
+    # with independent rate limit pools, so 8 is generally fine. Override via
+    # `enrichment_max_workers` in settings.json if you hit Finnhub throttling.
+    cap = int(settings.get("enrichment_max_workers", 8))
+    max_workers = min(cap, len(tickers) + 2) if tickers else 2
 
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
         ticker_futures = {ex.submit(_enrich_ticker_fast, t): t for t in tickers}
