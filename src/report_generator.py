@@ -87,7 +87,8 @@ def leveraged_etf_warnings(
     """
     Flag any leveraged ETF holding whose earliest unsold buy is older than
     max_hold_days. Falls back to "held — duration unknown" when activity
-    data is missing.
+    data is missing. When activities exist but the original buy predates the
+    export, records the oldest activity date as a conservative lower bound.
     """
     if not holdings:
         return []
@@ -103,12 +104,15 @@ def leveraged_etf_warnings(
 
         holding_info = holding_days.get(ticker) or {}
         days_held = holding_info.get("days_held")
+        lower_bound_days = holding_info.get("lower_bound_days")
 
         if days_held is None or days_held > max_hold_days:
-            decay_estimate = _leveraged_decay_estimate_pct(ticker, days_held, market_data or {})
+            decay_days = days_held if days_held is not None else lower_bound_days
+            decay_estimate = _leveraged_decay_estimate_pct(ticker, decay_days, market_data or {})
             warnings.append({
                 "ticker": ticker,
                 "days_held": days_held,
+                "lower_bound_days": lower_bound_days,
                 "earliest_open_buy": holding_info.get("earliest_open_buy"),
                 "duration_unknown": holding_info.get("duration_unknown", True),
                 "max_hold_days": max_hold_days,
@@ -518,7 +522,7 @@ def _render_critical_actions_section(
                 f"**{rec.get('ticker')}**: manual catalyst review required before any trade."
             )
     for warning in leveraged_warnings or []:
-        held = f"{warning['days_held']} days" if warning.get("days_held") is not None else "duration unknown"
+        held = _format_holding_duration(warning)
         items.append(
             f"**{warning.get('ticker')}**: leveraged ETF held {held}; decide whether to exit or explicitly re-underwrite the trade."
         )
@@ -663,6 +667,7 @@ def _render_hedge_suggestions_section(suggestions: list[dict]) -> list[str]:
 def _render_cost_footer(usage: dict) -> list[str]:
     if not usage:
         return []
+    retry_text = f" | JSON retries: {usage.get('retries', 0)}" if usage.get("retries") else ""
     return [
         "",
         "---",
@@ -671,7 +676,8 @@ def _render_cost_footer(usage: dict) -> list[str]:
         "",
         f"Claude passes: {usage.get('passes', 1)} | "
         f"tokens: {usage.get('total_tokens', 0):,} | "
-        f"estimated cost: ${usage.get('cost_usd', 0):.4f}",
+        f"estimated cost: ${usage.get('cost_usd', 0):.4f}"
+        f"{retry_text}",
         "",
     ]
 
@@ -758,7 +764,7 @@ def _render_leveraged_etf_section(warnings: list) -> list[str]:
         "",
     ]
     for w in warnings:
-        held = f"{w['days_held']} days" if w.get("days_held") is not None else "duration unknown"
+        held = _format_holding_duration(w)
         if w.get("earliest_open_buy"):
             held += f" (oldest open lot {w['earliest_open_buy']})"
         pnl = w.get("pnl_pct")
@@ -770,6 +776,14 @@ def _render_leveraged_etf_section(warnings: list) -> list[str]:
         )
     lines += ["", "---", ""]
     return lines
+
+
+def _format_holding_duration(warning: dict) -> str:
+    if warning.get("days_held") is not None:
+        return f"{warning['days_held']} days"
+    if warning.get("lower_bound_days") is not None:
+        return f"at least {warning['lower_bound_days']} days (entry pre-dates activity export)"
+    return "duration unknown"
 
 
 # ── Main entrypoint ───────────────────────────────────────────────────────────

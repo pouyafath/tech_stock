@@ -40,10 +40,23 @@
 - ✅ **Trade History Context** — Loads your recent Wealthsimple trades to avoid whipsawing
 - ✅ **Triple Output** — Markdown report + CSV table + JSON log for backtesting
 - ✅ **Three Interface Options** — Original CLI remains default, with optional Streamlit dashboard and Textual terminal UI
-- ✅ **Model Choice** — Pick Sonnet 4.6 (~$0.30-$0.55/run typical two-pass range) or Opus 4.7 (higher cost, deeper analysis) per session
+- ✅ **Model Choice** — Pick Sonnet 4.6 (~$0.30-$0.70/run typical two-pass range) or Opus 4.7 (higher cost, deeper analysis) per session
 - ✅ **Fast Parallel Fetching** — Concurrent API requests with caching and graceful degradation
 
 ---
+
+## ✨ What's New in v1.10.0 (May 10, 2026)
+
+**Live validation hardening after a full paid Sonnet run.**
+
+- **Yahoo news parser fixed** — yfinance's current news shape uses `content.pubDate`; the app now parses it correctly, so large-move catalyst tables populate with real headlines again.
+- **Empty-news cache fixed** — transient empty headline responses are no longer cached for an hour, avoiding false "no news" catalyst gaps.
+- **Claude JSON resilience** — default `claude_max_tokens` raised to `24000`, Rule 32 now has strict string-length caps, news prompt payloads are tighter, and a one-time emergency compact JSON retry is available if Claude returns truncated JSON.
+- **Leveraged ETF duration wording fixed** — when an ETF entry predates the Activities export, the report now shows a lower bound such as `held at least 41 days` instead of either overstating it or saying only "unknown."
+- **Position Aging wording fixed** — reports no longer claim all positions are fresh/core when some entry dates are unknown.
+- **Paid validation** — successful full live Sonnet two-pass run on May 10, 2026 with 31 tracked tickers, enrichment enabled, 12 recommendation rows, 50,105 tokens, estimated cost `$0.6341`, cache hit, no JSON retry required.
+
+Current local suite: `pytest -q` passes with 162 tests.
 
 ## ✨ What's New in v1.9.0 (May 6, 2026)
 
@@ -53,7 +66,7 @@
 - **Thesis-decay tracker** — every BUY's original thesis is stored. Quarterly auto-reviews classify progress as `materialized`/`partial`/`not_yet`/`invalidated`. After 4 consecutive `not_yet` reviews (~12 months), the position is force-exited regardless of Claude's output. Frees capital from theses that haven't materialized.
 - **Paper-trading mode** (`./run.sh morning --paper`) — every Claude recommendation is applied to a simulated portfolio in `data/paper_portfolio.json`. Tracks cash, shares, fees, value history. Lets you quantify your **discretion penalty** — the gap between recommendations and what you actually traded.
 
-21 new tests, 147 total, all passing.
+21 new tests, 147 total at that milestone; current suite is larger.
 
 ## ✨ What's New in v1.8.0 (May 6, 2026)
 
@@ -106,11 +119,11 @@
 
 **Runtime Stabilization:** Updated after a successful full portfolio run using the April 29 holdings and activities CSVs.
 
-- **Claude Output Budget** — Default `claude_max_tokens` is now `16000`, which avoided JSON truncation while keeping the two-pass report feasible.
+- **Claude Output Budget** — This was originally stabilized at `16000`; v1.10 raises the default to `24000` and adds an emergency compact retry for news-heavy runs.
 - **Compact Recommendation Contract** — Rule 32 caps Claude at 12 recommendation rows focused on actionable trades and material risks; lower-signal tickers move to watchlist/warnings.
 - **Schema Resilience** — Missing required per-recommendation fields from Claude are normalized to safe defaults before schema validation, so one incomplete row does not kill the run.
 - **Correct Market Phase** — Overnight runs now label the context as "outside regular market hours — before next open" instead of pre-close.
-- **Observed Full-Run Cost** — Latest successful Sonnet two-pass run used 43,079 tokens and cost about `$0.50`; smaller portfolios or cached/shorter outputs may cost less.
+- **Observed Full-Run Cost** — Latest successful Sonnet two-pass run used 50,105 tokens and cost `$0.6341`; smaller portfolios or cached/shorter outputs may cost less.
 
 ## ✨ What's New in v1.4.0 (April 30, 2026)
 
@@ -232,7 +245,7 @@ Session type (morning/afternoon) [Enter = morning]:
 4. Activities CSV detected: /Users/you/Downloads/activities-export-2026-04-24.csv
    Is this correct? (Y/N, or Enter to skip): Y
 5. Which model would you like to use?
-   [1] Sonnet 4.6 — ~$0.30-$0.55/run typical two-pass range (recommended for daily use)
+   [1] Sonnet 4.6 — ~$0.30-$0.70/run typical two-pass range (recommended for daily use)
    [2] Opus 4.7   — higher cost, deeper analysis, better for complex portfolios
    Choose (1/2) [Enter = 1]:
 ```
@@ -516,8 +529,8 @@ Raw machine-readable format for:
   "risk_tolerance": "aggressive",
   "account_type": "wealthsimple_premium_usd",
   "claude_model": "claude-sonnet-4-6",
-  "claude_max_tokens": 16000,
-  "claude_timeout_seconds": 240,
+  "claude_max_tokens": 24000,
+  "claude_timeout_seconds": 480,
   "enable_two_pass_review": true,
   "enable_opus_extended_thinking": true,
   "opus_thinking_budget_tokens": 4096,
@@ -531,6 +544,7 @@ Raw machine-readable format for:
   "enable_enrichment": true,
   "alpha_vantage_enabled": false,
   "news_lookback_days": 7,
+  "news_prompt_max_articles": 2,
   "history_months": 10
 }
 ```
@@ -542,8 +556,8 @@ Raw machine-readable format for:
 | `budget_cad` | 3000 | Available CAD to deploy (overridden per run) |
 | `risk_tolerance` | "aggressive" | "moderate" for conservative recommendations |
 | `claude_model` | "claude-sonnet-4-6" | "claude-sonnet-4-6" (fast) or "claude-opus-4-7" (thorough) |
-| `claude_max_tokens` | 16000 | Max output tokens for the structured JSON response; current default balances avoiding truncation with run time/cost |
-| `claude_timeout_seconds` | 240 | Hard timeout for each Claude API call |
+| `claude_max_tokens` | 24000 | Max output tokens for structured JSON; paired with compact string caps and one retry to prevent truncation |
+| `claude_timeout_seconds` | 480 | Hard timeout for each Claude API call |
 | `enable_two_pass_review` | true | Always run the second Claude critique/revision pass |
 | `enable_opus_extended_thinking` | true | Enables extended thinking only when the selected model is Opus |
 | `opus_thinking_budget_tokens` | 4096 | Token budget reserved for Opus extended thinking |
@@ -557,6 +571,7 @@ Raw machine-readable format for:
 | `alpha_vantage_enabled` | false | Alpha Vantage free tier limited to 25 req/day; set true only with paid plan |
 | `enable_options_implied_move_for_earnings` | false | Optional yfinance options implied move lookup; disabled by default because option-chain calls can be slow |
 | `news_lookback_days` | 7 | How far back to fetch news headlines |
+| `news_prompt_max_articles` | 2 | Max articles per ticker included in the Claude prompt; report output can still show catalyst headlines |
 | `history_months` | 10 | Months of historical price data to fetch |
 
 ### Enrichment APIs (Professional-Grade Market Intelligence)
@@ -713,7 +728,7 @@ Wealthsimple CSVs
 
 | Module | Purpose |
 |--------|---------|
-| `claude_analyst.py` | 32-rule system prompt, build enriched prompt, run two Claude passes, parse JSON response with sizing, catalyst, risk-control, hedge, and priority-action fields |
+| `claude_analyst.py` | 40-rule system prompt, build enriched prompt, run two Claude passes, recover once from truncated JSON, parse sizing/catalyst/risk/hedge/priority fields |
 | `report_quality.py` | Deterministic quality warnings and hard gates for stale quotes, missing catalysts, risk controls, and sizing issues |
 | `backtester.py` | Evaluate mature recommendations by action, conviction, ticker, and recent realized examples for calibration |
 | `report_generator.py` | Format markdown + CSV with priority actions, quality warnings, risk dashboard, hold tiers, earnings badges, risk controls, and Bear/Bull ranges |
@@ -740,9 +755,9 @@ Wealthsimple CSVs
 | `pyinstaller_hooks/` | Custom hooks to ensure Streamlit static assets are bundled |
 | `.github/workflows/build_release.yml` | CI release workflow: tags trigger `.dmg` + `.exe` builds |
 
-### Claude System Prompt (32 Rules)
+### Claude System Prompt (40 Rules)
 
-Claude receives a detailed system prompt with **32 strategic rules** governing analysis and output structure:
+Claude receives a detailed system prompt with **40 strategic rules** governing analysis and output structure:
 
 **Input Data Claude Gets:**
 1. Portfolio snapshot — all holdings with cost basis, current value, P&L, unrealized gains (from portfolio_loader)
@@ -755,7 +770,7 @@ Claude receives a detailed system prompt with **32 strategic rules** governing a
 8. Watchlist alerts — target entry/exit prices for monitored tickers (from config/watchlist.json)
 9. Quality warnings, previous-session drift/execution context, risk dashboard, company exposure rollup, and track-record calibration stats
 
-**Output Rules (Examples from the 32):**
+**Output Rules (Examples from the 40):**
 - **Rule 14 (Track Record Calibration):** Cap or reduce conviction when similar historical action/conviction buckets have weak returns or hit rates
 - **Rule 15 (Earnings Alert):** If earnings within 7 days, set `earnings_alert=true` and lead with "⚠️ EARNINGS [DATE]"
 - **Rule 17 (Enrichment Citation):** Cite analyst consensus, EPS beat streaks, insider activity in thesis statements
@@ -768,7 +783,7 @@ Claude receives a detailed system prompt with **32 strategic rules** governing a
 - **Rule 27 (Risk Controls):** Include entry zone, stop-loss, and take-profit percentages
 - **Rule 28 (Catalyst Gate):** BUY/ADD on >5% movers or near-earnings names requires verified catalyst or manual review
 - **Rule 31 (Hedge Suggestions):** Include trim/rebalance and optional small inverse-ETF hedges when concentration or beta is high
-- **Rule 32 (Compact JSON):** Return at most 12 recommendation rows focused on actionable trades and material risks
+- **Rule 32 (Compact JSON):** Return at most 12 recommendation rows, use strict per-field length caps, and avoid repeating raw quote/news tables inside JSON strings
 
 The parser also normalizes missing per-row fields such as `action`, `conviction`, `net_expected_pct`, `fee_hurdle_pct`, and `time_horizon` to safe defaults before schema validation. Deterministic quality gates still flag unsupported recommendations after normalization.
 
@@ -819,7 +834,7 @@ The parser also normalizes missing per-row fields such as `action`, `conviction`
 - You want extended thinking enabled (deeper chain-of-thought reasoning)
 - You're analysing an unusual macro environment (yield curve inversion, crypto correlation)
 
-Typical costs: Sonnet two-pass ≈ $0.30–$0.55 · Opus two-pass ≈ $1.50–$3.00 depending on portfolio size.
+Typical costs: Sonnet two-pass ≈ $0.30–$0.70 · Opus two-pass ≈ $1.50–$3.00+ depending on portfolio size and output length.
 
 ### Q: What if an enrichment API is down?
 
@@ -881,7 +896,7 @@ But you can run it as often as you like. Use `min_net_expected_return_pct` (defa
 
 ### Q: What's the cost per run?
 
-**A:** With Sonnet two-pass review, expect roughly `$0.30-$0.55` for a full portfolio run. The latest full run with 31 tracked tickers, enrichment enabled, 12 recommendation rows, and two Claude passes used 43,079 tokens and cost about `$0.50`.
+**A:** With Sonnet two-pass review, expect roughly `$0.30-$0.70` for a full portfolio run. The latest full run with 31 tracked tickers, enrichment enabled, 12 recommendation rows, and two Claude passes used 50,105 tokens and cost `$0.6341`.
 With Opus two-pass review, expect higher cost depending on output length and extended-thinking budget.
 **Note:** Enrichment APIs have no cost (all free tiers).
 
@@ -914,10 +929,10 @@ The app looks for `holdings-report-*.csv` in `~/Downloads/`. Either:
 3. Export a fresh Holdings report from Wealthsimple
 
 ### "No recent news available"
-This is normal. yfinance news availability varies by ticker and day. The app still generates recommendations based on price action and fundamentals.
+This can be normal for some tickers because yfinance news availability varies by ticker and day. If every ticker shows no news, clear `data/.cache/news/` and rerun; v1.10 parses the current `content.pubDate` news format and avoids caching empty headline responses.
 
 ### "Claude response parsing failed"
-The response was truncated or not valid JSON. The current default `claude_max_tokens` is `16000` and Rule 32 asks Claude to keep recommendations to 12 rows. If this still happens with a very large portfolio or news-heavy run, reduce watchlist scope, disable optional enrichment, or increase `claude_max_tokens` carefully. Higher token caps can raise cost and may make non-streamed Claude responses slower.
+The response was truncated or not valid JSON. The current default `claude_max_tokens` is `24000`, Rule 32 enforces compact JSON, and the app retries once with emergency caps if truncation is detected. If this still happens with a very large portfolio or news-heavy run, reduce watchlist scope or disable optional enrichment before raising the token cap further. Higher token caps can raise cost and make non-streamed Claude responses slower.
 
 ### "GitHub Actions cannot import src"
 The workflow sets `PYTHONPATH: ${{ github.workspace }}` for pytest. If you create another workflow, include the same environment variable or install the project as a package before running tests.
@@ -985,7 +1000,7 @@ tech_stock/
 │   ├── alpha_vantage_client.py  ← News sentiment (thread-safe rate limiter; optional)
 │   ├── backtester.py            ← Historical recommendation calibration
 │   ├── report_quality.py        ← Deterministic quality gates and warnings
-│   ├── claude_analyst.py        ← 32-rule prompt, two-pass Claude review, JSON parsing
+│   ├── claude_analyst.py        ← 40-rule prompt, two-pass Claude review, JSON retry/parsing
 │   ├── report_generator.py      ← Priority actions table, hold tiers, earnings badges, markdown + CSV
 │   ├── ui_support.py            ← Shared helpers for UI progress, dashboards, previews, validation, and connectivity
 │   └── ui_launcher.py           ← Interface chooser for CLI, Streamlit, and Textual
@@ -1062,6 +1077,6 @@ For issues or questions:
 
 ---
 
-**Last updated:** May 2026 — strategy gates (v1.7), trailing stops + sector rotation + tranched plans (v1.8), report visibility + thesis tracker + paper trading (v1.9)
-**Version:** 1.9.0
-**Status:** Production-ready — 16 deterministic strategy gates surfaced in markdown reports, three interface options, native app distribution, paper-trading mode
+**Last updated:** May 10, 2026 — live validation hardening, news parser fix, JSON retry, leveraged ETF duration lower bounds (v1.10)
+**Version:** 1.10.0
+**Status:** Production-ready — deterministic quality gates, current catalyst headlines, three interface options, native app distribution, paper-trading mode

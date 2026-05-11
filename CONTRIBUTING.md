@@ -279,6 +279,10 @@ def generate_excel(
 
 ### Adding Tests
 
+Current baseline: run `PYTHONPATH="$(pwd)" python -m pytest -q` from the repo root. The May 2026 suite covers 160+ tests across parsers, report quality gates, Claude schema/retry behavior, UI helpers, market data, and report rendering.
+
+Do not commit generated reports, API caches, local recommendation logs, `data/paper_portfolio.json`, `data/thesis_log.json`, uploaded CSVs, or `.claude/worktrees/`.
+
 File: `tests/test_portfolio_loader.py`
 
 ```python

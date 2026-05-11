@@ -34,6 +34,20 @@ def test_position_aging_quiet_when_only_fresh():
     assert "STALE" not in out  # no stale section
 
 
+def test_position_aging_discloses_unknown_durations():
+    holdings = [{"ticker": "FRESH"}, {"ticker": "UNKNOWN"}]
+    days = {
+        "FRESH": {"days_held": 30},
+        "UNKNOWN": {"days_held": None, "duration_unknown": True, "lower_bound_days": 41},
+    }
+
+    out = "\n".join(render_position_aging(holdings, days))
+
+    assert "Known activity-derived ages" in out
+    assert "unknown entry dates" in out
+    assert "All open positions" not in out
+
+
 def test_position_aging_empty_when_no_data():
     assert render_position_aging([], {}) == []
 

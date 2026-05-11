@@ -1,4 +1,4 @@
-from src.report_generator import generate_markdown
+from src.report_generator import generate_markdown, leveraged_etf_warnings
 
 
 def test_report_renders_quality_risk_hedge_and_bear_bull_sections():
@@ -84,3 +84,25 @@ def test_report_renders_quality_risk_hedge_and_bear_bull_sections():
     assert "Bear Case" in markdown
     assert "Bull Case" in markdown
     assert "Claude passes: 2" in markdown
+
+    markdown_with_retry = generate_markdown(
+        "afternoon",
+        recommendation,
+        {"MSFT": {"current_price": 100, "currency": "USD", "error": None, "quote_source": "test"}},
+        portfolio={"holdings": []},
+        usage={"passes": 2, "total_tokens": 1200, "cost_usd": 0.3, "retries": 1},
+    )
+    assert "JSON retries: 1" in markdown_with_retry
+
+
+def test_leveraged_etf_warning_uses_activity_lower_bound():
+    activities = [
+        {"date": "2026-03-30", "type": "Trade", "sub_type": "BUY", "ticker": "META", "quantity": 1},
+    ]
+    holdings = [{"ticker": "SOXL", "quantity": 1, "unrealized_pnl_pct": 10}]
+
+    warnings = leveraged_etf_warnings(holdings, activities, market_data={}, max_hold_days=14)
+
+    assert len(warnings) == 1
+    assert warnings[0]["days_held"] is None
+    assert warnings[0]["lower_bound_days"] is not None

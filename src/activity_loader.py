@@ -157,9 +157,17 @@ def holding_days_by_ticker(activities: list[dict], holdings: list[dict] = None) 
     """
     held_tickers = {h.get("ticker") for h in holdings or [] if h.get("quantity")}
     lots_by_ticker = {}
+    oldest_activity_date = None
     for activity in sorted(activities or [], key=lambda row: row.get("date", "")):
         if activity.get("type") != "Trade":
             continue
+        try:
+            activity_date = datetime.strptime(activity.get("date", ""), "%Y-%m-%d").date()
+            oldest_activity_date = (
+                activity_date if oldest_activity_date is None or activity_date < oldest_activity_date else oldest_activity_date
+            )
+        except (TypeError, ValueError):
+            pass
         ticker = activity.get("ticker")
         if not ticker:
             continue
@@ -194,11 +202,18 @@ def holding_days_by_ticker(activities: list[dict], holdings: list[dict] = None) 
             except (TypeError, ValueError):
                 continue
             earliest = lot_date if earliest is None or lot_date < earliest else earliest
+        duration_unknown = earliest is None and ticker in held_tickers
+        lower_bound_days = (
+            (today - oldest_activity_date).days
+            if duration_unknown and oldest_activity_date is not None
+            else None
+        )
         out[ticker] = {
             "ticker": ticker,
             "days_held": (today - earliest).days if earliest else None,
             "earliest_open_buy": earliest.isoformat() if earliest else None,
-            "duration_unknown": earliest is None and ticker in held_tickers,
+            "duration_unknown": duration_unknown,
+            "lower_bound_days": lower_bound_days,
             "is_leveraged_etf": ticker in LEVERAGED_ETFS,
         }
     return out

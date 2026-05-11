@@ -42,7 +42,7 @@ def test_annotate_holdings_attaches_days_and_tier():
         {"ticker": "PLTR", "quantity": 0},  # no map entry
     ]
     days_map = {
-        "AAPL": {"days_held": 200, "duration_unknown": False},
+        "AAPL": {"days_held": 200, "duration_unknown": False, "lower_bound_days": None},
         "NVDA": {"days_held": 800, "duration_unknown": False},
     }
     out = annotate_holdings(holdings, days_map)
@@ -51,10 +51,21 @@ def test_annotate_holdings_attaches_days_and_tier():
     pltr = next(h for h in out if h["ticker"] == "PLTR")
     assert aapl["aging_tier"] == "mature"
     assert aapl["days_held"] == 200
+    assert aapl["lower_bound_days"] is None
     assert nvda["aging_tier"] == "stale"
     assert pltr["aging_tier"] is None  # no data
     # Original holdings dict not mutated
     assert "aging_tier" not in holdings[0]
+
+
+def test_annotate_holdings_preserves_unknown_duration_lower_bound():
+    holdings = [{"ticker": "SOXL", "quantity": 1}]
+    days_map = {"SOXL": {"days_held": None, "duration_unknown": True, "lower_bound_days": 41}}
+
+    out = annotate_holdings(holdings, days_map)
+
+    assert out[0]["holding_duration_unknown"] is True
+    assert out[0]["lower_bound_days"] == 41
 
 
 def test_aging_summary_lists_stale_aged_mature():

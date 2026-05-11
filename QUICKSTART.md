@@ -103,7 +103,7 @@ Session type (morning/afternoon) [Enter = morning]:
    Is this correct? (Y/N): Y
 4. Activities CSV detected: (Skip for now, just press Enter)
 5. Which model? 
-   [1] Sonnet 4.6 (recommended, ~$0.30-$0.55/run typical two-pass range)
+   [1] Sonnet 4.6 (recommended, ~$0.30-$0.70/run typical two-pass range)
    [2] Opus 4.7 (deeper analysis, higher cost)
    Choose (1/2) [Enter = 1]:
 ```
@@ -121,6 +121,8 @@ Session type (morning/afternoon) [Enter = morning]:
 ```
 
 Open the markdown file in any editor to see recommendations with conviction scores and theses.
+
+Latest paid validation: May 10, 2026 full Sonnet run, 31 tracked tickers, two Claude passes, 50,105 tokens, estimated cost `$0.6341`.
 
 ---
 

@@ -92,9 +92,9 @@ news = ticker.news  # headlines with sentiment scores
 |--------|---------|
 | **What** | Large language model for multi-step reasoning |
 | **Data** | Analyzes market data, portfolio context, news, fees, conviction scoring |
-| **Cost** | 💰 **PAID** — ~$0.09–$0.45 per run depending on model |
-| | Sonnet 4.6: ~$0.09/run (input-token heavy) |
-| | Opus 4.7: ~$0.45/run (superior reasoning) |
+| **Cost** | 💰 **PAID** — varies by portfolio size, model, and output length |
+| | Sonnet 4.6: typically ~$0.30–$0.70 for the current two-pass report |
+| | Opus 4.7: materially higher; use for deeper one-off reviews |
 | **Access** | REST API with API key (get free from https://console.anthropic.com/) |
 | **Availability** | Available to all users with API key |
 | **Rate Limits** | Tier-dependent (usually 1000+ requests/day for standard accounts) |
@@ -371,12 +371,12 @@ Claude **uses this feedback** in the next session to adjust conviction scores.
 
 ### Cost Breakdown
 
-**Per run** (assuming 18 tickers, ~4500 input tokens):
+**Per run** (current two-pass report shape, enrichment enabled):
 
 | Component | Cost | Notes |
 |-----------|------|-------|
-| Sonnet 4.6 | $0.09 | Recommended for daily use |
-| Opus 4.7 | $0.45 | Better for complex portfolios |
+| Sonnet 4.6 | ~$0.30–$0.70 | Recommended for daily use; latest 31-ticker paid run cost $0.6341 |
+| Opus 4.7 | ~$1.50–$3.00+ | Better for complex portfolios |
 | yfinance | $0 | Completely free |
 | Wealthsimple | Included | Free with Premium account |
 
@@ -384,8 +384,8 @@ Claude **uses this feedback** in the next session to adjust conviction scores.
 
 | Model | Daily | Monthly |
 |-------|-------|---------|
-| Sonnet 4.6 | $0.18 | ~$5.40 |
-| Opus 4.7 | $0.90 | ~$27.00 |
+| Sonnet 4.6 | ~$0.60–$1.40 | ~$18–$42 |
+| Opus 4.7 | ~$3.00–$6.00+ | ~$90–$180+ |
 
 ---
 
@@ -648,16 +648,16 @@ Limitation: News sentiment is basic (VADER)
 
 **Good for:** Most retail traders, small portfolios
 
-### Tier 2: Minimal Cost ($0.09 per run)
+### Tier 2: Paid AI Analysis (~$0.30–$0.70 per Sonnet run)
 
 ```
 yfinance (primary)
 + Anthropic Claude Sonnet 4.6 (analysis)
   ├─ Multi-step reasoning
   ├─ Conviction scoring
-  └─ ~$0.09 per run
+  └─ ~$0.30–$0.70 per full current two-pass run
 
-Cost: $0-5/month (free tier) or ~$5/month (2x daily)
+Cost: roughly $18–$42/month at 2x daily Sonnet runs, depending on portfolio size and output length
 Gain: AI-powered analysis, backtesting, self-calibration
 ```
 
@@ -777,6 +777,6 @@ Gain: Redundancy, professional-grade analysis, higher accuracy
 
 ---
 
-**Last Updated:** April 25, 2026  
-**Document Version:** 1.0.0  
+**Last Updated:** May 10, 2026
+**Document Version:** 1.1.0
 **Author:** Tech Stock Team + Claude Opus 4.7

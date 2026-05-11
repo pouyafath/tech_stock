@@ -209,3 +209,65 @@ def test_call_claude_runs_two_passes_with_mocked_anthropic(monkeypatch):
     assert usage["passes"] == 2
     assert usage["cache_hit"] is True
     assert created_calls[1]["messages"][0]["content"][0]["cache_control"]["type"] == "ephemeral"
+
+
+def test_call_claude_retries_truncated_json_once(monkeypatch):
+    created_calls = []
+
+    class FakeMessages:
+        def __init__(self):
+            self.count = 0
+
+        def create(self, **kwargs):
+            self.count += 1
+            created_calls.append(kwargs)
+            if self.count == 1:
+                return SimpleNamespace(
+                    content=[SimpleNamespace(type="text", text='{"session_summary": "truncated')],
+                    stop_reason="max_tokens",
+                    usage=SimpleNamespace(
+                        input_tokens=100,
+                        output_tokens=1000,
+                        cache_creation_input_tokens=0,
+                        cache_read_input_tokens=0,
+                    ),
+                )
+            payload = _claude_payload(f"pass {self.count}")
+            return SimpleNamespace(
+                content=[SimpleNamespace(type="text", text=json.dumps(payload))],
+                usage=SimpleNamespace(
+                    input_tokens=100,
+                    output_tokens=50,
+                    cache_creation_input_tokens=0,
+                    cache_read_input_tokens=20 if self.count == 3 else 0,
+                ),
+            )
+
+    class FakeAnthropic:
+        def __init__(self, **_kwargs):
+            self.messages = FakeMessages()
+
+    monkeypatch.setattr("src.claude_analyst.anthropic.Anthropic", FakeAnthropic)
+
+    recommendation, usage = call_claude(
+        session_type="afternoon",
+        portfolio={"holdings": [], "cash_cad": 0},
+        market_data={
+            "MSFT": {
+                "current_price": 100,
+                "currency": "USD",
+                "change_pct_1d": 0,
+                "quote_timestamp_utc": "2026-04-30T20:00:00Z",
+                "price_basis": "regular_market_quote",
+                "history": [],
+            }
+        },
+        news_by_ticker={"MSFT": []},
+        fee_snapshot={"MSFT": {"hurdle_pct": 0.1, "bid_ask_pct_one_way": 0.05, "total_usd": 1}},
+        settings_override={"claude_model": "claude-sonnet-4-6", "claude_max_tokens": 1000},
+    )
+
+    assert len(created_calls) == 3
+    assert "previous response was invalid" in created_calls[1]["messages"][-1]["content"]
+    assert recommendation["session_summary"] == "pass 3"
+    assert usage["retries"] == 1

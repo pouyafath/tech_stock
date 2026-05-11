@@ -23,13 +23,20 @@ def render_position_aging(holdings: Iterable[dict], holding_days_map: dict | Non
     summary = aging_summary(annotated)
     counts = summary["counts"]
     if not (summary["mature_tickers"] or summary["aged_tickers"] or summary["stale_tickers"]):
-        # All fresh/core — emit a quiet status line so the user knows the gate ran
+        # No actionable aged/stale positions — emit a status line so the user
+        # knows the gate ran without implying unknown durations are known fresh.
         if any(h.get("aging_tier") for h in annotated):
+            unknown_note = ""
+            if counts.get("unknown"):
+                unknown_note = (
+                    f" {counts['unknown']} position(s) have unknown entry dates because "
+                    "they pre-date or are missing from the activities export."
+                )
             return [
                 "## Position Aging",
                 "",
-                f"_All open positions in fresh (0-90d) or core (91-180d) tiers — your sweet spot._ "
-                f"({counts['fresh']} fresh, {counts['core']} core)",
+                f"_Known activity-derived ages are fresh/core only._ "
+                f"({counts['fresh']} fresh, {counts['core']} core).{unknown_note}",
                 "",
                 "---",
                 "",

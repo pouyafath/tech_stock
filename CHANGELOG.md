@@ -4,6 +4,23 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.10.0] — 2026-05-10
+
+### Fixed — Live-run report reliability
+- **Yahoo/yfinance news parsing restored** (`src/news_fetcher.py`) — current yfinance news items publish timestamps under `content.pubDate`; the app now parses that shape correctly, so large-move catalyst checks can cite current headlines again.
+- **Empty news responses are not cached** (`src/cache.py`, `src/news_fetcher.py`) — transient empty headline fetches no longer suppress news for the rest of the cache window.
+- **Claude JSON truncation hardening** (`src/claude_analyst.py`) — default `claude_max_tokens` raised to `24000`, prompt news payload reduced to two articles per ticker, Rule 32 now includes field-length caps, and the app retries once with emergency compact JSON caps when a response is truncated or invalid JSON.
+- **Leveraged ETF holding-duration wording** (`src/activity_loader.py`, `src/report_generator.py`, `src/claude_analyst.py`) — when the original buy predates the Activities export, reports now show a lower bound such as `held at least 41 days` instead of misleading `>90d` or only `duration unknown`.
+- **Position Aging wording** (`src/report_sections.py`) — reports disclose unknown entry dates instead of saying every open position is fresh/core.
+- **Cost footer visibility** (`src/main.py`, `src/report_generator.py`) — JSON retry count is included in CLI/report cost summaries when a retry occurs.
+
+### Validation
+- Full paid Sonnet live run on May 10, 2026 using April 29 holdings/activities CSVs: 31 tracked tickers, two Claude passes, 50,105 tokens, estimated cost `$0.6341`, cache hit, no JSON retry required.
+- The run produced `reports/20260510_2011_afternoon.md` locally; generated reports remain git-ignored and are not committed.
+
+### Tests
+- Added focused coverage for news timestamp parsing, no-cache empty values, activity lower-bound durations, truncated Claude retry, cost footer retry display, and unknown Position Aging wording.
+
 ## [1.9.0] — 2026-05-06
 
 ### Added — Report visibility + P3 strategy infrastructure

@@ -533,12 +533,15 @@ def print_usage(usage: dict, model_name: str):
     cost_color = C.GREEN if cost < 0.30 else C.YELLOW
     total_tok = usage.get("total_tokens", 0)
     passes = usage.get("passes", 1)
+    retries = usage.get("retries", 0)
+    retry_str = f"  retries: {retries}" if retries else ""
     print(
         f"  {C.DIM}[{model_name}]{C.RESET}  "
         f"passes: {passes}  "
         f"tokens: {total_tok:,}  "
         f"cost: {cost_color}${cost:.4f}{C.RESET}  "
         f"{hit}"
+        f"{retry_str}"
     )
 
 

@@ -74,6 +74,7 @@ def annotate_holdings(holdings: Iterable[dict], holding_days_map: dict, tiers: d
         days_held = info.get("days_held")
         copied = dict(holding)
         copied["days_held"] = days_held
+        copied["lower_bound_days"] = info.get("lower_bound_days")
         copied["aging_tier"] = classify_age(days_held, tiers)
         copied["holding_duration_unknown"] = bool(info.get("duration_unknown"))
         out.append(copied)

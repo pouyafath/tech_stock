@@ -36,6 +36,7 @@ def cached(
     ttl_seconds: int,
     loader: Callable[[], Any],
     enabled: bool = True,
+    should_cache: Callable[[Any], bool] | None = None,
 ) -> Any:
     """
     Return cached value if fresh, otherwise call loader() and cache the result.
@@ -46,6 +47,7 @@ def cached(
         ttl_seconds: freshness window
         loader: zero-arg callable producing the value
         enabled: set False to bypass cache entirely
+        should_cache: optional predicate; when false, return value without storing it
 
     Safe on corruption: any pickle error is swallowed and treated as cache miss.
     """
@@ -58,22 +60,25 @@ def cached(
     if _is_fresh(path, ttl_seconds):
         try:
             with open(path, "rb") as f:
-                return pickle.load(f)
+                cached_value = pickle.load(f)
+            if should_cache is None or should_cache(cached_value):
+                return cached_value
         except Exception:
             # Cache is corrupt or unreadable — fall through to loader
             pass
 
     # Cache miss or stale — compute and store
     value = loader()
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".pkl.tmp")
-        with open(tmp, "wb") as f:
-            pickle.dump(value, f)
-        tmp.replace(path)  # atomic
-    except Exception:
-        # Cache write failed — not fatal, value is still returned
-        pass
+    if should_cache is None or should_cache(value):
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".pkl.tmp")
+            with open(tmp, "wb") as f:
+                pickle.dump(value, f)
+            tmp.replace(path)  # atomic
+        except Exception:
+            # Cache write failed — not fatal, value is still returned
+            pass
 
     return value
 

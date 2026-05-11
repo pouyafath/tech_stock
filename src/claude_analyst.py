@@ -75,6 +75,7 @@ RULES YOU MUST FOLLOW:
 30. RANGE LABELS: price_target_low_pct is the Bear Case and price_target_high_pct is the Bull Case. Keep the JSON field names unchanged for compatibility.
 31. HEDGE SUGGESTIONS: If concentration, beta, or volatility risk is high, include hedge_suggestions. Trim/rebalance suggestions should come before inverse ETFs. Inverse ETF hedges are allowed only as small short-term hedges with risk notes and sizing caps.
 32. COMPACT JSON: Return at most 12 recommendation rows. Include all priority/actionable trades, all holdings with material risk, and the strongest watchlist opportunities. Do not include every low-signal ticker as a recommendation; summarize the rest in watchlist_flags, sector_warnings, or warnings.
+    Hard size caps: session_summary <= 600 characters; cash_deployment <= 450; each thesis <= 450; technical_basis <= 250; risk_or_invalidation <= 250; catalyst_source <= 160; each warning <= 240; watchlist_flags <= 8; warnings <= 12; sector_warnings <= 8. Do not repeat raw quote tables inside JSON strings.
 33. POSITION AGING (3-6 month sweet spot, 2-year hard cap): Every existing holding has a `held [days] [tier]` tag in PORTFOLIO. Tiers and required actions:
     - fresh (0-90d) → normal evaluation; ADD freely if conviction ≥7
     - core (91-180d) → sweet spot; HOLD-keep or HOLD-add_on_dip with strong thesis
@@ -180,6 +181,15 @@ OUTPUT FORMAT (return exactly this structure):
   "sector_warnings": ["string"],
   "warnings": ["string"]
 }"""
+
+
+COMPACT_JSON_RETRY_MESSAGE = """The previous response was invalid JSON or was truncated.
+Return one COMPLETE valid JSON object only, using the same schema, with these emergency caps:
+- Max 8 recommendation rows and max 5 priority_actions.
+- Max 5 watchlist_flags, max 6 warnings, max 4 hedge_suggestions.
+- thesis <= 220 chars; technical_basis <= 140 chars; risk_or_invalidation <= 180 chars.
+- Omit entry_plan/exit_plan arrays; deterministic defaults will be added later.
+- Do not include raw quotes, raw news lists, markdown, or prose outside JSON."""
 
 
 # ── JSON schema for Claude's response ────────────────────────────────────────
@@ -582,7 +592,10 @@ def build_user_message(
             if tier and days is not None:
                 return f" | held {days}d [{tier}]"
             if h.get("holding_duration_unknown"):
-                return " | held >90d (entry pre-dates activities window)"
+                lower_bound = h.get("lower_bound_days")
+                if lower_bound is not None:
+                    return f" | held at least {lower_bound}d (entry pre-dates activity export)"
+                return " | holding duration unknown (entry pre-dates activity export)"
             return ""
 
         def _fmt_pnl(pnl_pct, pnl_dollars, currency_suffix: str = "") -> str:
@@ -907,7 +920,8 @@ def build_user_message(
         sent_line = _format_sentiment_line(agg)
         if sent_line:
             lines.append(f"  [{sent_line}]")
-        for a in articles[:4]:
+        prompt_article_cap = int(settings.get("news_prompt_max_articles", 2))
+        for a in articles[:prompt_article_cap]:
             senti = f" ({a['sentiment']:+.2f})" if "sentiment" in a else ""
             lines.append(f"  [{a.get('published_at', '')}] {a.get('title', '')}{senti}")
             if a.get("summary"):
@@ -1032,6 +1046,54 @@ def _create_message(client, model: str, settings: dict, messages: list[dict]):
     return client.messages.create(**kwargs)
 
 
+def _sum_usage_stats(stats: list[dict]) -> dict:
+    if not stats:
+        return {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_write_tokens": 0,
+            "cache_read_tokens": 0,
+            "total_tokens": 0,
+            "cost_usd": 0,
+            "cache_hit": False,
+        }
+    return {
+        "input_tokens": sum(s.get("input_tokens", 0) for s in stats),
+        "output_tokens": sum(s.get("output_tokens", 0) for s in stats),
+        "cache_write_tokens": sum(s.get("cache_write_tokens", 0) for s in stats),
+        "cache_read_tokens": sum(s.get("cache_read_tokens", 0) for s in stats),
+        "total_tokens": sum(s.get("total_tokens", 0) for s in stats),
+        "cost_usd": round(sum(s.get("cost_usd", 0) for s in stats), 4),
+        "cache_hit": any(s.get("cache_hit") for s in stats),
+        "retries": sum(s.get("retries", 0) for s in stats),
+    }
+
+
+def _looks_retryable_json_error(exc: ValueError, response) -> bool:
+    message = str(exc)
+    return (
+        "Claude returned non-JSON response" in message
+        or getattr(response, "stop_reason", None) == "max_tokens"
+    )
+
+
+def _create_parse_message(client, model: str, settings: dict, messages: list[dict]) -> tuple[dict, dict]:
+    """Call Claude and parse JSON, retrying once with emergency compact caps if needed."""
+    response = _create_message(client, model, settings, messages)
+    usage_parts = [estimate_cost(response.usage, model)]
+    try:
+        return _parse_validate_recommendation(_response_text(response)), _sum_usage_stats(usage_parts)
+    except ValueError as exc:
+        if not _looks_retryable_json_error(exc, response):
+            raise
+        retry_messages = messages + [{"role": "user", "content": COMPACT_JSON_RETRY_MESSAGE}]
+        retry_response = _create_message(client, model, settings, retry_messages)
+        retry_usage = estimate_cost(retry_response.usage, model)
+        retry_usage["retries"] = 1
+        usage_parts.append(retry_usage)
+        return _parse_validate_recommendation(_response_text(retry_response)), _sum_usage_stats(usage_parts)
+
+
 def _combine_usage_stats(first: dict, second: dict | None) -> dict:
     """Aggregate cost/tokens across the two Claude passes."""
     if not second:
@@ -1048,6 +1110,7 @@ def _combine_usage_stats(first: dict, second: dict | None) -> dict:
         "total_tokens": first.get("total_tokens", 0) + second.get("total_tokens", 0),
         "cost_usd": round(first.get("cost_usd", 0) + second.get("cost_usd", 0), 4),
         "cache_hit": bool(first.get("cache_hit") or second.get("cache_hit")),
+        "retries": first.get("retries", 0) + second.get("retries", 0),
         "passes": 2,
         "first_pass": first,
         "second_pass": second,
@@ -1151,14 +1214,12 @@ def call_claude(
     )
 
     # Pass 1: produce the initial recommendation JSON.
-    first_response = _create_message(
+    first_recommendation, first_usage = _create_parse_message(
         client,
         model,
         settings,
         [{"role": "user", "content": [_cacheable_text_block(user_message)]}],
     )
-    first_recommendation = _parse_validate_recommendation(_response_text(first_response))
-    first_usage = estimate_cost(first_response.usage, model)
 
     first_drift = compute_drift(
         first_recommendation,
@@ -1181,7 +1242,7 @@ def call_claude(
         first_drift,
         previous_session,
     )
-    second_response = _create_message(
+    recommendation, second_usage = _create_parse_message(
         client,
         model,
         settings,
@@ -1190,8 +1251,6 @@ def call_claude(
             {"role": "user", "content": review_message},
         ],
     )
-    recommendation = _parse_validate_recommendation(_response_text(second_response))
-    second_usage = estimate_cost(second_response.usage, model)
 
     final_drift = compute_drift(
         recommendation,
@@ -1253,5 +1312,6 @@ def call_claude(
         "passes": usage_stats.get("passes"),
         "total_tokens": usage_stats.get("total_tokens"),
         "cost_usd": usage_stats.get("cost_usd"),
+        "retries": usage_stats.get("retries", 0),
     }
     return recommendation, usage_stats

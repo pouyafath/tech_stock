@@ -23,6 +23,7 @@ Place your Wealthsimple CSV exports here before running the app.
 ## Notes
 
 - The app will auto-detect the most recent CSV files in this folder
+- Export a fresh Holdings CSV before any paid run; stale holdings snapshots create visible quote-mismatch warnings and can distort position sizing.
 - This folder is **NOT** tracked by Git — your data stays private
 - You can safely delete old CSV files after running the app
 - The app only runs analysis on the holdings and activities you upload
