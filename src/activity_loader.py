@@ -30,11 +30,12 @@ REQUIRED_ACTIVITIES_COLUMNS = {
 
 def parse_activities_csv(
     csv_path: str | Path,
-    days: int = 90,
+    days: int | None = 90,
     activity_types: list[str] = None,
 ) -> list[dict]:
     """
-    Parse a Wealthsimple Activities CSV. Returns recent activities within last N days.
+    Parse a Wealthsimple Activities CSV. Returns activities within last N days.
+    Pass days=None to parse the full export.
 
     activity_types filter: defaults to ['Trade'] only.
     Pass None to get all types (Trade, Dividend, MoneyMovement, etc.)
@@ -60,7 +61,7 @@ def parse_activities_csv(
     if not csv_path.exists():
         raise FileNotFoundError(f"Activities CSV not found: {csv_path}")
 
-    cutoff = datetime.now() - timedelta(days=days)
+    cutoff = datetime.now() - timedelta(days=days) if days is not None else None
     activities = []
 
     with open(csv_path, encoding="utf-8-sig") as f:
@@ -96,7 +97,7 @@ def parse_activities_csv(
         except ValueError:
             continue
 
-        if tx_date < cutoff:
+        if cutoff is not None and tx_date < cutoff:
             continue
 
         activity_type = row.get("activity_type", "").strip()
@@ -219,12 +220,13 @@ def holding_days_by_ticker(activities: list[dict], holdings: list[dict] = None) 
     return out
 
 
-def format_activities_for_prompt(activities: list[dict], days: int = 90) -> str:
+def format_activities_for_prompt(activities: list[dict], days: int | None = 90) -> str:
     """Format recent trade activities into a readable string for the Claude prompt."""
+    window = "full export" if days is None else f"last {days} days"
     if not activities:
-        return f"No trades in the last {days} days."
+        return f"No trades in the {window}."
 
-    lines = [f"Recent trades (last {days} days, newest first):"]
+    lines = [f"Recent trades ({window}, newest first):"]
     for a in activities:
         if a["type"] != "Trade":
             continue
@@ -250,5 +252,6 @@ if __name__ == "__main__":
     path = sys.argv[1] if len(sys.argv) > 1 else "activities-export.csv"
     days = int(sys.argv[2]) if len(sys.argv) > 2 else 90
     activities = parse_activities_csv(path, days=days)
-    print(f"Loaded {len(activities)} trades from last {days} days")
+    window = "full export" if days is None else f"last {days} days"
+    print(f"Loaded {len(activities)} trades from {window}")
     print(format_activities_for_prompt(activities, days))

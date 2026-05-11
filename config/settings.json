@@ -32,6 +32,8 @@
   },
   "megacap_tickers": ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA"],
   "smallcap_tickers": ["PLTR", "SMCI", "ARM", "IONQ", "SHOP", "CSU", "OTEX", "KXS"],
+  "recent_activity_days": 90,
+  "holding_days_activity_days": null,
   "news_lookback_days": 7,
   "news_prompt_max_articles": 2,
   "news_catalyst_move_threshold_pct": 5,

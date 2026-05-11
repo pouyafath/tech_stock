@@ -1,4 +1,8 @@
-from src.report_generator import generate_markdown, leveraged_etf_warnings
+from src.report_generator import (
+    _render_critical_actions_section,
+    generate_markdown,
+    leveraged_etf_warnings,
+)
 
 
 def test_report_renders_quality_risk_hedge_and_bear_bull_sections():
@@ -106,3 +110,43 @@ def test_leveraged_etf_warning_uses_activity_lower_bound():
     assert len(warnings) == 1
     assert warnings[0]["days_held"] is None
     assert warnings[0]["lower_bound_days"] is not None
+
+
+def test_leveraged_etf_warning_prefers_full_holding_days_map():
+    holdings = [{"ticker": "SOXL", "quantity": 1, "unrealized_pnl_pct": 10}]
+    warnings = leveraged_etf_warnings(
+        holdings,
+        activities=[],
+        market_data={},
+        max_hold_days=14,
+        holding_days_map={"SOXL": {"days_held": 220, "duration_unknown": False}},
+    )
+
+    assert warnings[0]["days_held"] == 220
+    assert warnings[0]["duration_unknown"] is False
+
+
+def test_critical_actions_groups_quote_mismatches():
+    warnings = [
+        {
+            "severity": "medium",
+            "code": "quote_source_mismatch",
+            "ticker": "SOXL",
+            "message": "Wealthsimple CSV price $100 differs from yfinance quote $150 by 50.0%.",
+            "action_required": "Check whether the holdings CSV or quote feed is stale before trading.",
+        },
+        {
+            "severity": "medium",
+            "code": "quote_source_mismatch",
+            "ticker": "AMD",
+            "message": "Wealthsimple CSV price $100 differs from yfinance quote $130 by 30.0%.",
+            "action_required": "Check whether the holdings CSV or quote feed is stale before trading.",
+        },
+    ]
+
+    section = "\n".join(_render_critical_actions_section(warnings, [], [], []))
+
+    assert "Quote mismatches" in section
+    assert "2 holdings differ" in section
+    assert "SOXL 50.0%" in section
+    assert "Check whether the holdings CSV" not in section

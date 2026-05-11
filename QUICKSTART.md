@@ -164,9 +164,11 @@ Or launch directly:
 To give Claude more context:
 
 1. Go to **Account → Activity → Export Activities Export (CSV)**
-2. Select last **3 months**
+2. Export the **full available history** if Wealthsimple offers it; otherwise select the longest range available
 3. Save to Downloads
 4. Run again and answer "Y" to the Activities CSV question
+
+The app uses the recent 90-day slice for prompt context and previous-session checks, but uses the full Activities file for exact FIFO holding-day calculations.
 
 ### Optional: Schedule Daily Runs
 

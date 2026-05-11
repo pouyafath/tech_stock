@@ -847,8 +847,10 @@ def build_user_message(
 
     if recent_activities:
         from src.activity_loader import format_activities_for_prompt
-        lines.append("\n=== RECENT TRADE HISTORY (last 90 days) ===")
-        lines.append(format_activities_for_prompt(recent_activities))
+        recent_days = settings.get("recent_activity_days", 90)
+        recent_window = "full export" if recent_days is None else f"last {recent_days} days"
+        lines.append(f"\n=== RECENT TRADE HISTORY ({recent_window}) ===")
+        lines.append(format_activities_for_prompt(recent_activities, days=recent_days))
 
     lines += _format_previous_session(previous_session)
 

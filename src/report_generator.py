@@ -12,12 +12,14 @@ Adds workflow-polish sections (Phase 5):
 """
 
 import math
+import re
 from datetime import datetime
 from pathlib import Path
 
 from src.activity_loader import holding_days_by_ticker
 from src.constants import LEVERAGED_ETF_LEVERAGE, LEVERAGED_ETFS
 from src.portfolio_analytics import aggregate_company_exposure, aggregate_positions
+from src.recommendation_sizing import apply_trade_sizes
 
 ACTION_EMOJI = {
     "BUY":  "🟢",
@@ -83,6 +85,7 @@ def leveraged_etf_warnings(
     activities: list,
     market_data: dict = None,
     max_hold_days: int = 14,
+    holding_days_map: dict | None = None,
 ) -> list[dict]:
     """
     Flag any leveraged ETF holding whose earliest unsold buy is older than
@@ -93,7 +96,7 @@ def leveraged_etf_warnings(
     if not holdings:
         return []
 
-    holding_days = holding_days_by_ticker(activities or [], holdings or [])
+    holding_days = holding_days_map or holding_days_by_ticker(activities or [], holdings or [])
     warnings = []
     for h in holdings:
         ticker = h.get("ticker", "")
@@ -509,13 +512,20 @@ def _render_critical_actions_section(
     drift: list[dict],
 ) -> list[str]:
     items = []
+    quote_mismatches = []
     for warning in warnings or []:
         if warning.get("severity") not in {"high", "medium"}:
+            continue
+        if warning.get("code") == "quote_source_mismatch":
+            quote_mismatches.append(warning)
             continue
         ticker = warning.get("ticker") or "Portfolio"
         items.append(
             f"**{ticker}**: {warning.get('action_required') or warning.get('message', '')}"
         )
+    if quote_mismatches:
+        summary = _quote_mismatch_summary(quote_mismatches)
+        items.insert(0, summary)
     for rec in recommendations or []:
         if rec.get("manual_review_required"):
             items.append(
@@ -547,6 +557,24 @@ def _render_critical_actions_section(
         lines.append(f"- {item}")
     lines += ["", "---", ""]
     return lines
+
+
+def _quote_mismatch_summary(warnings: list[dict]) -> str:
+    ranked = []
+    for warning in warnings:
+        message = warning.get("message", "")
+        match = re.search(r" by ([0-9.]+)%", message)
+        pct = float(match.group(1)) if match else 0.0
+        ranked.append((pct, warning.get("ticker") or "Portfolio"))
+    ranked.sort(reverse=True)
+    examples = ", ".join(f"{ticker} {pct:.1f}%" for pct, ticker in ranked[:6])
+    if len(ranked) > 6:
+        examples += f", +{len(ranked) - 6} more"
+    return (
+        f"**Quote mismatches**: {len(warnings)} holdings differ from live quote data "
+        f"above the reconciliation threshold ({examples}). Export a fresh holdings CSV "
+        "or verify live quotes before trading."
+    )
 
 
 def _render_data_coverage_section(enriched: dict) -> list[str]:
@@ -738,7 +766,9 @@ def _render_priority_actions_section(priority_actions: list, recommendations: li
         emoji  = ACTION_EMOJI.get(action, "⚪")
         amount = pa.get("invest_amount_usd")
         shares = pa.get("shares")
-        if amount:
+        if pa.get("action_size_label"):
+            size_str = pa["action_size_label"]
+        elif amount:
             size_str = f"${amount:,.0f} USD"
         elif shares:
             size_str = f"{shares} sh"
@@ -812,6 +842,7 @@ def generate_markdown(
     """Generate the full markdown report from Claude's JSON output + extras."""
     settings = settings or {}
     portfolio = portfolio or {}
+    recommendation = apply_trade_sizes(recommendation, portfolio, market_data or {})
     holdings = portfolio.get("holdings", [])
     positions, _ = aggregate_positions(
         holdings,
@@ -824,7 +855,13 @@ def generate_markdown(
         )
     risk_dashboard = risk_dashboard or (recommendation.get("portfolio_health") or {}).get("risk_dashboard") or {}
     max_hold = settings.get("leveraged_etf_max_hold_days", 14)
-    lev_warnings = leveraged_etf_warnings(holdings, recent_activities or [], market_data or {}, max_hold)
+    lev_warnings = leveraged_etf_warnings(
+        holdings,
+        recent_activities or [],
+        market_data or {},
+        max_hold,
+        holding_days_map=holding_days_map,
+    )
 
     now = datetime.now()
     timestamp = now.strftime("%Y-%m-%d %H:%M")
@@ -1052,7 +1089,8 @@ def generate_markdown(
                 if rec.get("invest_amount_usd") and action in ("BUY", "ADD"):
                     lines.append(f"| **Invest** | **${rec['invest_amount_usd']:,.0f} USD** (fractional ok) |")
                 elif rec.get("shares"):
-                    lines.append(f"| Suggested Shares | {rec['shares']} |")
+                    label = rec.get("action_size_label") or f"{rec['shares']} sh"
+                    lines.append(f"| **Suggested Action** | **{label}** |")
                 lines.append("")
 
             controls = rec.get("risk_controls") or {}

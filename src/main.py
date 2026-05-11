@@ -38,6 +38,7 @@ from src.portfolio_analytics import (
     detect_drawdown,
 )
 from src.portfolio_loader import compute_sector_exposure, parse_holdings_csv
+from src.recommendation_sizing import apply_trade_sizes
 from src.report_generator import generate_markdown, save_report, watchlist_price_alerts
 
 CONFIG_DIR  = ROOT / "config"
@@ -418,7 +419,8 @@ def save_recommendations_csv(
             f,
             fieldnames=[
                 "Ticker", "Action", "Hold Tier", "Conviction",
-                "Invest USD", "Expected Stock Move %",
+                "Invest USD", "Action Shares", "Action Fraction", "Action Amount",
+                "Expected Stock Move %",
                 "Expected Benefit of Action %", "Net Expected %",
                 "Time Horizon", "Exit Target", "Bear Case %", "Bull Case %",
                 "Stop Loss %", "Take Profit %", "Catalyst Verified", "Catalyst Source", "Manual Review",
@@ -458,6 +460,12 @@ def save_recommendations_csv(
                 "Hold Tier":        r.get("hold_tier", ""),
                 "Conviction":       r.get("conviction", 0),
                 "Invest USD":       f"${r['invest_amount_usd']:,.0f}" if r.get("invest_amount_usd") else "",
+                "Action Shares":    r.get("shares", ""),
+                "Action Fraction":  f"{r.get('action_fraction') * 100:.0f}%" if r.get("action_fraction") else "",
+                "Action Amount":    (
+                    f"${r.get('action_amount'):,.0f} {r.get('action_amount_currency', 'USD')}"
+                    if r.get("action_amount") is not None else ""
+                ),
                 "Expected Stock Move %": f"{expected_move:+.2f}%",
                 "Expected Benefit of Action %": f"{net_expected:+.2f}%",
                 "Net Expected %":   f"{net_expected:+.2f}%",
@@ -573,6 +581,9 @@ def run(
 
     print(f"\n{C.DIM}[tech_stock] Starting {session_type} session — {datetime.now().strftime('%Y-%m-%d %H:%M')}{C.RESET}")
 
+    watchlist = load_json(CONFIG_DIR / "watchlist.json")
+    settings  = load_json(CONFIG_DIR / "settings.json")
+
     # Load portfolio
     if holdings_csv:
         print(f"{C.DIM}[tech_stock] Loading holdings from CSV: {holdings_csv.name}{C.RESET}")
@@ -583,13 +594,19 @@ def run(
         portfolio = load_json(CONFIG_DIR / "portfolio.json")
 
     recent_activities = None
+    holding_age_activities = None
     if activities_csv:
-        print(f"{C.DIM}[tech_stock] Loading activities from CSV: {activities_csv.name} (last 90 days){C.RESET}")
-        recent_activities = parse_activities_csv(activities_csv, days=90)
+        recent_days = settings.get("recent_activity_days", 90)
+        holding_days_window = settings.get("holding_days_activity_days")
+        recent_label = "full export" if recent_days is None else f"recent {recent_days} days"
+        holding_label = "full export" if holding_days_window is None else f"{holding_days_window} days"
+        print(
+            f"{C.DIM}[tech_stock] Loading activities from CSV: {activities_csv.name} "
+            f"({recent_label} for prompt + {holding_label} for holding age){C.RESET}"
+        )
+        recent_activities = parse_activities_csv(activities_csv, days=recent_days)
+        holding_age_activities = parse_activities_csv(activities_csv, days=holding_days_window)
         print(f"{C.DIM}[tech_stock] Found {len(recent_activities)} recent trades{C.RESET}")
-
-    watchlist = load_json(CONFIG_DIR / "watchlist.json")
-    settings  = load_json(CONFIG_DIR / "settings.json")
 
     if budget_cad is not None:
         settings["budget_cad"] = budget_cad
@@ -655,7 +672,10 @@ def run(
 
     # ── Position aging: how long has each holding been held?  Powers the
     #    deterministic 3-6 month sweet-spot / 2-year cap rules in the prompt.
-    holding_days_map = holding_days_by_ticker(recent_activities or [], portfolio.get("holdings", []))
+    holding_days_map = holding_days_by_ticker(
+        holding_age_activities if holding_age_activities is not None else recent_activities or [],
+        portfolio.get("holdings", []),
+    )
 
     # ── Thesis-decay tracker: pull due-for-review and forced-exit lists
     #    so the prompt can show them; we update reviews after the gate runs.
@@ -728,6 +748,8 @@ def run(
     except ValueError as e:
         print(f"{C.RED}[ERROR]{C.RESET} Claude response parsing failed: {e}")
         sys.exit(1)
+
+    recommendation = apply_trade_sizes(recommendation, portfolio, market_data)
 
     # ── Compute drift between this run and the previous session ───────────
     drift = recommendation.get("drift_vs_previous") or compute_drift(

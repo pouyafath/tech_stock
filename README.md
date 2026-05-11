@@ -25,6 +25,7 @@
 - ✅ **Critical Actions Block** — Consolidates quality warnings, manual-review gates, drift, and leveraged ETF risks near the top
 - ✅ **Report Quality Gates** — Deterministic warnings for stale quotes, missing catalysts, range errors, and sizing risk
 - ✅ **Two-Pass Claude Review** — First-pass JSON is critiqued against quality warnings and drift, then revised before rendering
+- ✅ **Deterministic Exit Sizing** — SELL/TRIM rows show exact shares, position fraction, and estimated proceeds when holdings data is available
 - ✅ **Intelligent Sizing** — Investment amounts ($50–$700 per session) based on conviction and budget
 - ✅ **Hold Tiers** — HOLD recommendations labeled as watch / keep / add-on-dip for clarity
 - ✅ **Earnings Alerts** — Flags tickers with earnings within 7 days; adjusts risk profile
@@ -54,9 +55,10 @@
 - **Claude JSON resilience** — default `claude_max_tokens` raised to `24000`, Rule 32 now has strict string-length caps, news prompt payloads are tighter, and a one-time emergency compact JSON retry is available if Claude returns truncated JSON.
 - **Leveraged ETF duration wording fixed** — when an ETF entry predates the Activities export, the report now shows a lower bound such as `held at least 41 days` instead of either overstating it or saying only "unknown."
 - **Position Aging wording fixed** — reports no longer claim all positions are fresh/core when some entry dates are unknown.
+- **Exit sizing and critical actions polished** — SELL/TRIM rows now get deterministic share/proceeds fields, and quote mismatches are grouped into one Critical Actions item instead of flooding the top of the report.
 - **Paid validation** — successful full live Sonnet two-pass run on May 10, 2026 with 31 tracked tickers, enrichment enabled, 12 recommendation rows, 50,105 tokens, estimated cost `$0.6341`, cache hit, no JSON retry required.
 
-Current local suite: `pytest -q` passes with 162 tests.
+Current local suite: `pytest -q` passes with 167 tests.
 
 ## ✨ What's New in v1.9.0 (May 6, 2026)
 
@@ -442,7 +444,7 @@ The app reads this to:
 
 **When to export:** Once per week (optional but recommended)
 **Where:** Account → Activity → Export Activities Export (CSV)
-**Period:** Select last **3 months**
+**Period:** Export the **full available history** when Wealthsimple allows it. The app still uses only the recent 90-day slice for prompt context, but it uses the full file for FIFO holding-age calculations.
 
 Contains your trade history:
 - Dates, tickers, BUY/SELL, quantity, price
@@ -452,6 +454,7 @@ The app reads this to:
 - Understand recent trading patterns
 - Avoid "whipsawing" (recommend reversing a recent trade without new catalyst)
 - Provide context on conviction changes since your last trade
+- Calculate exact holding days when the export includes the original open-lot buys; otherwise the report shows a conservative lower bound
 
 ---
 
@@ -489,6 +492,7 @@ Structured table with trader-facing columns:
 - **Time Horizon** — Intraday / next session / 1-3 trading days / 1-2 weeks / 1-3 months / 3-6 months / 6-12 months / 12-36 months
 - **Hold Tier** — For HOLD only: watch (conviction ≤5) / keep (6–7) / add_on_dip (≥8)
 - **Invest USD** — Amount to invest (for BUY/ADD only)
+- **Action Shares / Action Fraction / Action Amount** — Deterministic SELL/TRIM size and approximate proceeds when holdings data is available
 - **Exit Target** — Target exit date (e.g., "Jul 2026")
 - **Bear Case %** — Conservative expected move from now
 - **Bull Case %** — Optimistic expected move from now
@@ -502,9 +506,9 @@ Structured table with trader-facing columns:
 
 **Example:**
 ```csv
-Ticker,Action,Hold Tier,Conviction,Invest USD,Expected Stock Move %,Expected Benefit of Action %,Net Expected %,Time Horizon,Exit Target,Bear Case %,Bull Case %,Stop Loss %,Take Profit %,Catalyst Verified,Catalyst Source,Manual Review,Quote,Previous Close,Quote Time UTC,Quote Source,Earnings Alert,Thesis
-NVDA,ADD,,8,$500,+15.00%,+14.89%,+14.89%,3-6 months,Jul 2026,-8%,+18%,-7%,+18%,YES,Finnhub earnings/news,NO,210.50 USD,205.12 USD,2026-04-29T20:00:01+00:00,yfinance:regularMarketPrice,,Core AI infrastructure play...
-SOXL,SELL,,9,,-20.00%,+19.70%,+19.70%,next session,Apr 2026,-30%,-10%,-6%,+0%,NO,,YES,117.97 USD,109.56 USD,2026-04-29T20:00:00+00:00,yfinance:regularMarketPrice,,Leveraged ETF decay risk...
+Ticker,Action,Hold Tier,Conviction,Invest USD,Action Shares,Action Fraction,Action Amount,Expected Stock Move %,Expected Benefit of Action %,Net Expected %,Time Horizon,Exit Target,Bear Case %,Bull Case %,Stop Loss %,Take Profit %,Catalyst Verified,Catalyst Source,Manual Review,Quote,Previous Close,Quote Time UTC,Quote Source,Earnings Alert,Thesis
+NVDA,ADD,,8,$500,,,,+15.00%,+14.89%,+14.89%,3-6 months,Jul 2026,-8%,+18%,-7%,+18%,YES,Finnhub earnings/news,NO,210.50 USD,205.12 USD,2026-04-29T20:00:01+00:00,yfinance:regularMarketPrice,,Core AI infrastructure play...
+SOXL,SELL,,9,,2.2292,100%,$263 USD,-20.00%,+19.70%,+19.70%,next session,Apr 2026,-30%,-10%,-6%,+0%,NO,,YES,117.97 USD,109.56 USD,2026-04-29T20:00:00+00:00,yfinance:regularMarketPrice,,Leveraged ETF decay risk...
 ```
 
 ### 3. JSON Log
@@ -543,6 +547,8 @@ Raw machine-readable format for:
   "enable_options_implied_move_for_earnings": false,
   "enable_enrichment": true,
   "alpha_vantage_enabled": false,
+  "recent_activity_days": 90,
+  "holding_days_activity_days": null,
   "news_lookback_days": 7,
   "news_prompt_max_articles": 2,
   "history_months": 10
@@ -570,6 +576,8 @@ Raw machine-readable format for:
 | `enable_enrichment` | true | Enable/disable all enrichment APIs |
 | `alpha_vantage_enabled` | false | Alpha Vantage free tier limited to 25 req/day; set true only with paid plan |
 | `enable_options_implied_move_for_earnings` | false | Optional yfinance options implied move lookup; disabled by default because option-chain calls can be slow |
+| `recent_activity_days` | 90 | Recent activity slice sent to Claude and used for previous-session execution checks |
+| `holding_days_activity_days` | null | Activity window used for FIFO holding-day calculation; `null` means parse the full export |
 | `news_lookback_days` | 7 | How far back to fetch news headlines |
 | `news_prompt_max_articles` | 2 | Max articles per ticker included in the Claude prompt; report output can still show catalyst headlines |
 | `history_months` | 10 | Months of historical price data to fetch |
@@ -765,7 +773,7 @@ Claude receives a detailed system prompt with **40 strategic rules** governing a
 3. Recent news — last 7 days of headlines per ticker (parallel fetch from news_fetcher)
 4. **Enriched intelligence** — analyst consensus, earnings calendars, insider activity, sentiment, macro context (from enriched_data.py)
 5. Fee snapshot — one-way and round-trip costs per ticker (from fee_calculator)
-6. Recent trades — your trading activity last 90 days (from activity_loader, if provided)
+6. Recent trades — your recent trading activity for prompt context plus full-export FIFO holding-age data when provided
 7. Session type — "morning" (pre-open) or "afternoon" (intraday + EOD positioning)
 8. Watchlist alerts — target entry/exit prices for monitored tickers (from config/watchlist.json)
 9. Quality warnings, previous-session drift/execution context, risk dashboard, company exposure rollup, and track-record calibration stats

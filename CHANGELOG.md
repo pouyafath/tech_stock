@@ -13,6 +13,9 @@ All notable changes to this project are documented here.
 - **Leveraged ETF holding-duration wording** (`src/activity_loader.py`, `src/report_generator.py`, `src/claude_analyst.py`) — when the original buy predates the Activities export, reports now show a lower bound such as `held at least 41 days` instead of misleading `>90d` or only `duration unknown`.
 - **Position Aging wording** (`src/report_sections.py`) — reports disclose unknown entry dates instead of saying every open position is fresh/core.
 - **Cost footer visibility** (`src/main.py`, `src/report_generator.py`) — JSON retry count is included in CLI/report cost summaries when a retry occurs.
+- **Deterministic SELL/TRIM sizing** (`src/recommendation_sizing.py`) — action rows now include exact shares, position fraction, and estimated proceeds from the holdings snapshot when available.
+- **Grouped Critical Actions** (`src/report_generator.py`) — quote-source mismatches are consolidated into one high-signal action item instead of repeating the same instruction for many tickers.
+- **Full-export holding ages** (`src/main.py`, `src/activity_loader.py`) — Activities CSVs are parsed as a recent slice for prompt context and as a full export for FIFO holding-day calculations.
 
 ### Validation
 - Full paid Sonnet live run on May 10, 2026 using April 29 holdings/activities CSVs: 31 tracked tickers, two Claude passes, 50,105 tokens, estimated cost `$0.6341`, cache hit, no JSON retry required.
