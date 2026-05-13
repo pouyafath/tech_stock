@@ -537,6 +537,7 @@ def build_user_message(
     drawdown_state: dict | None = None,
     thesis_due_for_review: list | None = None,
     thesis_forced_exits: list | None = None,
+    decision_scorecard: dict | None = None,
 ) -> str:
     """Construct the full user message with all context."""
     from src.news_fetcher import aggregate_sentiment
@@ -885,6 +886,41 @@ def build_user_message(
                 )
         lines.append("  ↳ Use this to calibrate conviction scores this session.")
 
+    if decision_scorecard and (decision_scorecard.get("journal") or {}).get("recorded", 0) > 0:
+        journal = decision_scorecard.get("journal") or {}
+        overall = decision_scorecard.get("overall") or {}
+        lines.append("\n=== YOUR DECISION JOURNAL TRACK RECORD ===")
+        lines.append(
+            f"  Recorded decisions: {journal.get('recorded', 0)} | "
+            f"pending: {journal.get('pending', 0)} | "
+            f"scored windows: {decision_scorecard.get('n_scored_windows', 0)}"
+        )
+        lines.append(
+            f"  Model avg action return: {overall.get('model_avg_return_pct', 0):+.2f}% | "
+            f"Your avg action return: {overall.get('user_avg_return_pct', 0):+.2f}% | "
+            f"Discretion delta: {overall.get('avg_decision_delta_pct', 0):+.2f}%"
+        )
+        by_decision = decision_scorecard.get("by_user_decision") or {}
+        if by_decision:
+            lines.append("  By user decision:")
+            for decision, stats in by_decision.items():
+                lines.append(
+                    f"    {decision:8s} n={stats['n']:3d} "
+                    f"model={stats['model_avg_return_pct']:+.2f}% "
+                    f"user={stats['user_avg_return_pct']:+.2f}% "
+                    f"delta={stats['avg_decision_delta_pct']:+.2f}%"
+                )
+        worst = decision_scorecard.get("worst_user_overrides") or []
+        if worst:
+            lines.append("  Overrides that hurt most:")
+            for row in worst[:5]:
+                lines.append(
+                    f"    {row.get('session_date')} {row.get('ticker')} rec={row.get('recommended_action')} "
+                    f"decision={row.get('user_decision')} horizon={row.get('horizon_days')}d "
+                    f"delta={row.get('decision_delta_pct'):+.2f}%"
+                )
+        lines.append("  ↳ Use this to calibrate whether to push harder on recommendations the user tends to ignore incorrectly.")
+
     # ── Drift from previous session ────────────────────────────────────────
     if drift:
         lines.append("\n=== DRIFT SINCE LAST SESSION ===")
@@ -1176,6 +1212,7 @@ def call_claude(
     drawdown_state: dict | None = None,
     thesis_due_for_review: list | None = None,
     thesis_forced_exits: list | None = None,
+    decision_scorecard: dict | None = None,
 ) -> tuple[dict, dict]:
     """
     Call Claude API and return (recommendation, usage_stats).
@@ -1208,6 +1245,7 @@ def call_claude(
         drawdown_state=drawdown_state,
         thesis_due_for_review=thesis_due_for_review,
         thesis_forced_exits=thesis_forced_exits,
+        decision_scorecard=decision_scorecard,
     )
 
     client = anthropic.Anthropic(

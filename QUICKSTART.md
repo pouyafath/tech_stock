@@ -144,8 +144,8 @@ Or launch directly:
 
 | UI | Best for |
 |----|----------|
-| **Streamlit** | CSV upload & preview, live run progress, dashboard metrics, history compare, download buttons, JSON config editing |
-| **Textual** | Same features, no browser, keyboard shortcuts (`Ctrl+R` = run, `Ctrl+S` = save, `r` = refresh) |
+| **Streamlit** | CSV upload & preview, live run progress, dashboard metrics, Decision Journal, history compare, download buttons, JSON config editing |
+| **Textual** | Same features, no browser, journal summaries, keyboard shortcuts (`Ctrl+R` = run, `Ctrl+S` = save, `r` = refresh) |
 
 ---
 
@@ -154,6 +154,7 @@ Or launch directly:
 ✅ **Markdown report** with full recommendations and analysis  
 ✅ **CSV table** with ticker, action, conviction, net expected return  
 ✅ **JSON log** for backtesting (in `data/recommendations_log/`)
+✅ **Decision journal** for recording what you actually did and scoring model-vs-user outcomes
 
 ---
 

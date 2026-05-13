@@ -26,6 +26,12 @@ from src.activity_loader import holding_days_by_ticker, parse_activities_csv
 from src.backtester import run_backtest
 from src.claude_analyst import call_claude
 from src.constants import DEDUP_PAIRS, SKIP_MARKET_DATA
+from src.decision_journal import (
+    journal_status,
+    load_journal,
+    run_scorecard as run_decision_scorecard,
+    seed_from_recommendation_log,
+)
 from src.drift_tracker import compute_drift, get_previous_session
 from src.enriched_data import enrich
 from src.fee_calculator import build_fee_snapshot
@@ -44,6 +50,7 @@ from src.report_generator import generate_markdown, save_report, watchlist_price
 CONFIG_DIR  = ROOT / "config"
 DATA_DIR    = ROOT / "data"
 THESIS_LOG_PATH = ROOT / "data" / "thesis_log.json"
+DECISION_JOURNAL_PATH = ROOT / "data" / "decision_journal.json"
 REPORTS_DIR = ROOT / "reports"
 RECS_LOG_DIR = DATA_DIR / "recommendations_log"
 UPLOAD_DIR  = ROOT / "temporary_upload"
@@ -719,6 +726,23 @@ def run(
             f"win {backtest_summary['overall']['hit_rate']:.0%}{C.RESET}"
         )
 
+    decision_scorecard = {}
+    if settings.get("enable_decision_journal", True):
+        print(f"{C.DIM}[tech_stock] Loading decision journal...{C.RESET}")
+        decision_scorecard = run_decision_scorecard(
+            DECISION_JOURNAL_PATH,
+            horizons=tuple(settings.get("decision_journal_score_horizons", [1, 5, 20, 60])),
+            max_decisions=int(settings.get("decision_journal_max_scored_decisions", 200)),
+        )
+        journal = decision_scorecard.get("journal") or {}
+        if journal.get("total", 0):
+            overall = decision_scorecard.get("overall") or {}
+            print(
+                f"{C.DIM}[tech_stock] Decision journal: {journal.get('recorded', 0)} recorded, "
+                f"{journal.get('pending', 0)} pending, "
+                f"delta {overall.get('avg_decision_delta_pct', 0):+.2f}%{C.RESET}"
+            )
+
     display_model = model_name or settings.get("claude_model", "claude-sonnet-4-6")
     print(f"{C.DIM}[tech_stock] Calling Claude ({display_model}) for recommendations...{C.RESET}")
 
@@ -744,6 +768,7 @@ def run(
             drawdown_state=drawdown_state,
             thesis_due_for_review=thesis_due,
             thesis_forced_exits=thesis_forced_exits,
+            decision_scorecard=decision_scorecard,
         )
     except ValueError as e:
         print(f"{C.RED}[ERROR]{C.RESET} Claude response parsing failed: {e}")
@@ -786,6 +811,15 @@ def run(
     )
 
     log_path = save_recommendation_log(recommendation, session_type)
+    if settings.get("enable_decision_journal", True):
+        seeded = seed_from_recommendation_log(
+            log_path,
+            DECISION_JOURNAL_PATH,
+            include_holds=bool(settings.get("decision_journal_include_holds", False)),
+        )
+        if seeded:
+            print(f"{C.DIM}[tech_stock] Decision journal: added {len(seeded)} pending action(s){C.RESET}")
+        decision_scorecard["journal"] = journal_status(load_journal(DECISION_JOURNAL_PATH))
 
     # ── Paper trading: apply this session to the simulated portfolio ──────
     paper_summary = None
@@ -825,6 +859,7 @@ def run(
         previous_session=previous_session,
         holding_days_map=holding_days_map,
         drawdown_state=drawdown_state,
+        decision_scorecard=decision_scorecard,
     )
     report_path = save_report(md_content, session_type, REPORTS_DIR)
     csv_path = save_recommendations_csv(recommendation, session_type, REPORTS_DIR, market_data)

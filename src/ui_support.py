@@ -19,8 +19,15 @@ from pathlib import Path
 from typing import Any, Callable
 
 from src.backtester import run_backtest
+from src.decision_journal import (
+    journal_status,
+    load_journal,
+    record_decision,
+    run_scorecard as run_decision_scorecard,
+)
 from src.main import (
     CONFIG_DIR,
+    DATA_DIR,
     RECS_LOG_DIR,
     REPORTS_DIR,
     ROOT,
@@ -41,6 +48,8 @@ EDITABLE_JSON_FILES = {
     "Watchlist": CONFIG_DIR / "watchlist.json",
     "Fallback Portfolio": CONFIG_DIR / "portfolio.json",
 }
+
+DECISION_JOURNAL_PATH = DATA_DIR / "decision_journal.json"
 
 
 class TeeProgressIO(io.TextIOBase):
@@ -272,6 +281,53 @@ def read_text_file(path: str | Path | None) -> str:
 
 def run_backtest_summary() -> dict[str, Any]:
     return run_backtest(RECS_LOG_DIR)
+
+
+def decision_journal_snapshot(limit: int = 200) -> dict[str, Any]:
+    journal = load_journal(DECISION_JOURNAL_PATH)
+    status = journal_status(journal)
+    entries = sorted(
+        journal.get("decisions", []) or [],
+        key=lambda row: (row.get("session_date") or "", row.get("ticker") or ""),
+        reverse=True,
+    )[:limit]
+    return {
+        "path": DECISION_JOURNAL_PATH,
+        "status": status,
+        "entries": entries,
+    }
+
+
+def decision_scorecard_summary() -> dict[str, Any]:
+    return run_decision_scorecard(DECISION_JOURNAL_PATH)
+
+
+def save_decision_from_ui(
+    row_id: str,
+    *,
+    user_decision: str,
+    actual_action: str | None = None,
+    actual_shares: float | str | None = None,
+    actual_price: float | str | None = None,
+    actual_currency: str = "USD",
+    decision_date: str | None = None,
+    execution_date: str | None = None,
+    reason: str = "",
+    notes: str = "",
+) -> dict[str, Any]:
+    return record_decision(
+        DECISION_JOURNAL_PATH,
+        row_id,
+        user_decision=user_decision,
+        actual_action=actual_action,
+        actual_shares=actual_shares,
+        actual_price=actual_price,
+        actual_currency=actual_currency,
+        decision_date=decision_date,
+        execution_date=execution_date,
+        reason=reason,
+        notes=notes,
+    )
 
 
 def validate_json_text(content: str) -> tuple[bool, str]:

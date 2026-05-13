@@ -5,6 +5,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from datetime import date
 
 import pandas as pd
 import streamlit as st
@@ -16,6 +17,8 @@ from src.ui_support import (  # noqa: E402
     EDITABLE_JSON_FILES,
     check_connectivity,
     default_run_settings,
+    decision_journal_snapshot,
+    decision_scorecard_summary,
     find_default_csvs,
     latest_log_summary,
     latest_report,
@@ -26,6 +29,7 @@ from src.ui_support import (  # noqa: E402
     relative_to_root,
     run_backtest_summary,
     run_report_from_ui,
+    save_decision_from_ui,
     save_uploaded_bytes,
     validate_json_text,
     write_editable_json,
@@ -128,8 +132,8 @@ with st.sidebar:
     budget_usd = st.number_input("USD budget", min_value=0.0, value=run_defaults["budget_usd"], step=50.0)
     budget_cad = st.number_input("CAD budget", min_value=0.0, value=run_defaults["budget_cad"], step=50.0)
 
-tab_dashboard, tab_report, tab_run, tab_history, tab_backtest, tab_editor = st.tabs(
-    ["Dashboard", "Today's Report", "Run Report", "History", "Backtest", "Portfolio Editor"]
+tab_dashboard, tab_report, tab_run, tab_history, tab_backtest, tab_journal, tab_editor = st.tabs(
+    ["Dashboard", "Today's Report", "Run Report", "History", "Backtest", "Decision Journal", "Portfolio Editor"]
 )
 
 with tab_dashboard:
@@ -392,6 +396,109 @@ with tab_backtest:
 
         with st.expander("Raw backtest JSON"):
             st.json(backtest)
+
+with tab_journal:
+    st.subheader("Decision Journal")
+    if st.button("Refresh journal"):
+        st.session_state["decision_journal_snapshot"] = decision_journal_snapshot()
+    journal_snapshot = st.session_state.get("decision_journal_snapshot") or decision_journal_snapshot()
+    status = journal_snapshot.get("status") or {}
+    entries = journal_snapshot.get("entries") or []
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Entries", status.get("total", 0))
+    c2.metric("Pending", status.get("pending", 0))
+    c3.metric("Recorded", status.get("recorded", 0))
+
+    if entries:
+        display_cols = [
+            "id", "session_date", "ticker", "recommended_action", "conviction",
+            "recommended_shares", "recommended_amount", "user_decision", "actual_action",
+            "actual_shares", "actual_price", "reason",
+        ]
+        st.dataframe(pd.DataFrame(entries)[[col for col in display_cols if col in entries[0]]], hide_index=True, width="stretch")
+    else:
+        st.info("No journal entries yet. Generate a report first; actionable recommendations will be seeded here.")
+
+    with st.expander("Record Or Update A Decision", expanded=bool(entries)):
+        if entries:
+            labels = [
+                f"{row.get('session_date')} {row.get('ticker')} {row.get('recommended_action')} | {row.get('id')}"
+                for row in entries
+            ]
+            selected = st.selectbox("Decision row", labels)
+            row = entries[labels.index(selected)]
+            decision_options = ["accepted", "ignored", "modified", "delayed", "watch", "executed", "pending"]
+            current_decision = row.get("user_decision") or "pending"
+            action_options = ["", "BUY", "ADD", "HOLD", "TRIM", "SELL", "NONE"]
+            current_action = row.get("actual_action") or ""
+            col_a, col_b, col_c = st.columns(3)
+            with col_a:
+                user_decision = st.selectbox(
+                    "Your decision",
+                    decision_options,
+                    index=decision_options.index(current_decision) if current_decision in decision_options else decision_options.index("pending"),
+                )
+                actual_action = st.selectbox(
+                    "Actual action",
+                    action_options,
+                    index=action_options.index(current_action) if current_action in action_options else 0,
+                )
+            with col_b:
+                actual_shares = st.text_input("Actual shares", value="" if row.get("actual_shares") is None else str(row.get("actual_shares")))
+                actual_price = st.text_input("Execution price", value="" if row.get("actual_price") is None else str(row.get("actual_price")))
+                actual_currency = st.selectbox("Currency", ["USD", "CAD"], index=0 if row.get("actual_currency", "USD") == "USD" else 1)
+            with col_c:
+                decision_date = st.text_input("Decision date", value=row.get("decision_date") or date.today().isoformat())
+                execution_date = st.text_input("Execution date", value=row.get("execution_date") or decision_date)
+                reason = st.text_input("Reason", value=row.get("reason") or "")
+            notes = st.text_area("Notes", value=row.get("notes") or "", height=120)
+            if st.button("Save decision", type="primary"):
+                try:
+                    save_decision_from_ui(
+                        row["id"],
+                        user_decision=user_decision,
+                        actual_action=actual_action or None,
+                        actual_shares=actual_shares or None,
+                        actual_price=actual_price or None,
+                        actual_currency=actual_currency,
+                        decision_date=decision_date or None,
+                        execution_date=execution_date or None,
+                        reason=reason,
+                        notes=notes,
+                    )
+                except Exception as exc:
+                    st.error(str(exc))
+                else:
+                    st.session_state["decision_journal_snapshot"] = decision_journal_snapshot()
+                    st.success("Decision saved.")
+
+    st.markdown("#### Outcome Scorecard")
+    st.caption("Scores recorded decisions over 1/5/20/60-day windows using yfinance historical prices.")
+    if st.button("Run decision scorecard"):
+        with st.spinner("Fetching historical prices and scoring decisions..."):
+            st.session_state["decision_scorecard"] = decision_scorecard_summary()
+    scorecard = st.session_state.get("decision_scorecard")
+    if scorecard:
+        overall = scorecard.get("overall") or {}
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Scored windows", scorecard.get("n_scored_windows", 0))
+        c2.metric("Model avg", f"{overall.get('model_avg_return_pct', 0):+.2f}%")
+        c3.metric("Your avg", f"{overall.get('user_avg_return_pct', 0):+.2f}%")
+        c4.metric("Discretion delta", f"{overall.get('avg_decision_delta_pct', 0):+.2f}%")
+        if scorecard.get("by_user_decision"):
+            st.dataframe(
+                pd.DataFrame([
+                    {"decision": decision, **stats}
+                    for decision, stats in scorecard["by_user_decision"].items()
+                ]),
+                hide_index=True,
+                width="stretch",
+            )
+        with st.expander("Worst overrides"):
+            rows = scorecard.get("worst_user_overrides") or []
+            st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch") if rows else st.caption("No scored overrides yet.")
+        with st.expander("Raw scorecard JSON"):
+            st.json(scorecard)
 
 with tab_editor:
     selected_label = st.selectbox("File", list(EDITABLE_JSON_FILES.keys()))

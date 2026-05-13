@@ -18,6 +18,8 @@ from src.ui_support import (  # noqa: E402
     EDITABLE_JSON_FILES,
     check_connectivity,
     default_run_settings,
+    decision_journal_snapshot,
+    decision_scorecard_summary,
     discover_csv_files,
     find_default_csvs,
     latest_log_summary,
@@ -332,6 +334,14 @@ class TechStockTUI(App):
         self._write_rows_table(log, "Quality Warnings", summary.get("quality_warnings") or [], ["severity", "code", "ticker", "message", "action_required"])
         self._write_rows_table(log, "Hedge Suggestions", summary.get("hedge_suggestions") or [], ["type", "instrument", "action", "risk_note"])
         self._write_rows_table(log, "Drift Vs Previous", self._flatten_drift(summary.get("drift") or []), ["ticker", "drift_type", "was", "now"])
+        journal = (decision_journal_snapshot().get("status") or {})
+        journal_table = Table(title="Decision Journal")
+        journal_table.add_column("Metric")
+        journal_table.add_column("Value", justify="right")
+        journal_table.add_row("Entries", str(journal.get("total", 0)))
+        journal_table.add_row("Pending", str(journal.get("pending", 0)))
+        journal_table.add_row("Recorded", str(journal.get("recorded", 0)))
+        log.write(journal_table)
 
     async def _check_connectivity(self) -> None:
         log = self.query_one("#connectivity_log", RichLog)
@@ -406,6 +416,21 @@ class TechStockTUI(App):
             "Recent Realized Examples",
             summary.get("recent_realized_examples") or [],
             ["ticker", "session_date", "action", "conviction", "expected_pct", "actual_pct", "hit"],
+        )
+        scorecard = await asyncio.to_thread(decision_scorecard_summary)
+        overall = scorecard.get("overall") or {}
+        decision_table = Table(title=f"Decision Journal — {scorecard.get('n_scored_windows', 0)} scored windows")
+        decision_table.add_column("Metric")
+        decision_table.add_column("Value", justify="right")
+        decision_table.add_row("Model avg", f"{overall.get('model_avg_return_pct', 0):+.2f}%")
+        decision_table.add_row("Your avg", f"{overall.get('user_avg_return_pct', 0):+.2f}%")
+        decision_table.add_row("Discretion delta", f"{overall.get('avg_decision_delta_pct', 0):+.2f}%")
+        log.write(decision_table)
+        self._write_rows_table(
+            log,
+            "Worst User Overrides",
+            scorecard.get("worst_user_overrides") or [],
+            ["ticker", "session_date", "recommended_action", "user_decision", "horizon_days", "decision_delta_pct"],
         )
 
     def _show_backtest_placeholder(self) -> None:

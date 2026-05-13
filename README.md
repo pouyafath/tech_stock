@@ -39,12 +39,25 @@
 - ✅ **Live Market Data** — Quote timestamp, previous close, pre/after-market moves, day range, quote source, 10-month history, PE ratios, FCF yield, margins, dividends, 52-week highs/lows via yfinance
 - ✅ **Recent News** — Pulls last 7 days of headlines per ticker from Yahoo Finance
 - ✅ **Trade History Context** — Loads your recent Wealthsimple trades to avoid whipsawing
+- ✅ **Decision Journal & Outcome Scoring** — Records accepted/ignored/modified recommendations and measures your results against the model
 - ✅ **Triple Output** — Markdown report + CSV table + JSON log for backtesting
 - ✅ **Three Interface Options** — Original CLI remains default, with optional Streamlit dashboard and Textual terminal UI
 - ✅ **Model Choice** — Pick Sonnet 4.6 (~$0.30-$0.70/run typical two-pass range) or Opus 4.7 (higher cost, deeper analysis) per session
 - ✅ **Fast Parallel Fetching** — Concurrent API requests with caching and graceful degradation
 
 ---
+
+## ✨ What's New in v1.11.0 (May 13, 2026)
+
+**Decision journal and model-vs-user outcome scoring.**
+
+- **Decision Journal** — actionable recommendations are seeded into local `data/decision_journal.json` as pending decisions after each run.
+- **Record real follow-through** — mark a recommendation as accepted, ignored, modified, delayed, watch, or executed, with optional actual action, shares, execution price, reason, and notes.
+- **Outcome Scorecard** — scores recorded decisions over 1/5/20/60-day windows and reports model avg return, your avg return, hit rates, and discretion delta.
+- **Feedback into Claude** — the scorecard is included in the next Claude prompt so the model can calibrate around your actual behavior, not only historical recommendations.
+- **UI support** — Streamlit has a Decision Journal tab; Textual shows journal status and scorecard summaries.
+
+Current local suite: `pytest -q` passes with 170 tests.
 
 ## ✨ What's New in v1.10.0 (May 10, 2026)
 
@@ -58,7 +71,7 @@
 - **Exit sizing and critical actions polished** — SELL/TRIM rows now get deterministic share/proceeds fields, and quote mismatches are grouped into one Critical Actions item instead of flooding the top of the report.
 - **Paid validation** — successful full live Sonnet two-pass run on May 10, 2026 with 31 tracked tickers, enrichment enabled, 12 recommendation rows, 50,105 tokens, estimated cost `$0.6341`, cache hit, no JSON retry required.
 
-Current local suite: `pytest -q` passes with 167 tests.
+v1.10 validation suite passed with 167 tests.
 
 ## ✨ What's New in v1.9.0 (May 6, 2026)
 
@@ -324,6 +337,7 @@ Tabs:
 - **Run Report** — Select session/model/budgets, upload or point to Wealthsimple CSVs, preview holdings before spending Claude tokens, and trigger the same report pipeline as CLI mode with live progress
 - **History** — Browse previous markdown reports from `reports/`, filter/search by filename, and compare two reports side by side
 - **Backtest** — View metrics, action/conviction/ticker buckets, bar charts, and recent realized examples
+- **Decision Journal** — Record whether you accepted, ignored, modified, delayed, watched, or executed each actionable recommendation; run the model-vs-user scorecard
 - **Portfolio Editor** — Edit `config/settings.json`, `config/watchlist.json`, or fallback `config/portfolio.json` with live JSON validation
 
 Defaults:
@@ -344,6 +358,28 @@ Useful keyboard shortcuts:
 - `r` refreshes the active tab
 - `Ctrl+R` starts a report run
 - `Ctrl+S` saves the JSON editor when the content is valid
+
+### Decision Journal
+
+After every report, actionable BUY/ADD/TRIM/SELL recommendations are added to local `data/decision_journal.json` as pending rows. Use the Streamlit **Decision Journal** tab to record what you actually did.
+
+CLI helpers are also available:
+
+```bash
+# Show journal status and outcome scorecard
+python -m src.decision_journal --score
+
+# Record one row manually
+python -m src.decision_journal \
+  --record-id 20260510_2011_afternoon.json:SOXL \
+  --decision accepted \
+  --actual-action SELL \
+  --shares 2.2292 \
+  --price 117.97 \
+  --reason "Accepted leveraged ETF exit"
+```
+
+The next paid run feeds the scorecard back into Claude so recommendations can calibrate against your real follow-through pattern.
 
 ### Schedule Recurring Sessions
 
@@ -549,6 +585,10 @@ Raw machine-readable format for:
   "alpha_vantage_enabled": false,
   "recent_activity_days": 90,
   "holding_days_activity_days": null,
+  "enable_decision_journal": true,
+  "decision_journal_score_horizons": [1, 5, 20, 60],
+  "decision_journal_max_scored_decisions": 200,
+  "decision_journal_include_holds": false,
   "news_lookback_days": 7,
   "news_prompt_max_articles": 2,
   "history_months": 10
@@ -578,6 +618,10 @@ Raw machine-readable format for:
 | `enable_options_implied_move_for_earnings` | false | Optional yfinance options implied move lookup; disabled by default because option-chain calls can be slow |
 | `recent_activity_days` | 90 | Recent activity slice sent to Claude and used for previous-session execution checks |
 | `holding_days_activity_days` | null | Activity window used for FIFO holding-day calculation; `null` means parse the full export |
+| `enable_decision_journal` | true | Seed actionable recommendations into the local decision journal and render the scorecard |
+| `decision_journal_score_horizons` | 1, 5, 20, 60 | Calendar-day windows used to score model-vs-user outcomes |
+| `decision_journal_max_scored_decisions` | 200 | Max recorded decisions scored per run to keep historical price fetches bounded |
+| `decision_journal_include_holds` | false | Whether HOLD rows should be seeded into the journal; default keeps the journal action-focused |
 | `news_lookback_days` | 7 | How far back to fetch news headlines |
 | `news_prompt_max_articles` | 2 | Max articles per ticker included in the Claude prompt; report output can still show catalyst headlines |
 | `history_months` | 10 | Months of historical price data to fetch |
@@ -1085,6 +1129,6 @@ For issues or questions:
 
 ---
 
-**Last updated:** May 10, 2026 — live validation hardening, news parser fix, JSON retry, leveraged ETF duration lower bounds (v1.10)
-**Version:** 1.10.0
-**Status:** Production-ready — deterministic quality gates, current catalyst headlines, three interface options, native app distribution, paper-trading mode
+**Last updated:** May 13, 2026 — decision journal, outcome scorecard, model-vs-user feedback loop (v1.11)
+**Version:** 1.11.0
+**Status:** Production-ready — deterministic quality gates, current catalyst headlines, three interface options, native app distribution, paper-trading mode, decision journal

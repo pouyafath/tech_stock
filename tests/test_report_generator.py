@@ -78,6 +78,7 @@ def test_report_renders_quality_risk_hedge_and_bear_bull_sections():
         },
         company_exposure={"MSFT": {"company": "MSFT", "value_usd": 3000, "pct": 30, "tickers": ["MSFT"]}},
         usage={"passes": 2, "total_tokens": 1000, "cost_usd": 0.22},
+        decision_scorecard={"journal": {"total": 1, "pending": 1, "recorded": 0}},
     )
 
     assert "## Report Quality Warnings" in markdown
@@ -87,6 +88,7 @@ def test_report_renders_quality_risk_hedge_and_bear_bull_sections():
     assert "## Hedge And Rebalance Suggestions" in markdown
     assert "Bear Case" in markdown
     assert "Bull Case" in markdown
+    assert "## Decision Journal" in markdown
     assert "Claude passes: 2" in markdown
 
     markdown_with_retry = generate_markdown(

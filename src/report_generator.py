@@ -838,6 +838,7 @@ def generate_markdown(
     previous_session: dict = None,
     holding_days_map: dict | None = None,
     drawdown_state: dict | None = None,
+    decision_scorecard: dict | None = None,
 ) -> str:
     """Generate the full markdown report from Claude's JSON output + extras."""
     settings = settings or {}
@@ -975,6 +976,9 @@ def generate_markdown(
     lines += _render_alerts_section(price_alerts or [])
 
     lines += _render_track_record_section(backtest_summary or {})
+    if decision_scorecard:
+        from src.decision_journal import format_for_report as _fmt_decision_journal
+        lines += _fmt_decision_journal(decision_scorecard)
 
     tax_threshold = settings.get("tax_loss_threshold_pct", -15)
     lines += _render_tax_loss_section(holdings, tax_threshold)

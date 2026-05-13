@@ -4,6 +4,20 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.11.0] — 2026-05-13
+
+### Added — Decision journal + outcome scoring
+- **Decision journal** (`src/decision_journal.py`) — every actionable BUY/ADD/TRIM/SELL recommendation is seeded into a local `data/decision_journal.json` as a pending decision. The file is git-ignored because it contains personal execution notes.
+- **Actual decision capture** — users can record whether they accepted, ignored, modified, delayed, watched, or executed each recommendation, plus actual action, shares, execution price, reason, and notes.
+- **Outcome scorecard** — recorded decisions are scored over configurable 1/5/20/60-day windows, comparing model action return, user action return, hit rates, and discretion delta.
+- **Prompt feedback loop** — the decision scorecard is fed into Claude alongside the existing recommendation backtest so future reports can calibrate around the user's real follow-through pattern.
+- **Report/UI visibility** — markdown reports include a Decision Journal section; Streamlit adds a full Decision Journal tab; Textual shows journal status and scorecard summaries in dashboard/backtest views.
+
+### Tests
+- Added focused coverage for journal seeding, user-decision recording, outcome scoring, and report rendering.
+
+---
+
 ## [1.10.0] — 2026-05-10
 
 ### Fixed — Live-run report reliability
