@@ -50,3 +50,18 @@ def test_apply_trade_sizes_defaults_trim_to_30_percent():
 
     assert out["recommendations"][0]["shares"] == 3
     assert out["recommendations"][0]["action_fraction"] == 0.3
+
+
+def test_apply_trade_sizes_syncs_buy_amount_to_priority_actions():
+    recommendation = {
+        "priority_actions": [
+            {"order": 1, "ticker": "CRM", "action": "BUY", "invest_amount_usd": 175},
+        ],
+        "recommendations": [
+            {"ticker": "CRM", "action": "BUY", "invest_amount_usd": 70},
+        ],
+    }
+
+    out = apply_trade_sizes(recommendation, portfolio={})
+
+    assert out["priority_actions"][0]["invest_amount_usd"] == 70

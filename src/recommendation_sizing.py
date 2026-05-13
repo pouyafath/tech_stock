@@ -28,6 +28,7 @@ def apply_trade_sizes(
         rec = rec_by_ticker.get(ticker)
         if rec:
             for key in (
+                "invest_amount_usd",
                 "shares",
                 "action_fraction",
                 "position_shares",
