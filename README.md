@@ -268,6 +268,8 @@ Then open `dist/tech_stock.dmg`, drag `tech_stock.app` to Applications, and laun
 - Textual Terminal UI
 - Original CLI
 
+The **Streamlit Web UI** starts a local server and opens your default browser at a local URL such as `http://localhost:8501`. If your browser does not open automatically, the launcher shows the URL so you can paste it manually. The dashboard itself is browser-based; the native app is currently a launcher, not an embedded browser window.
+
 **First launch on macOS:** current public builds are ad-hoc signed, not Apple-notarized. macOS may show `"tech_stock" Not Opened` or `Apple could not verify "tech_stock" is free of malware`. This is expected for unsigned/non-notarized open-source builds.
 
 To open it:
@@ -603,9 +605,9 @@ Current macOS release artifacts are ad-hoc signed but not notarized. That means 
 ### What the App Does
 
 On launch the native app shows a dark-themed launcher window (built with tkinter — no extra dependency):
-- **Streamlit Web UI** — starts the Streamlit server and opens your browser
-- **Textual Terminal UI** — opens the keyboard-driven terminal dashboard
-- **Command-Line (CLI)** — opens a terminal and runs the original CLI
+- **Streamlit Web UI** — starts the Streamlit server, opens your default browser, and shows the local URL if the browser does not open automatically
+- **Textual Terminal UI** — opens the keyboard-driven terminal dashboard in Terminal / Command Prompt
+- **Command-Line (CLI)** — opens Terminal / Command Prompt and runs the original CLI
 
 Your `.env` / `API_KEYS.txt` must exist in the same directory as the app or its parent.
 

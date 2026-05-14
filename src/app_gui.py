@@ -12,8 +12,10 @@ Dispatch rules
 * --cli [args] : run the CLI (same process, remaining argv forwarded)
 * (no args)    : show the tkinter launcher window
 """
-from __future__ import annotations
-
+import json
+import os
+import shlex
+import socket
 import subprocess
 import sys
 import threading
@@ -37,13 +39,89 @@ STREAMLIT_SCRIPT = _BUNDLE / "ui" / "streamlit_app.py"
 TEXTUAL_SCRIPT = _BUNDLE / "ui" / "textual_app.py"
 CLI_SCRIPT = _BUNDLE / "src" / "main.py"
 
+
+def _log_dir() -> Path:
+    """Return a user-writable log directory for packaged GUI launches."""
+    if sys.platform == "darwin":
+        path = Path.home() / "Library" / "Logs" / "tech_stock"
+    elif sys.platform == "win32":
+        path = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "tech_stock" / "logs"
+    else:
+        path = Path.home() / ".cache" / "tech_stock" / "logs"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _tail(path: Path, max_chars: int = 2500) -> str:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    return text[-max_chars:]
+
+
+def _find_free_port(start: int = 8501) -> int:
+    for port in range(start, start + 20):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(0.2)
+            if sock.connect_ex(("127.0.0.1", port)) != 0:
+                return port
+    return start
+
+
+def _self_command(flag: str) -> list[str]:
+    if getattr(sys, "frozen", False):
+        return [sys.executable, flag]
+    return [sys.executable, str(Path(__file__).resolve()), flag]
+
+
+def _spawn_logged(flag: str, log_name: str, env: dict[str, str] | None = None) -> tuple[subprocess.Popen, Path]:
+    log_path = _log_dir() / log_name
+    log_file = log_path.open("a", encoding="utf-8")
+    log_file.write(f"\n--- tech_stock launch {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+    log_file.flush()
+    merged_env = os.environ.copy()
+    if env:
+        merged_env.update(env)
+    proc = subprocess.Popen(
+        _self_command(flag),
+        cwd=ROOT,
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        env=merged_env,
+        start_new_session=(sys.platform != "win32"),
+    )
+    log_file.close()
+    return proc, log_path
+
+
+def _open_terminal(flag: str) -> None:
+    cmd = _self_command(flag)
+    if sys.platform == "darwin":
+        script = " ".join(shlex.quote(part) for part in cmd)
+        subprocess.Popen([
+            "osascript",
+            "-e",
+            'tell application "Terminal" to activate',
+            "-e",
+            f'tell application "Terminal" to do script {json.dumps(script)}',
+        ])
+        return
+    if sys.platform == "win32":
+        subprocess.Popen(["cmd", "/c", "start", "tech_stock", "cmd", "/k", *cmd])
+        return
+    terminal = os.environ.get("TERMINAL") or "x-terminal-emulator"
+    subprocess.Popen([terminal, "-e", *cmd])
+
 # ── Sub-process dispatch (called when the bundled exe is re-invoked) ─────────
 
 def _run_streamlit() -> None:
     """Launch Streamlit server and open browser."""
-    port = 8501
+    port = int(os.environ.get("TECH_STOCK_STREAMLIT_PORT", "8501"))
 
     def _open_browser() -> None:
+        if os.environ.get("TECH_STOCK_NO_AUTO_BROWSER") == "1":
+            return
         time.sleep(2.5)
         webbrowser.open(f"http://localhost:{port}")
 
@@ -59,7 +137,18 @@ def _run_streamlit() -> None:
         "--server.headless=true",
         "--browser.gatherUsageStats=false",
     ]
-    bootstrap.run(str(STREAMLIT_SCRIPT), "", [], {})
+    flag_options = {
+        "server_port": port,
+        "server_headless": True,
+        "browser_gatherUsageStats": False,
+    }
+    bootstrap.load_config_options(flag_options)
+    bootstrap.run(
+        str(STREAMLIT_SCRIPT),
+        False,
+        [],
+        flag_options,
+    )
 
 
 def _run_textual() -> None:
@@ -78,6 +167,7 @@ def _run_cli(extra: list[str]) -> None:
     spec = importlib.util.spec_from_file_location("main", CLI_SCRIPT)
     mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
     spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    mod.main()
 
 
 # ── GUI launcher ─────────────────────────────────────────────────────────────
@@ -85,19 +175,20 @@ def _run_cli(extra: list[str]) -> None:
 _CHOICES = [
     ("Streamlit Web UI",
      "Opens a dashboard in your browser.\nFull feature set: Dashboard, Run, History, Backtest, Editor.",
-     _run_streamlit),
+     "streamlit"),
     ("Textual Terminal UI",
-     "Keyboard-driven interface inside this window.\nNo browser needed.",
-     _run_textual),
+     "Keyboard-driven interface in Terminal.\nNo browser needed.",
+     "textual"),
     ("Command-Line (CLI)",
      "Classic terminal mode.\nUse for scripting, cron, or maximum speed.",
-     lambda: _run_cli([])),
+     "cli"),
 ]
 
 
 def _show_launcher() -> None:
     import tkinter as tk
     from tkinter import font as tkfont
+    from tkinter import messagebox
 
     root = tk.Tk()
     root.title("tech_stock")
@@ -144,13 +235,59 @@ def _show_launcher() -> None:
     body = tk.Frame(root, bg=BG, padx=32, pady=20)
     body.pack(fill="both")
 
-    selected_action = [None]
+    status_var = tk.StringVar(value="Choose an interface to start.")
 
-    def launch(action):
-        selected_action[0] = action
-        root.destroy()
+    def launch_streamlit() -> None:
+        port = _find_free_port()
+        url = f"http://localhost:{port}"
+        status_var.set(f"Starting Streamlit at {url} ...")
+        proc, log_path = _spawn_logged(
+            "--streamlit",
+            "streamlit.log",
+            {
+                "TECH_STOCK_STREAMLIT_PORT": str(port),
+                "TECH_STOCK_NO_AUTO_BROWSER": "1",
+            },
+        )
 
-    for label, description, action in _CHOICES:
+        def check_startup() -> None:
+            if proc.poll() is not None:
+                details = _tail(log_path)
+                status_var.set("Streamlit failed to start. See the log file.")
+                messagebox.showerror(
+                    "Streamlit failed to start",
+                    "The Web UI could not start.\n\n"
+                    f"Log file:\n{log_path}\n\n"
+                    f"Last log lines:\n{details or '(log was empty)'}",
+                )
+                return
+            webbrowser.open(url)
+            status_var.set(f"Streamlit is running at {url}")
+            messagebox.showinfo(
+                "Streamlit started",
+                f"The Web UI is running at:\n{url}\n\n"
+                "It opened in your default browser. If the browser did not open, paste this URL manually.",
+            )
+
+        root.after(3500, check_startup)
+
+    def launch_terminal(flag: str) -> None:
+        try:
+            _open_terminal(flag)
+            status_var.set("Opened Terminal for tech_stock.")
+        except Exception as exc:
+            status_var.set("Could not open Terminal.")
+            messagebox.showerror("Could not open Terminal", str(exc))
+
+    def launch(mode: str) -> None:
+        if mode == "streamlit":
+            launch_streamlit()
+        elif mode == "textual":
+            launch_terminal("--textual")
+        elif mode == "cli":
+            launch_terminal("--cli")
+
+    for label, description, mode in _CHOICES:
         card = tk.Frame(body, bg=CARD, bd=0, highlightthickness=1,
                         highlightbackground=BORDER, highlightcolor=GREEN)
         card.pack(fill="x", pady=6, ipady=14, ipadx=16)
@@ -169,7 +306,7 @@ def _show_launcher() -> None:
         btn = tk.Button(inner, text="Launch →", font=btn_font,
                         bg=BTN_BG, fg=BTN_FG, relief="flat", cursor="hand2",
                         padx=14, pady=6, bd=0,
-                        command=lambda a=action: launch(a))
+                        command=lambda m=mode: launch(m))
         btn.pack(side="right", padx=(12, 0))
 
         def on_enter(e, b=btn):   b.configure(bg=BTN_HOVER)
@@ -178,15 +315,17 @@ def _show_launcher() -> None:
         btn.bind("<Leave>", on_leave)
 
         # Clicking anywhere on the card also triggers launch
-        def on_card_click(e, a=action): launch(a)
+        def on_card_click(e, m=mode): launch(m)
         for w in (card, inner, left):
             w.bind("<Button-1>", on_card_click)
 
     # ── Footer ────────────────────────────────────────────────────────────────
     sep2 = tk.Frame(root, bg=BORDER, height=1)
     sep2.pack(fill="x", padx=32)
+    tk.Label(root, textvariable=status_var,
+             fg=MUTED, bg=BG, font=desc_font).pack(pady=(10, 0))
     tk.Label(root, text="Powered by Claude  ·  Anthropic",
-             fg=MUTED, bg=BG, font=desc_font).pack(pady=10)
+             fg=MUTED, bg=BG, font=desc_font).pack(pady=(4, 10))
 
     # Centre window on screen
     root.update_idletasks()
@@ -195,9 +334,6 @@ def _show_launcher() -> None:
     root.geometry(f"+{(sw-w)//2}+{(sh-h)//2}")
 
     root.mainloop()
-
-    if selected_action[0]:
-        selected_action[0]()
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
