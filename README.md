@@ -503,13 +503,28 @@ The Desktop App is a native Tkinter dashboard that runs inside the application w
 
 Tabs:
 - **Dashboard** — Shows latest JSON-log metrics for risk, priority actions, quality warnings, and Claude cost
-- **Run Report** — Select session/model/budgets, choose Wealthsimple CSVs, preview holdings, and run the same report pipeline as CLI mode with live progress
+- **Run Report** — Select session/model/budgets, confirm auto-detected Wealthsimple CSV paths, preview holdings, and run the same report pipeline as CLI mode with live progress
 - **Report Viewer** — Opens the latest generated markdown report inside the app
 - **History** — Browse previous markdown reports from `reports/`
 - **Config Editor** — Edit `config/settings.json`, `config/watchlist.json`, or fallback `config/portfolio.json` with JSON validation
-- **API Checks** — Check Anthropic, yfinance, Finnhub, and Polygon connectivity
+- **API Checks** — Check Anthropic, yfinance, Finnhub, and Polygon connectivity, and show every API-key file path the app searches
 
 The embedded viewer shows markdown as readable plain text. Use Streamlit if you specifically want browser-rendered markdown tables and download buttons.
+
+Default file locations:
+- **Source checkout:** app data is saved inside the project folder: `data/`, `reports/`, `temporary_upload/`, and `config/`
+- **Packaged desktop app:** app data is saved in `~/Documents/tech_stock/`
+- **Uploaded/copied CSVs:** `temporary_upload/`
+- **Markdown/CSV reports:** `reports/`
+- **Recommendation JSON logs:** `data/recommendations_log/`
+- **Decision journal:** `data/decision_journal.json`
+
+API key search order:
+1. `~/Documents/tech_stock/API_KEYS.txt` or `.env` in packaged app mode
+2. The current working folder
+3. `~/Desktop/tech_stock/API_KEYS.txt` or `.env`
+4. `~/Downloads/tech_stock/API_KEYS.txt` or `.env`
+5. The source checkout folder
 
 ### Streamlit Dashboard
 

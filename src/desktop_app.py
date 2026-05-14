@@ -9,6 +9,7 @@ and desktop app all run the same report pipeline.
 from __future__ import annotations
 
 import queue
+import os
 import sys
 import threading
 import tkinter as tk
@@ -23,6 +24,8 @@ if str(ROOT) not in sys.path:
 
 from src.ui_support import (
     EDITABLE_JSON_FILES,
+    api_key_locations,
+    app_data_locations,
     check_connectivity,
     default_run_settings,
     find_default_csvs,
@@ -66,6 +69,7 @@ class DesktopApp(tk.Tk):
         self.refresh_dashboard()
         self.refresh_history()
         self.load_report(self.latest_report_path, select_tab=False)
+        self.after(350, self.confirm_detected_csv_paths)
 
     def _configure_style(self) -> None:
         style = ttk.Style(self)
@@ -191,6 +195,13 @@ class DesktopApp(tk.Tk):
         self.run_status = tk.StringVar(value="Ready.")
         ttk.Label(actions, textvariable=self.run_status, background=self.panel, foreground=self.muted).pack(side="left", padx=12)
 
+        locations = self._panel(self.run_tab, "File Locations")
+        locations.pack(fill="x", padx=16, pady=(0, 16))
+        self.locations_text = tk.Text(locations, height=6, wrap="word", bg="#0f172a", fg="#e5e7eb")
+        self.locations_text.pack(fill="x")
+        self.locations_text.insert("1.0", self._locations_summary())
+        self.locations_text.configure(state="disabled")
+
         self.console_text = ScrolledText(self.run_tab, height=22, wrap="word", bg="#0f172a", fg="#e5e7eb", insertbackground="#e5e7eb")
         self.console_text.pack(fill="both", expand=True, padx=16, pady=(0, 16))
 
@@ -246,8 +257,35 @@ class DesktopApp(tk.Tk):
         ttk.Button(top, text="Check APIs", command=self.start_connectivity_check).pack(side="left")
         self.health_status = tk.StringVar(value="Ready.")
         ttk.Label(top, textvariable=self.health_status, style="Muted.TLabel").pack(side="left", padx=12)
+
+        paths_panel = self._panel(self.health_tab, "API Key Search Paths")
+        paths_panel.pack(fill="x", padx=16, pady=(0, 16))
+        self.api_paths_text = tk.Text(paths_panel, height=8, wrap="none", bg="#0f172a", fg="#e5e7eb")
+        self.api_paths_text.pack(fill="x")
+        self.refresh_api_paths_text()
+
         self.health_tree = self._make_tree(self.health_tab, ["source", "ok", "latency_ms", "detail"], [160, 80, 110, 700])
         self.health_tree.pack(fill="both", expand=True, padx=16, pady=(0, 16))
+
+    def _locations_summary(self) -> str:
+        locations = app_data_locations()
+        lines = ["App data folders:"]
+        for label, path in locations.items():
+            lines.append(f"- {label}: {path}")
+        lines.append("")
+        lines.append("CSV search order: temporary_upload first, then ~/Downloads, then today's exact filename under your home folder.")
+        lines.append("You can also use Browse to select any holdings/activities CSV manually.")
+        return "\n".join(lines)
+
+    def refresh_api_paths_text(self) -> None:
+        lines = ["The app checks these files for API keys, in order:"]
+        for row in api_key_locations():
+            marker = "FOUND" if row["exists"] else "missing"
+            lines.append(f"- [{marker}] {row['path']}")
+        self.api_paths_text.configure(state="normal")
+        self.api_paths_text.delete("1.0", "end")
+        self.api_paths_text.insert("1.0", "\n".join(lines))
+        self.api_paths_text.configure(state="disabled")
 
     def _field_combo(self, parent: ttk.Frame, label: str, var: tk.StringVar, values: list[str], col: int) -> None:
         ttk.Label(parent, text=label, background=self.panel, foreground=self.muted).grid(row=0, column=col, sticky="w", padx=(0, 12))
@@ -299,6 +337,39 @@ class DesktopApp(tk.Tk):
             "Holdings preview",
             f"{preview.get('position_count')} positions\n{preview.get('exported_at', '')}\n\n{sample}",
         )
+
+    def confirm_detected_csv_paths(self) -> None:
+        if os.environ.get("TECH_STOCK_SKIP_PATH_CONFIRM") == "1":
+            return
+        holdings = self.holdings_var.get().strip()
+        if holdings:
+            keep = messagebox.askyesno(
+                "Confirm Holdings CSV",
+                "The app found this Holdings CSV:\n\n"
+                f"{holdings}\n\n"
+                "Is this the correct file?",
+            )
+            if not keep:
+                self.browse_csv(self.holdings_var)
+
+        activities = self.activities_var.get().strip()
+        if activities:
+            keep = messagebox.askyesno(
+                "Confirm Activities CSV",
+                "The app found this Activities CSV:\n\n"
+                f"{activities}\n\n"
+                "Is this the correct file?",
+            )
+            if not keep:
+                replace = messagebox.askyesno(
+                    "Activities CSV",
+                    "Do you want to choose a different Activities CSV?\n\n"
+                    "Choose No to run without activities.",
+                )
+                if replace:
+                    self.browse_csv(self.activities_var)
+                else:
+                    self.activities_var.set("")
 
     def start_report_run(self) -> None:
         try:
@@ -460,6 +531,7 @@ class DesktopApp(tk.Tk):
 
     def start_connectivity_check(self) -> None:
         self.health_status.set("Checking APIs...")
+        self.refresh_api_paths_text()
         self._replace_tree_rows(self.health_tree, [])
 
         def worker() -> None:

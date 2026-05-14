@@ -32,8 +32,10 @@ from src.main import (
     REPORTS_DIR,
     ROOT,
     UPLOAD_DIR,
+    api_key_search_paths,
     find_csv_by_date,
     _load_api_keys_from_file,
+    runtime_locations,
     run as run_cli_report,
 )
 from src.portfolio_loader import parse_holdings_csv
@@ -414,6 +416,28 @@ def check_connectivity(timeout: float = 5.0) -> list[dict[str, Any]]:
         record("Polygon", False, str(exc), started if "started" in locals() else time.perf_counter())
 
     return checks
+
+
+def api_key_locations() -> list[dict[str, Any]]:
+    """Return API key search paths with existence flags for UIs."""
+    rows = []
+    seen: set[Path] = set()
+    for path in api_key_search_paths():
+        resolved = path.expanduser()
+        key = resolved.resolve() if resolved.exists() else resolved
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append({
+            "path": resolved,
+            "exists": resolved.exists(),
+        })
+    return rows
+
+
+def app_data_locations() -> dict[str, Path]:
+    """Return writable app data locations for UIs."""
+    return runtime_locations()
 
 
 def relative_to_root(path: Path | None) -> str:

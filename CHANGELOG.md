@@ -4,6 +4,20 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.12.1] — 2026-05-14
+
+### Fixed — Desktop app file discovery
+- **Packaged-app workspace** — native builds now use a writable `~/Documents/tech_stock/` workspace for config, reports, uploads, and logs instead of relying on the temporary PyInstaller extraction directory.
+- **API key discovery** — `API_KEYS.txt` and `.env` are searched in the writable workspace, current folder, `~/Desktop/tech_stock/`, `~/Downloads/tech_stock/`, and the source checkout.
+- **Desktop API Checks tab** — now displays every API-key file path checked, with found/missing status.
+- **Detected CSV confirmation** — the embedded Desktop App now asks users to confirm auto-detected Holdings and Activities CSV paths before using them.
+- **Release packaging** — bundled builds now include `API_KEYS.template.txt` and `.env.example` so the packaged workspace can seed user-facing setup files.
+
+### Tests
+- Full local suite: 171 tests passing.
+
+---
+
 ## [1.12.0] — 2026-05-14
 
 ### Added — Embedded desktop application

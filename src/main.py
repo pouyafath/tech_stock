@@ -14,12 +14,28 @@ CLI mode (for scripting):
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 
-ROOT = Path(__file__).parent.parent
+SOURCE_ROOT = Path(__file__).parent.parent
+
+
+def _default_user_root() -> Path:
+    """Return the writable workspace used by packaged desktop builds."""
+    override = os.environ.get("TECH_STOCK_HOME")
+    if override:
+        return Path(override).expanduser()
+    documents = Path.home() / "Documents"
+    if documents.exists():
+        return documents / "tech_stock"
+    return Path.home() / "tech_stock"
+
+
+ROOT = _default_user_root() if getattr(sys, "frozen", False) else SOURCE_ROOT
+sys.path.insert(0, str(SOURCE_ROOT))
 sys.path.insert(0, str(ROOT))
 
 from src.activity_loader import holding_days_by_ticker, parse_activities_csv
@@ -54,6 +70,31 @@ DECISION_JOURNAL_PATH = ROOT / "data" / "decision_journal.json"
 REPORTS_DIR = ROOT / "reports"
 RECS_LOG_DIR = DATA_DIR / "recommendations_log"
 UPLOAD_DIR  = ROOT / "temporary_upload"
+
+
+def _copy_tree_defaults(src_dir: Path, dest_dir: Path) -> None:
+    if not src_dir.exists() or dest_dir.exists():
+        return
+    shutil.copytree(src_dir, dest_dir)
+
+
+def ensure_workspace() -> None:
+    """Create writable runtime folders and seed config for packaged apps."""
+    ROOT.mkdir(parents=True, exist_ok=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    RECS_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+    _copy_tree_defaults(SOURCE_ROOT / "config", CONFIG_DIR)
+    for filename in ("API_KEYS.template.txt", ".env.example"):
+        src = SOURCE_ROOT / filename
+        dest = ROOT / filename
+        if src.exists() and not dest.exists():
+            shutil.copy2(src, dest)
+
+
+ensure_workspace()
 
 MODELS = {
     "1": ("claude-sonnet-4-6", "Sonnet 4.6", "~$0.22/run — two-pass, recommended"),
@@ -213,9 +254,30 @@ def copy_csv_to_temp(csv_path: Path) -> Path:
 
 def _load_api_keys_from_file():
     """Load API keys from API_KEYS.txt (user-friendly) or .env (advanced)."""
-    # Try API_KEYS.txt first (user-visible, easy to find)
-    api_keys_file = ROOT / "API_KEYS.txt"
-    if api_keys_file.exists():
+    # Try API_KEYS.txt first (user-visible, easy to find). Search a few
+    # practical locations so packaged apps can find keys created from source.
+    search_roots = [
+        ROOT,
+        Path.cwd(),
+        Path.home() / "Documents" / "tech_stock",
+        Path.home() / "Desktop" / "tech_stock",
+        Path.home() / "Downloads" / "tech_stock",
+        SOURCE_ROOT,
+    ]
+    seen: set[Path] = set()
+
+    api_keys_file = None
+    for directory in search_roots:
+        candidate = (directory / "API_KEYS.txt").expanduser()
+        resolved = candidate.resolve() if candidate.exists() else candidate
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if candidate.exists():
+            api_keys_file = candidate
+            break
+
+    if api_keys_file and api_keys_file.exists():
         try:
             with open(api_keys_file) as f:
                 for line in f:
@@ -234,7 +296,38 @@ def _load_api_keys_from_file():
 
     # Also try .env (for CI/Docker/advanced users with hidden files)
     from dotenv import load_dotenv
-    load_dotenv(ROOT / ".env", override=True)
+    for directory in search_roots:
+        load_dotenv(directory / ".env", override=True)
+
+
+def api_key_search_paths() -> list[Path]:
+    """Return user-facing API key file locations checked by the app."""
+    return [
+        ROOT / "API_KEYS.txt",
+        ROOT / ".env",
+        Path.cwd() / "API_KEYS.txt",
+        Path.cwd() / ".env",
+        Path.home() / "Documents" / "tech_stock" / "API_KEYS.txt",
+        Path.home() / "Documents" / "tech_stock" / ".env",
+        Path.home() / "Desktop" / "tech_stock" / "API_KEYS.txt",
+        Path.home() / "Desktop" / "tech_stock" / ".env",
+        Path.home() / "Downloads" / "tech_stock" / "API_KEYS.txt",
+        Path.home() / "Downloads" / "tech_stock" / ".env",
+        SOURCE_ROOT / "API_KEYS.txt",
+        SOURCE_ROOT / ".env",
+    ]
+
+
+def runtime_locations() -> dict[str, Path]:
+    """Return user-facing data locations used by the app."""
+    return {
+        "workspace": ROOT,
+        "config": CONFIG_DIR,
+        "data": DATA_DIR,
+        "recommendation_logs": RECS_LOG_DIR,
+        "reports": REPORTS_DIR,
+        "uploads": UPLOAD_DIR,
+    }
 
 
 def validate_environment():

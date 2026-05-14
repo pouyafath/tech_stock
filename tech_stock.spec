@@ -28,6 +28,10 @@ datas += collect_data_files("vaderSentiment")
 datas += [(str(ROOT / "src"),  "src")]
 datas += [(str(ROOT / "ui"),   "ui")]
 datas += [(str(ROOT / "config"), "config")]
+for filename in ("API_KEYS.template.txt", ".env.example"):
+    path = ROOT / filename
+    if path.exists():
+        datas += [(str(path), ".")]
 
 # ── Hidden imports ────────────────────────────────────────────────────────────
 # Modules that are imported dynamically (plugins, lazy-loaded, etc.)
