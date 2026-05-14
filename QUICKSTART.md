@@ -26,7 +26,10 @@ source .venv/bin/activate
 # 3. Install dependencies
 pip install -r requirements.txt
 
-# 4. Set up API keys (CHOOSE ONE METHOD):
+# 4. Make run scripts executable (macOS/Linux — first time only)
+chmod +x run.sh run-ui.sh
+
+# 5. Set up API keys (CHOOSE ONE METHOD):
 ```
 
 ### Option A: Easy Way (Recommended) 📄
@@ -70,16 +73,27 @@ Save and you're done!
 3. Click **Export Holdings Report (CSV)**
 4. Save to **Downloads** folder (or any location)
 
-### Step 2: Run the app
+### Step 2: Launch the app
 
 ```bash
 source .venv/bin/activate
-python src/main.py
+./run.sh
 ```
 
-(Your API keys are read from `API_KEYS.txt` or `.env` automatically)
+A menu appears — pick your interface:
+```
+  [1]  CLI             — Terminal, fastest
+  [2]  Streamlit UI    — Web dashboard (opens browser)
+  [3]  Textual TUI     — Terminal dashboard
 
-### Step 3: Answer 5 questions
+  Choose [1/2/3, Enter = 1]:
+```
+
+> **No terminal?** Download `tech_stock.dmg` from the [Releases page](https://github.com/pouyafath/tech_stock/releases) and double-click for a native launcher.
+
+Choose **1 (CLI)** for your first run. Your API keys are read from `API_KEYS.txt` or `.env` automatically.
+
+### Step 3: Answer 5 questions (CLI mode)
 
 ```
 Session type (morning/afternoon) [Enter = morning]: 
@@ -89,8 +103,8 @@ Session type (morning/afternoon) [Enter = morning]:
    Is this correct? (Y/N): Y
 4. Activities CSV detected: (Skip for now, just press Enter)
 5. Which model? 
-   [1] Sonnet 4.6 (recommended, ~$0.09/run, fast)
-   [2] Opus 4.7 (deeper analysis, ~$0.45/run)
+   [1] Sonnet 4.6 (recommended, ~$0.30-$0.70/run typical two-pass range)
+   [2] Opus 4.7 (deeper analysis, higher cost)
    Choose (1/2) [Enter = 1]:
 ```
 
@@ -108,6 +122,31 @@ Session type (morning/afternoon) [Enter = morning]:
 
 Open the markdown file in any editor to see recommendations with conviction scores and theses.
 
+Latest paid validation: May 10, 2026 full Sonnet run, 31 tracked tickers, two Claude passes, 50,105 tokens, estimated cost `$0.6341`.
+
+---
+
+## Optional: Jump Directly to a UI
+
+```bash
+./run.sh 2    # → Streamlit (opens browser automatically)
+./run.sh 3    # → Textual TUI (keyboard-driven terminal dashboard)
+```
+
+Or launch directly:
+```bash
+# Browser dashboard
+.venv/bin/python -m streamlit run ui/streamlit_app.py
+
+# Terminal dashboard
+.venv/bin/python ui/textual_app.py
+```
+
+| UI | Best for |
+|----|----------|
+| **Streamlit** | CSV upload & preview, live run progress, dashboard metrics, Decision Journal, history compare, download buttons, JSON config editing |
+| **Textual** | Same features, no browser, journal summaries, keyboard shortcuts (`Ctrl+R` = run, `Ctrl+S` = save, `r` = refresh) |
+
 ---
 
 ## 🎯 What You Got
@@ -115,6 +154,7 @@ Open the markdown file in any editor to see recommendations with conviction scor
 ✅ **Markdown report** with full recommendations and analysis  
 ✅ **CSV table** with ticker, action, conviction, net expected return  
 ✅ **JSON log** for backtesting (in `data/recommendations_log/`)
+✅ **Decision journal** for recording what you actually did and scoring model-vs-user outcomes
 
 ---
 
@@ -125,9 +165,11 @@ Open the markdown file in any editor to see recommendations with conviction scor
 To give Claude more context:
 
 1. Go to **Account → Activity → Export Activities Export (CSV)**
-2. Select last **3 months**
+2. Export the **full available history** if Wealthsimple offers it; otherwise select the longest range available
 3. Save to Downloads
 4. Run again and answer "Y" to the Activities CSV question
+
+The app uses the recent 90-day slice for prompt context and previous-session checks, but uses the full Activities file for exact FIFO holding-day calculations.
 
 ### Optional: Schedule Daily Runs
 
@@ -196,4 +238,4 @@ Check the [FAQ](README.md#-faq) in the main README.
 
 **Done!** You're now running an AI-powered portfolio advisor. 🎉
 
-Run `python src/main.py` whenever you want fresh recommendations.
+Run `./run.sh` whenever you want fresh recommendations. Add `morning` or `afternoon` to skip the menu.

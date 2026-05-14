@@ -80,6 +80,29 @@ def aggregate_sentiment(articles: list[dict]) -> dict:
     }
 
 
+def _parse_publish_time(item: dict) -> datetime:
+    """Parse both legacy and current yfinance news timestamp shapes."""
+    content = item.get("content") or {}
+    value = (
+        item.get("providerPublishTime")
+        or item.get("published")
+        or content.get("pubDate")
+        or content.get("displayTime")
+    )
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value)
+    if isinstance(value, str) and value.strip():
+        raw = value.strip().replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(raw)
+            if parsed.tzinfo is not None:
+                parsed = parsed.astimezone().replace(tzinfo=None)
+            return parsed
+        except ValueError:
+            pass
+    return datetime.now()
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -95,11 +118,7 @@ def _fetch_news_raw(ticker: str, lookback_days: int, max_articles: int, enable_s
     articles = []
 
     for item in news:
-        pub_time = item.get("providerPublishTime") or item.get("published", 0)
-        if isinstance(pub_time, (int, float)):
-            pub_dt = datetime.fromtimestamp(pub_time)
-        else:
-            pub_dt = datetime.now()
+        pub_dt = _parse_publish_time(item)
 
         if pub_dt < cutoff:
             continue
@@ -143,13 +162,21 @@ def get_news(ticker: str, lookback_days: int = 7, max_articles: int = 5) -> list
     ttl = settings.get("cache_ttl_seconds", 3600)
     enable_sentiment = settings.get("enable_sentiment", True)
 
+    # Include today's date in the cache key so a Friday-afternoon run after a
+    # Friday-morning run doesn't return Friday-morning's headlines. With this,
+    # cache hits only happen within the same calendar day — typically only for
+    # the morning/afternoon split, which is the desired behavior.
+    from datetime import datetime as _dt
+    today_key = _dt.now().strftime("%Y%m%d")
+
     try:
         return cached(
             namespace="news",
-            key=f"{ticker}_{lookback_days}_{max_articles}_{int(enable_sentiment)}",
+            key=f"{ticker}_{today_key}_{lookback_days}_{max_articles}_{int(enable_sentiment)}",
             ttl_seconds=ttl,
             loader=lambda: _fetch_news_raw(ticker, lookback_days, max_articles, enable_sentiment),
             enabled=cache_enabled,
+            should_cache=lambda articles: bool(articles),
         )
     except Exception as e:
         return [{
@@ -168,7 +195,9 @@ def get_news_for_tickers(tickers: list, lookback_days: int = None) -> dict:
         lookback_days = settings.get("news_lookback_days", 7)
 
     result = {}
-    max_workers = min(8, len(tickers)) if tickers else 1
+    # yfinance shares a backend with market_data; reuse the same throttle cap.
+    cap = int(settings.get("yfinance_max_workers", 4))
+    max_workers = min(cap, len(tickers)) if tickers else 1
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(get_news, t, lookback_days): t for t in tickers}

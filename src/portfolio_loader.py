@@ -18,7 +18,7 @@ import json
 from pathlib import Path
 
 from src._utils import clean_csv_row, safe_float
-from src.constants import CDR_EXCHANGES
+from src.constants import CDR_EXCHANGES, SECTOR_ALIASES, SECTOR_OVERRIDES
 
 # Minimum columns we need from the Wealthsimple Holdings CSV.
 # If any of these are missing, parsing will produce garbage — fail loudly.
@@ -129,7 +129,12 @@ def parse_holdings_csv(csv_path: str | Path) -> dict:
         if quantity is None or quantity == 0:
             continue
 
-        is_cdr = mic in CDR_EXCHANGES or exchange in CDR_EXCHANGES
+        is_canadian_listing = mic in CDR_EXCHANGES or exchange in CDR_EXCHANGES
+        name_upper = name.upper()
+        is_cdr = is_canadian_listing and (" CDR" in f" {name_upper}" or "CAD HEDGED" in name_upper)
+        ticker = symbol
+        if is_canadian_listing and not is_cdr and market_currency == "CAD" and symbol != "CASH":
+            ticker = symbol if symbol.endswith(".TO") else f"{symbol}.TO"
 
         # Average cost in market currency
         avg_cost_market = None
@@ -146,7 +151,8 @@ def parse_holdings_csv(csv_path: str | Path) -> dict:
             unrealized_pct = round(unrealized / book_value_market * 100, 2)
 
         holdings.append({
-            "ticker": symbol,
+            "ticker": ticker,
+            "raw_symbol": symbol,
             "exchange": exchange,
             "name": name,
             "security_type": security_type,
@@ -223,7 +229,14 @@ def compute_sector_exposure(holdings: list, market_data: dict) -> dict:
             continue
 
         md = market_data.get(ticker, {}) if market_data else {}
-        sector = (md.get("sector") if md else None) or "Unknown"
+        alias = SECTOR_ALIASES.get(ticker)
+        alias_md = market_data.get(alias, {}) if alias and market_data else {}
+        sector = (
+            SECTOR_OVERRIDES.get(ticker)
+            or (md.get("sector") if md else None)
+            or (alias_md.get("sector") if alias_md else None)
+            or "Unknown"
+        )
 
         if sector not in sector_totals:
             sector_totals[sector] = {"value_cad": 0.0, "pct": 0.0, "tickers": []}

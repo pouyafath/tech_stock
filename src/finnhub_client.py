@@ -8,6 +8,7 @@ Docs: https://finnhub.io/docs/api
 Provides:
   - earnings_calendar(ticker, days_ahead): upcoming earnings + EPS estimates
   - recommendation_trends(ticker): analyst buy/hold/sell consensus
+  - upgrade_downgrade(ticker): recent analyst rating changes
   - news_sentiment(ticker): aggregate sentiment score from finance news
   - earnings_surprises(ticker): historical beat/miss vs estimates
 
@@ -154,6 +155,45 @@ def recommendation_trends(ticker: str) -> dict | None:
     )
 
 
+# ── Analyst upgrade / downgrade events ───────────────────────────────────────
+
+def _fetch_upgrade_downgrade(ticker: str, days_back: int = 90) -> list | None:
+    end = datetime.now().date()
+    start = end - timedelta(days=days_back)
+    data = _request(
+        "/stock/upgrade-downgrade",
+        {"symbol": ticker, "from": start.isoformat(), "to": end.isoformat()},
+    )
+    if not data or not isinstance(data, list):
+        return None
+    rows = []
+    for row in data[:8]:
+        rows.append({
+            "ticker": ticker,
+            "date": row.get("gradeTime") or row.get("date"),
+            "firm": row.get("company"),
+            "from_grade": row.get("fromGrade"),
+            "to_grade": row.get("toGrade"),
+            "action": row.get("action"),
+        })
+    return rows or None
+
+
+def upgrade_downgrade(ticker: str, days_back: int = 90) -> list | None:
+    """Recent analyst upgrade/downgrade events."""
+    if not _api_key():
+        return None
+    settings = _get_settings()
+    ttl = settings.get("finnhub_cache_ttl_seconds", 21600)
+    return cached(
+        namespace="finnhub_upgrades",
+        key=f"{ticker}_{days_back}",
+        ttl_seconds=ttl,
+        loader=lambda: _fetch_upgrade_downgrade(ticker, days_back),
+        enabled=settings.get("cache_enabled", True),
+    )
+
+
 # ── News sentiment ────────────────────────────────────────────────────────────
 
 def _fetch_news_sentiment(ticker: str) -> dict | None:
@@ -282,6 +322,7 @@ if __name__ == "__main__":
         for fn, name in [
             (lambda: earnings_calendar("NVDA"), "earnings_calendar(NVDA)"),
             (lambda: recommendation_trends("NVDA"), "recommendation_trends(NVDA)"),
+            (lambda: upgrade_downgrade("NVDA"), "upgrade_downgrade(NVDA)"),
             (lambda: news_sentiment("NVDA"), "news_sentiment(NVDA)"),
             (lambda: earnings_surprises("NVDA"), "earnings_surprises(NVDA)"),
             (lambda: insider_summary("NVDA"), "insider_summary(NVDA)"),

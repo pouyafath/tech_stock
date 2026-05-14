@@ -11,7 +11,7 @@
 
 ## 🎯 Overview
 
-**tech_stock** is an intelligent portfolio advisor that analyzes your Wealthsimple holdings and provides structured trading recommendations twice daily (morning/afternoon sessions). It leverages Claude AI to:
+**tech_stock** is an intelligent portfolio advisor that analyzes your Wealthsimple holdings and provides structured trading recommendations twice daily (morning/afternoon sessions). The original CLI remains the canonical workflow, with optional Streamlit and Textual interfaces layered on top of the same report pipeline. It leverages Claude AI to:
 
 - **Analyze** your portfolio in real-time with live market data
 - **Score** each trade idea by conviction (1-10) and net expected return after fees
@@ -21,38 +21,161 @@
 
 ### Key Features
 
-✅ **Priority Actions** — "Do This Today" list ordered by urgency (intraday trades first, then short-term)  
-✅ **Intelligent Sizing** — Investment amounts ($50–$700 per session) based on conviction and budget  
-✅ **Hold Tiers** — HOLD recommendations labeled as watch / keep / add-on-dip for clarity  
-✅ **Earnings Alerts** — ⚠️ Flags tickers with earnings within 7 days; adjusts risk profile  
-✅ **Exit Planning** — Target exit dates and expected price ranges (low % / high %) for every trade  
-✅ **6 Time Horizons** — Intraday / 1-2 weeks / 1-3 months / 3-6 months / 6-12 months / 12-36 months  
-✅ **6 Enrichment APIs** — Parallel data from Finnhub, Polygon, Twelve Data, FRED, CoinGecko (+ optional Alpha Vantage)  
-✅ **Fee-Aware** — Refuses to recommend trades below the fee hurdle (default 0.5% net expected return)  
-✅ **Conviction Scoring** — 1-10 scale; scores < 6 automatically become HOLD recommendations  
-✅ **Live Market Data** — Real-time prices, 3-month history, PE ratios, 52-week highs/lows via yfinance  
-✅ **Recent News** — Pulls last 7 days of headlines per ticker from Yahoo Finance  
-✅ **Trade History Context** — Loads your recent Wealthsimple trades to avoid whipsawing  
-✅ **Triple Output** — Markdown report + CSV table + JSON log for backtesting  
-✅ **Model Choice** — Pick Sonnet 4.6 (~$0.09/run, fast) or Opus 4.7 (~$0.45/run, deeper analysis) per session  
-✅ **Fast Parallel Fetching** — Concurrent API requests (18 tickers + enrichment in ~15s vs ~120s serial)  
+- ✅ **Trader Action Plan** — Review-before-trading execution table ordered by urgency
+- ✅ **Critical Actions Block** — Consolidates quality warnings, manual-review gates, drift, and leveraged ETF risks near the top
+- ✅ **Report Quality Gates** — Deterministic warnings for stale quotes, missing catalysts, range errors, and sizing risk
+- ✅ **Two-Pass Claude Review** — First-pass JSON is critiqued against quality warnings and drift, then revised before rendering
+- ✅ **Deterministic Exit Sizing** — SELL/TRIM rows show exact shares, position fraction, and estimated proceeds when holdings data is available
+- ✅ **Intelligent Sizing** — Investment amounts ($50–$700 per session) based on conviction and budget
+- ✅ **Hold Tiers** — HOLD recommendations labeled as watch / keep / add-on-dip for clarity
+- ✅ **Earnings Alerts** — Flags tickers with earnings within 7 days; adjusts risk profile
+- ✅ **Risk Controls** — Entry zones, stop-loss, take-profit, catalyst verification, and manual-review flags per recommendation
+- ✅ **Exit Planning** — Target exit dates and Bear Case / Bull Case ranges for every trade
+- ✅ **Portfolio Risk Dashboard** — Beta, volatility, drawdown estimate, company exposure rollups, and hedge suggestions
+- ✅ **8 Time Horizons** — Intraday / next session / 1-3 trading days / 1-2 weeks / 1-3 months / 3-6 months / 6-12 months / 12-36 months
+- ✅ **6 Enrichment APIs** — Parallel data from Finnhub, Polygon, Twelve Data, FRED, CoinGecko (+ optional Alpha Vantage)
+- ✅ **Fee-Aware** — Refuses to recommend trades below the fee hurdle (default 0.5% net expected return)
+- ✅ **Conviction Scoring** — 1-10 scale; scores < 6 automatically become HOLD recommendations
+- ✅ **Live Market Data** — Quote timestamp, previous close, pre/after-market moves, day range, quote source, 10-month history, PE ratios, FCF yield, margins, dividends, 52-week highs/lows via yfinance
+- ✅ **Recent News** — Pulls last 7 days of headlines per ticker from Yahoo Finance
+- ✅ **Trade History Context** — Loads your recent Wealthsimple trades to avoid whipsawing
+- ✅ **Decision Journal & Outcome Scoring** — Records accepted/ignored/modified recommendations and measures your results against the model
+- ✅ **Triple Output** — Markdown report + CSV table + JSON log for backtesting
+- ✅ **Three Interface Options** — Original CLI remains default, with optional Streamlit dashboard and Textual terminal UI
+- ✅ **Model Choice** — Pick Sonnet 4.6 (~$0.30-$0.70/run typical two-pass range) or Opus 4.7 (higher cost, deeper analysis) per session
+- ✅ **Fast Parallel Fetching** — Concurrent API requests with caching and graceful degradation
 
 ---
 
-## ✨ What's New in v1.2.0 (April 29, 2026)
+## ✨ What's New in v1.11.0 (May 13, 2026)
 
-**Major Upgrade:** Professional-grade signals, actionable sizing, and clear exit plans
+**Decision journal and model-vs-user outcome scoring.**
 
+- **Decision Journal** — actionable recommendations are seeded into local `data/decision_journal.json` as pending decisions after each run.
+- **Record real follow-through** — mark a recommendation as accepted, ignored, modified, delayed, watch, or executed, with optional actual action, shares, execution price, reason, and notes.
+- **Outcome Scorecard** — scores recorded decisions over 1/5/20/60-day windows and reports model avg return, your avg return, hit rates, and discretion delta.
+- **Feedback into Claude** — the scorecard is included in the next Claude prompt so the model can calibrate around your actual behavior, not only historical recommendations.
+- **UI support** — Streamlit has a Decision Journal tab; Textual shows journal status and scorecard summaries.
+
+Current local suite: `pytest -q` passes with 170 tests.
+
+## ✨ What's New in v1.10.0 (May 10, 2026)
+
+**Live validation hardening after a full paid Sonnet run.**
+
+- **Yahoo news parser fixed** — yfinance's current news shape uses `content.pubDate`; the app now parses it correctly, so large-move catalyst tables populate with real headlines again.
+- **Empty-news cache fixed** — transient empty headline responses are no longer cached for an hour, avoiding false "no news" catalyst gaps.
+- **Claude JSON resilience** — default `claude_max_tokens` raised to `24000`, Rule 32 now has strict string-length caps, news prompt payloads are tighter, and a one-time emergency compact JSON retry is available if Claude returns truncated JSON.
+- **Leveraged ETF duration wording fixed** — when an ETF entry predates the Activities export, the report now shows a lower bound such as `held at least 41 days` instead of either overstating it or saying only "unknown."
+- **Position Aging wording fixed** — reports no longer claim all positions are fresh/core when some entry dates are unknown.
+- **Exit sizing and critical actions polished** — SELL/TRIM rows now get deterministic share/proceeds fields, and quote mismatches are grouped into one Critical Actions item instead of flooding the top of the report.
+- **Paid validation** — successful full live Sonnet two-pass run on May 10, 2026 with 31 tracked tickers, enrichment enabled, 12 recommendation rows, 50,105 tokens, estimated cost `$0.6341`, cache hit, no JSON retry required.
+
+v1.10 validation suite passed with 167 tests.
+
+## ✨ What's New in v1.9.0 (May 6, 2026)
+
+**All strategy gates now visible + thesis tracker + paper-trading mode.**
+
+- **Markdown report shows everything** — Active Risk Modifiers banner at top, Position Aging table, Trailing Stops with breached/active sections, Sector Rotation leaders/laggards/arrows, Tranched Entry/Exit Plans inside each recommendation. CSV gets 3 new tranche columns.
+- **Thesis-decay tracker** — every BUY's original thesis is stored. Quarterly auto-reviews classify progress as `materialized`/`partial`/`not_yet`/`invalidated`. After 4 consecutive `not_yet` reviews (~12 months), the position is force-exited regardless of Claude's output. Frees capital from theses that haven't materialized.
+- **Paper-trading mode** (`./run.sh morning --paper`) — every Claude recommendation is applied to a simulated portfolio in `data/paper_portfolio.json`. Tracks cash, shares, fees, value history. Lets you quantify your **discretion penalty** — the gap between recommendations and what you actually traded.
+
+21 new tests, 147 total at that milestone; current suite is larger.
+
+## ✨ What's New in v1.8.0 (May 6, 2026)
+
+**P2 polish — execution quality and weekly action density.**
+
+- **Trailing stops** — stops automatically tighten as positions appreciate (+10% → breakeven, +20% → 8% trail, +40% → 12% trail). Breached stops auto-generate TRIM regardless of Claude's output. Locks in gains without manual intervention.
+- **Sector rotation rhythm** — sector ETFs ranked by 1-month relative strength. Detects leadership shifts vs the previous session ("rotating in" / "rotating out"). Generates timely rotation trades aligned with your weekly cadence.
+- **Tranched entry/exit plans** — every BUY/ADD now ships with a 3-step entry plan (40% now / 30% on pullback / 30% on confirmation). Same for SELL/TRIM exits. Lowers average entry by ~0.5–1% historically and turns each trade idea into 3 weekly small actions.
+- **Live USD→CAD FX rate** from FRED DEXCAUS — replaces the static 1.37 assumption (real range: 1.32–1.42). CAD-denominated holdings now valued accurately.
+- **Fixed:** News cache now date-keyed (no more stale headlines on the afternoon run); drift tracker now skips quick re-runs and prefers same-session-type from the previous trading day.
+
+31 new tests, 111 total, all passing.
+
+## ✨ What's New in v1.7.0 (May 6, 2026)
+
+**Strategy alignment — every recommendation now respects your trading rules deterministically.**
+
+- **Position aging** — Every holding is classified `fresh`/`core`/`mature`/`aged`/`stale`. Mature positions (6-12 months without a fresh catalyst) auto-drop conviction by 1; stale (>2 years) are force-converted to TRIM regardless of Claude's output.
+- **VIX-regime sizing** — `invest_amount_usd` automatically scales by VIX: 0.85× when 15–25, 0.6× when 25–35, 0.4× above 35.
+- **Drawdown circuit breaker** — When portfolio is ≥6% off its 30-day peak: ADDs halve, BUYs become HOLD-watch, and weak HOLDs (conviction <7) get forced to watch.
+- **Conviction sizing from your actual hit rates** — After 3+ mature trades per conviction bucket, position sizes follow your real edge, not just Claude's conviction prior.
+- **Catalyst windows** — Earnings ±5 days = lockdown; T-30 to T-5 = setup window; T+1 to T+3 = post-earnings drift. Plus session-level FOMC/CPI/NFP tags pre-position you 1-2 days before macro events.
+- **Cache pricing fixed** — Code uses 1-hour cache TTL; pricing table was billing at 5-minute rates (under-reported costs by ~25%).
+
+41 new tests, 80 total, all passing.
+
+## ✨ What's New in v1.6.0 (May 2026)
+
+**Native App Packaging + Unified Launcher:** Run tech_stock as a native macOS or Windows application — no terminal required.
+
+- **`./run.sh` Unified Entry Point** — Running `./run.sh` with no arguments now shows an interactive menu (CLI / Streamlit / Textual). Existing callers with arguments (e.g. `./run.sh morning`) still work unchanged.
+- **Native macOS App** — `build_macos.sh` builds `dist/tech_stock.dmg` using PyInstaller. Double-click to install; dark-themed tkinter launcher window opens with three one-click buttons.
+- **Native Windows App** — `build_windows.bat` builds `dist\tech_stock\tech_stock.exe`. Optionally wrap in an Inno Setup installer via `installer_windows.iss`.
+- **GitHub Actions Release CI** — Push a version tag (`git tag v1.0.0 && git push --tags`) and GitHub Actions automatically builds both the `.dmg` and Windows `.exe`, then uploads them as release artifacts.
+- **Backtest On-Demand** — Backtest tab no longer blocks app startup; yfinance price fetches now happen only when you click "Run backtest".
+- **Report Rendering Fixed (Textual)** — Today's Report and History tabs now use the Textual `Markdown` widget (was `RichLog` — headings and tables previously appeared as raw text).
+
+## ✨ What's New in v1.5.1 (April 30, 2026)
+
+**Optional UI Layer:** Added and upgraded two extra interfaces without changing the original way to run the program.
+
+- **Original CLI Preserved** — `python src/main.py` and `./run.sh` still behave as before
+- **Streamlit Dashboard** — Run reports from a browser UI with live progress, CSV upload/preview, first-class dashboard metrics, markdown history/compare, structured backtests, downloads, connectivity checks, and config JSON validation
+- **Textual TUI** — Run reports from a terminal dashboard with live progress, dashboard tables, history, structured backtest tables, CSV discovery helpers, keyboard shortcuts, connectivity checks, and portfolio/config editing
+- **UI Launcher** — `./run.sh` (or `./run-ui.sh`) lets you choose CLI, Streamlit, or Textual from one menu
+- **Shared UI Runtime** — Both UIs call the same `src.main.run()` pipeline as the CLI, with auto-open disabled and generated artifact paths returned to the UI
+- **Latest JSON Dashboard** — Optional UIs surface `risk_dashboard`, `quality_warnings`, `priority_actions`, `hedge_suggestions`, `drift_vs_previous`, and Claude cost/tokens without requiring a long markdown scroll
+
+## ✨ What's New in v1.4.1 (April 30, 2026)
+
+**Runtime Stabilization:** Updated after a successful full portfolio run using the April 29 holdings and activities CSVs.
+
+- **Claude Output Budget** — This was originally stabilized at `16000`; v1.10 raises the default to `24000` and adds an emergency compact retry for news-heavy runs.
+- **Compact Recommendation Contract** — Rule 32 caps Claude at 12 recommendation rows focused on actionable trades and material risks; lower-signal tickers move to watchlist/warnings.
+- **Schema Resilience** — Missing required per-recommendation fields from Claude are normalized to safe defaults before schema validation, so one incomplete row does not kill the run.
+- **Correct Market Phase** — Overnight runs now label the context as "outside regular market hours — before next open" instead of pre-close.
+- **Observed Full-Run Cost** — Latest successful Sonnet two-pass run used 50,105 tokens and cost `$0.6341`; smaller portfolios or cached/shorter outputs may cost less.
+
+## ✨ What's New in v1.4.0 (April 30, 2026)
+
+**Unified Plan Follow-Through:** Applied the remaining quality-plan items around calibration, data enrichment, report UX, and Claude cost/performance behavior.
+
+- **Critical Actions Section** — Top-of-report checklist now consolidates high/medium quality warnings, manual catalyst reviews, leveraged ETF duration risk, and major drift items
+- **Stronger Quality Gates** — Catalyst gating now independently detects near-term earnings from enrichment data; hard downgrades force HOLD-watch and cap conviction at 5
+- **Range And Decision Checks** — Reversed Bear/Bull ranges remain visible as warnings after normalization, near-term range mismatches check both sides, and missing decision-tree language is flagged
+- **Sharper Track-Record Calibration** — Prompt now caps high conviction when historical conviction/action buckets have weak hit rates, and the backtest summary includes per-ticker stats plus recent realized examples
+- **Richer Market Data** — Adds premarket/after-hours moves, FCF yield, gross/operating margins, dividend yield, and ex-dividend dates where yfinance provides them
+- **More Enrichment Signals** — Finnhub analyst upgrade/downgrade events, deterministic macro calendar estimates for NFP/CPI/FOMC verification, and optional Polygon current snapshot fields
+- **Leveraged ETF Decay Estimate** — Daily-reset ETF warnings now include holding days plus an estimated volatility-decay drag when 20-day volatility is available
+- **Previous Session Execution Check** — The report compares prior actionable recommendations with recent activities CSV rows so you can see what was or was not executed
+- **Data Freshness Footnotes** — Quote-quality section explains provider quote vs daily-close fallback semantics before order entry
+- **Claude Cost/Performance** — Repeated user context is cache-marked for the second pass, and Opus can use extended thinking via `enable_opus_extended_thinking`
+
+## ✨ What's New in v1.3.0 (April 30, 2026)
+
+**Major Upgrade:** Deterministic quality gates, two-pass review, portfolio risk analytics, richer report structure, and CI coverage
+
+- **Report Quality Warnings** — Stale quotes, quote mismatches, missing catalysts, invalid horizons, and oversized exposures are surfaced near the top of the report
+- **Always-On Second Pass** — Claude revises its first JSON using quality warnings, drift, and previous-session context before final output
+- **Risk Controls** — Each recommendation now carries entry zone, stop-loss, take-profit, catalyst verification, catalyst source, and manual-review fields
+- **Portfolio Risk Dashboard** — Adds beta, volatility, drawdown estimate, top-3 concentration, correlated pairs, company-level exposure rollups, and hedge suggestions
+- **Richer Deterministic Market Data** — Adds SMA cross, ATR(14), 5/20-day volatility, fundamentals, benchmark beta inputs, and sector/cross-asset context
+- **Structured Enrichment Degradation** — External API failures are recorded and rendered instead of silently disappearing
 - **Priority Actions** — "Do This Today" ranked list replaces guesswork about order of execution
 - **Investment Sizing** — Exact USD amounts per trade ($50–$700 range), scaled by conviction
 - **Hold Tiers** — HOLD recommendations now labeled (watch / keep / add_on_dip) for clarity on next steps
 - **Earnings Alerts** — ⚠️ Automatically flags tickers with earnings within 7 days
-- **Exit Planning** — Every trade includes target exit date and expected price range (low % / high %)
-- **6 Enrichment APIs** — Analyst consensus, insider activity, macro signals, crypto context (fast parallel phase)
+- **Exit Planning** — Every trade includes target exit date and Bear Case / Bull Case expected ranges
+- **6 Enrichment APIs** — Analyst consensus, insider activity, macro signals, crypto context, and previous-session Polygon VWAP context
 - **Extended Time Horizons** — Now supports 3-6 months, 6-12 months, 12-36 months for medium-term thesis
 - **Improved Setup** — `API_KEYS.txt` as the easy-to-find alternative to `.env` for new users
-- **Better CSV Export** — 12 columns including Hold Tier, Invest USD, Exit Target, Price Range, Earnings Alert
-- **Optional Alpha Vantage** — Now disabled by default (free tier only 25 req/day); enable in settings if you have paid plan
+- **Better CSV Export** — Trader-facing columns for Hold Tier, Invest USD, Bear/Bull Case, risk controls, catalyst gate, and quote audit fields
+- **Optional Slow Data Paths** — Alpha Vantage and options implied-move lookups are disabled by default; enable them only when needed
+- **Test Suite + CI** — Pytest coverage and GitHub Actions now run on push and pull requests
 
 ---
 
@@ -63,44 +186,194 @@
 - **Python 3.11+** (via Homebrew on macOS: `brew install python@3.11`)
 - **Anthropic API key** (from https://console.anthropic.com/)
 - **Wealthsimple Premium account** with a USD trading account
+- **Optional UI dependencies** are included in `requirements.txt` (`streamlit` and `textual`)
 
-### Installation
+### Installation — Choose Your OS
+
+Each operating system has two supported ways to use tech_stock:
+
+| OS | App-based option | Terminal-based option |
+|---|---|---|
+| macOS | Native `.dmg` / `.app` launcher, or Streamlit browser dashboard | `./run.sh` or `python src/main.py` |
+| Windows | Native `.exe` launcher, or Streamlit browser dashboard | PowerShell / Command Prompt with `python src/main.py` |
+| Linux | Streamlit browser dashboard | `./run.sh` or `python src/main.py` |
+
+The terminal workflow is the most reliable for development and automation. The app-based workflow is better for users who prefer buttons, upload widgets, report history, and a dashboard.
+
+### Step 1 — Download Or Clone
+
+**Option A: Download a prebuilt app**
+
+Use this if you want the app-based macOS or Windows launcher:
+
+1. Open the [Releases page](https://github.com/pouyafath/tech_stock/releases).
+2. Download the latest macOS `.dmg` or Windows `.exe` / zipped app artifact.
+3. Put `API_KEYS.txt` beside the app, or in the project folder if you are running from source.
+
+Linux does not currently ship a `.deb`, `.rpm`, or AppImage. Use the Streamlit browser dashboard from source for the app-style Linux experience.
+
+**Option B: Clone the source**
+
+Use this for terminal mode, Streamlit, Textual, local development, or building the native app yourself:
 
 ```bash
-# Clone or navigate to the project
+git clone https://github.com/pouyafath/tech_stock.git
 cd tech_stock
-
-# Create and activate virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Set up API keys (two options below)
 ```
 
-**Option A: Easy Way (Recommended for new users)**
+### Step 2 — Set Up API Keys
+
+Anthropic is required. Enrichment keys are optional but improve report quality.
+
+**Easy method, recommended:**
+
 ```bash
 cp API_KEYS.template.txt API_KEYS.txt
-# Open API_KEYS.txt in your editor and paste your API keys
-# (See signup links inside for each service)
 ```
 
-**Option B: Advanced Way (.env file)**
+Open `API_KEYS.txt` and paste your keys:
+
+```bash
+# macOS
+open API_KEYS.txt
+
+# Linux
+nano API_KEYS.txt
+
+# Windows PowerShell
+notepad API_KEYS.txt
+```
+
+**Advanced method:**
+
 ```bash
 cp .env.example .env
-# Edit .env and paste all your API keys
+# Edit .env in your editor
 ```
 
-### First Run (Interactive Mode — Recommended)
+### macOS
+
+#### macOS Option 1 — App-Based
+
+Use the prebuilt `.dmg` from the [Releases page](https://github.com/pouyafath/tech_stock/releases), or build it locally:
 
 ```bash
-source .venv/bin/activate
-ANTHROPIC_API_KEY=your_key_here python src/main.py
+chmod +x build_macos.sh
+./build_macos.sh
 ```
 
-You'll be walked through 5 questions:
+Then open `dist/tech_stock.dmg`, drag `tech_stock.app` to Applications, and launch it. The launcher gives you buttons for:
+
+- Streamlit Web UI
+- Textual Terminal UI
+- Original CLI
+
+#### macOS Option 2 — Terminal-Based
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+chmod +x run.sh run-ui.sh
+
+# Interactive launcher: CLI / Streamlit / Textual
+./run.sh
+
+# Direct CLI
+./run.sh morning
+./run.sh afternoon --model opus
+
+# Original Python entrypoint
+python src/main.py
+```
+
+### Linux
+
+#### Linux Option 1 — App-Based Browser Dashboard
+
+Linux currently uses the Streamlit browser dashboard as its app-based interface:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+.venv/bin/python -m streamlit run ui/streamlit_app.py
+```
+
+Open the local URL printed by Streamlit, normally `http://localhost:8501`.
+
+#### Linux Option 2 — Terminal-Based
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+chmod +x run.sh run-ui.sh
+
+# Interactive launcher: CLI / Streamlit / Textual
+./run.sh
+
+# Direct CLI
+./run.sh morning
+./run.sh afternoon --model opus
+
+# Original Python entrypoint
+python src/main.py
+```
+
+### Windows
+
+#### Windows Option 1 — App-Based
+
+Use the prebuilt Windows artifact from the [Releases page](https://github.com/pouyafath/tech_stock/releases), or build it locally from PowerShell / Command Prompt:
+
+```bat
+build_windows.bat
+```
+
+Then run:
+
+```bat
+dist\tech_stock\tech_stock.exe
+```
+
+If you want an installer-style package, use `installer_windows.iss` with Inno Setup after building.
+
+#### Windows Option 2 — Terminal-Based
+
+PowerShell:
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+
+# Interactive CLI
+python src\main.py
+
+# Direct CLI
+python src\main.py morning --holdings "$HOME\Downloads\holdings-report-YYYY-MM-DD.csv"
+python src\main.py afternoon --model opus --holdings "$HOME\Downloads\holdings-report-YYYY-MM-DD.csv"
+
+# Browser dashboard
+python -m streamlit run ui\streamlit_app.py
+
+# Terminal dashboard
+python ui\textual_app.py
+```
+
+If PowerShell blocks activation, run:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+Then run `.\.venv\Scripts\Activate.ps1` again.
+
+### First Run — What To Expect
+
+In CLI mode, you will be walked through 5 questions:
 
 ```
 Session type (morning/afternoon) [Enter = morning]:
@@ -111,15 +384,16 @@ Session type (morning/afternoon) [Enter = morning]:
 4. Activities CSV detected: /Users/you/Downloads/activities-export-2026-04-24.csv
    Is this correct? (Y/N, or Enter to skip): Y
 5. Which model would you like to use?
-   [1] Sonnet 4.6 — ~$0.09/run (recommended for daily use)
-   [2] Opus 4.7   — ~$0.45/run (deeper analysis, better for complex portfolios)
+   [1] Sonnet 4.6 — ~$0.30-$0.70/run typical two-pass range (recommended for daily use)
+   [2] Opus 4.7   — higher cost, deeper analysis, better for complex portfolios
    Choose (1/2) [Enter = 1]:
 ```
 
 Done! The app will:
 - Auto-detect your latest CSV files from `~/Downloads/`
-- Fetch live market data for 36+ tracked tickers
-- Call Claude for analysis
+- Fetch live market data for portfolio/watchlist tickers, benchmark risk tickers, and sector/cross-asset context
+- Run deterministic quality checks and two Claude passes
+- Compare previous actionable recommendations with recent activities when an activities CSV is provided
 - Generate reports in `reports/` directory
 
 ---
@@ -161,20 +435,163 @@ python src/main.py afternoon --holdings ~/Downloads/holdings-report-2026-04-24.c
 python src/main.py morning --holdings ~/Holdings.csv --model opus
 ```
 
-### Schedule Recurring Sessions
+### Running the Application
 
-To run every Wednesday at 10:00 AM:
+**macOS / Linux:**
+
+| Command | What happens |
+|---------|-------------|
+| `./run.sh` | Interactive menu — pick CLI / Streamlit / Textual |
+| `./run.sh morning` | Skip menu → CLI, morning session |
+| `./run.sh afternoon --model opus` | Skip menu → CLI, Opus model |
+| `./run.sh 2` | Skip menu → Streamlit (browser opens automatically) |
+| `./run.sh 3` | Skip menu → Textual TUI |
+
+**Windows PowerShell / Command Prompt:**
+
+| Command | What happens |
+|---------|-------------|
+| `python src\main.py` | Interactive CLI |
+| `python src\main.py morning --holdings "%USERPROFILE%\Downloads\holdings-report-YYYY-MM-DD.csv"` | Direct morning CLI run |
+| `python src\main.py afternoon --model opus --holdings "%USERPROFILE%\Downloads\holdings-report-YYYY-MM-DD.csv"` | Direct afternoon CLI run with Opus |
+| `python -m streamlit run ui\streamlit_app.py` | Streamlit browser dashboard |
+| `python ui\textual_app.py` | Textual terminal dashboard |
+
+All three interface options call the **same report engine** (`src/main.run()`). UI runs disable automatic file opening and return the generated markdown/CSV/JSON paths inside the interface.
+
+### Streamlit Dashboard
 
 ```bash
-# Create a launchd plist or use cron:
-# (0 10 * * 3) = Wednesday 10:00 AM
-
-# Or use a simple shell script wrapper:
-#!/bin/bash
-cd /path/to/tech_stock
-source .venv/bin/activate
-ANTHROPIC_API_KEY=your_key python src/main.py morning --holdings ~/Downloads/latest_holdings.csv
+streamlit run ui/streamlit_app.py
 ```
+
+Then open the local URL Streamlit prints, normally `http://localhost:8501`.
+
+Tabs:
+- **Dashboard** — Shows latest JSON-log metrics for risk, priority actions, quality warnings, hedge suggestions, drift, cost/tokens, and API connectivity
+- **Today's Report** — Renders the latest markdown report with `st.markdown`
+- **Run Report** — Select session/model/budgets, upload or point to Wealthsimple CSVs, preview holdings before spending Claude tokens, and trigger the same report pipeline as CLI mode with live progress
+- **History** — Browse previous markdown reports from `reports/`, filter/search by filename, and compare two reports side by side
+- **Backtest** — View metrics, action/conviction/ticker buckets, bar charts, and recent realized examples
+- **Decision Journal** — Record whether you accepted, ignored, modified, delayed, watched, or executed each actionable recommendation; run the model-vs-user scorecard
+- **Portfolio Editor** — Edit `config/settings.json`, `config/watchlist.json`, or fallback `config/portfolio.json` with live JSON validation
+
+Defaults:
+- Budget/model fields are read from `config/settings.json`
+- Uploaded CSVs are copied into `temporary_upload/` and remain git-ignored
+- If no holdings CSV is selected, you can explicitly use fallback `config/portfolio.json`
+- Generated markdown, CSV, and JSON files get download buttons after a successful Streamlit run
+
+### Textual Terminal UI
+
+```bash
+python ui/textual_app.py
+```
+
+The Textual app runs fully in the terminal and provides the same workflow tabs as the Streamlit dashboard. Long reports are shown in scrollable terminal panes, which is more reliable for very large markdown reports than terminal markdown rendering in the currently pinned Textual version.
+
+Useful keyboard shortcuts:
+- `r` refreshes the active tab
+- `Ctrl+R` starts a report run
+- `Ctrl+S` saves the JSON editor when the content is valid
+
+### Decision Journal
+
+After every report, actionable BUY/ADD/TRIM/SELL recommendations are added to local `data/decision_journal.json` as pending rows. Use the Streamlit **Decision Journal** tab to record what you actually did.
+
+CLI helpers are also available:
+
+```bash
+# Show journal status and outcome scorecard
+python -m src.decision_journal --score
+
+# Record one row manually
+python -m src.decision_journal \
+  --record-id 20260510_2011_afternoon.json:SOXL \
+  --decision accepted \
+  --actual-action SELL \
+  --shares 2.2292 \
+  --price 117.97 \
+  --reason "Accepted leveraged ETF exit"
+```
+
+The next paid run feeds the scorecard back into Claude so recommendations can calibrate against your real follow-through pattern.
+
+### Schedule Recurring Sessions
+
+**Linux / macOS (cron):**
+```bash
+crontab -e
+# Morning 9:30 AM ET weekdays:
+30 9 * * 1-5 /path/to/tech_stock/run.sh morning --holdings ~/Downloads/latest_holdings.csv
+```
+
+**macOS (launchd — more reliable than cron):**
+
+Save as `~/Library/LaunchAgents/com.techstock.morning.plist`:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>         <string>com.techstock.morning</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/path/to/tech_stock/run.sh</string>
+    <string>morning</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>30</integer></dict>
+  <key>StandardOutPath</key> <string>/tmp/tech_stock_morning.log</string>
+  <key>StandardErrorPath</key><string>/tmp/tech_stock_morning.log</string>
+</dict>
+</plist>
+```
+```bash
+launchctl load ~/Library/LaunchAgents/com.techstock.morning.plist
+```
+
+**Windows (Task Scheduler):**
+```bat
+schtasks /create /tn "tech_stock morning" /tr "C:\path\to\tech_stock\build_windows.bat" /sc WEEKLY /d MON,TUE,WED,THU,FRI /st 09:30
+```
+
+---
+
+## 🖥️ Native App (macOS .dmg / Windows .exe)
+
+For users who don't want a terminal, tech_stock ships as a native desktop application.
+
+### Building Locally
+
+**macOS:**
+```bash
+./build_macos.sh          # installs PyInstaller, builds dist/tech_stock.dmg
+```
+Double-click `tech_stock.dmg` → drag `tech_stock.app` to Applications → double-click.
+
+**Windows:**
+```bat
+build_windows.bat         :: builds dist\tech_stock\tech_stock.exe
+```
+Distribute the entire `dist\tech_stock\` folder. Users double-click `tech_stock.exe`.
+
+### Pre-built Releases (GitHub Actions)
+
+Push a version tag to trigger automatic builds for both platforms:
+```bash
+git tag v1.0.0 && git push --tags
+```
+GitHub Actions builds `.dmg` (macOS runner) and `.exe` (Windows runner) and attaches them to a GitHub Release. Download from the [Releases page](https://github.com/pouyafath/tech_stock/releases).
+
+### What the App Does
+
+On launch the native app shows a dark-themed launcher window (built with tkinter — no extra dependency):
+- **Streamlit Web UI** — starts the Streamlit server and opens your browser
+- **Textual Terminal UI** — opens the keyboard-driven terminal dashboard
+- **Command-Line (CLI)** — opens a terminal and runs the original CLI
+
+Your `.env` / `API_KEYS.txt` must exist in the same directory as the app or its parent.
 
 ---
 
@@ -182,7 +599,7 @@ ANTHROPIC_API_KEY=your_key python src/main.py morning --holdings ~/Downloads/lat
 
 ### Holdings Report (Wealthsimple)
 
-**When to export:** Every run (takes 30 seconds)  
+**When to export:** Every run (takes 30 seconds)
 **Where:** Account → Activity → Export Holdings Report (CSV)
 
 Contains your current positions:
@@ -197,9 +614,9 @@ The app reads this to:
 
 ### Activities Export (Wealthsimple)
 
-**When to export:** Once per week (optional but recommended)  
-**Where:** Account → Activity → Export Activities Export (CSV)  
-**Period:** Select last **3 months**
+**When to export:** Once per week (optional but recommended)
+**Where:** Account → Activity → Export Activities Export (CSV)
+**Period:** Export the **full available history** when Wealthsimple allows it. The app still uses only the recent 90-day slice for prompt context, but it uses the full file for FIFO holding-age calculations.
 
 Contains your trade history:
 - Dates, tickers, BUY/SELL, quantity, price
@@ -209,6 +626,7 @@ The app reads this to:
 - Understand recent trading patterns
 - Avoid "whipsawing" (recommend reversing a recent trade without new catalyst)
 - Provide context on conviction changes since your last trade
+- Calculate exact holding days when the export includes the original open-lot buys; otherwise the report shows a conservative lower bound
 
 ---
 
@@ -221,9 +639,13 @@ After each run, you get **three files**:
 
 Human-readable with:
 - Session summary (market context)
+- Report Quality Warnings and Critical Actions before the detailed audit sections
+- Previous Session Execution Check when an activities CSV is provided
 - Numbered recommendations with emoji indicators 🟢🟡⚪🟠🔴
 - Conviction scores and net expected returns
 - Full thesis for each trade
+- Quote & Data Quality footnotes explaining live/provider quote vs daily-close fallback behavior
+- Risk dashboard, company exposure rollup, hedge suggestions, and leveraged ETF decay estimates
 - Watchlist flags (unwatched stocks worth monitoring)
 - Warnings (concentration risk, leverage decay, etc.)
 
@@ -232,17 +654,23 @@ Human-readable with:
 ### 2. CSV Table
 **Path:** `reports/YYYYMMDD_HHMM_morning_recommendations.csv`
 
-Structured table with 12 columns:
+Structured table with trader-facing columns:
 - **Ticker** — Stock symbol
 - **Action** — BUY, ADD, HOLD, TRIM, or SELL
 - **Conviction** — 1–10 score
-- **Net Expected %** — Expected return after fees
-- **Time Horizon** — Intraday / 1-2 weeks / 1-3 months / 3-6 months / 6-12 months / 12-36 months
+- **Expected Stock Move %** — Expected move of the underlying security
+- **Expected Benefit of Action %** — For SELL/TRIM, avoided drawdown or protected gain; for BUY/ADD, upside after fees
+- **Net Expected %** — Backward-compatible net expected field
+- **Time Horizon** — Intraday / next session / 1-3 trading days / 1-2 weeks / 1-3 months / 3-6 months / 6-12 months / 12-36 months
 - **Hold Tier** — For HOLD only: watch (conviction ≤5) / keep (6–7) / add_on_dip (≥8)
 - **Invest USD** — Amount to invest (for BUY/ADD only)
+- **Action Shares / Action Fraction / Action Amount** — Deterministic SELL/TRIM size and approximate proceeds when holdings data is available
 - **Exit Target** — Target exit date (e.g., "Jul 2026")
-- **Price Range Low %** — Expected low (% change from now)
-- **Price Range High %** — Expected high (% change from now)
+- **Bear Case %** — Conservative expected move from now
+- **Bull Case %** — Optimistic expected move from now
+- **Stop Loss % / Take Profit %** — Risk controls relative to current price
+- **Catalyst Verified / Catalyst Source / Manual Review** — Catalyst gate fields for large movers and near-earnings names
+- **Quote / Previous Close / Quote Time UTC / Quote Source** — Quote audit fields for execution review
 - **Earnings Alert** — ⚠️ if earnings within 7 days
 - **Thesis** — Text summary
 
@@ -250,11 +678,9 @@ Structured table with 12 columns:
 
 **Example:**
 ```csv
-Ticker,Action,Conviction,Net Expected %,Time Horizon,Hold Tier,Invest USD,Exit Target,Price Range Low %,Price Range High %,Earnings Alert,Thesis
-NVDA,ADD,8,+14.89%,3-6 months,,500,Jul 2026,-8.0,+18.0,,Core AI infrastructure play. Analyst consensus strong...
-MSFT,HOLD,7,+11.89%,1-3 months,keep,,,+5.0,+12.0,,Lagging despite solid fundamentals; watch for catalyst...
-TSM,HOLD,8,+7.69%,6-12 months,add_on_dip,,,+2.0,+16.0,,Concentration risk at 23.7%; add on pullback below $100...
-LULU,SELL,8,+9.69%,intraday,,,,,-40.0,+5.0,⚠️,Down 67% with no recovery catalyst; earnings in 5 days...
+Ticker,Action,Hold Tier,Conviction,Invest USD,Action Shares,Action Fraction,Action Amount,Expected Stock Move %,Expected Benefit of Action %,Net Expected %,Time Horizon,Exit Target,Bear Case %,Bull Case %,Stop Loss %,Take Profit %,Catalyst Verified,Catalyst Source,Manual Review,Quote,Previous Close,Quote Time UTC,Quote Source,Earnings Alert,Thesis
+NVDA,ADD,,8,$500,,,,+15.00%,+14.89%,+14.89%,3-6 months,Jul 2026,-8%,+18%,-7%,+18%,YES,Finnhub earnings/news,NO,210.50 USD,205.12 USD,2026-04-29T20:00:01+00:00,yfinance:regularMarketPrice,,Core AI infrastructure play...
+SOXL,SELL,,9,,2.2292,100%,$263 USD,-20.00%,+19.70%,+19.70%,next session,Apr 2026,-30%,-10%,-6%,+0%,NO,,YES,117.97 USD,109.56 USD,2026-04-29T20:00:00+00:00,yfinance:regularMarketPrice,,Leveraged ETF decay risk...
 ```
 
 ### 3. JSON Log
@@ -275,14 +701,32 @@ Raw machine-readable format for:
 ```json
 {
   "budget_cad": 3000,
+  "cad_per_usd_assumption": 1.37,
   "risk_tolerance": "aggressive",
   "account_type": "wealthsimple_premium_usd",
   "claude_model": "claude-sonnet-4-6",
+  "claude_max_tokens": 24000,
+  "claude_timeout_seconds": 480,
+  "enable_two_pass_review": true,
+  "enable_opus_extended_thinking": true,
+  "opus_thinking_budget_tokens": 4096,
   "min_net_expected_return_pct": 0.5,
   "max_position_pct": 25,
+  "quote_reconciliation_threshold_pct": 1.5,
+  "risk_benchmark_tickers": ["SPY", "QQQ", "SMH"],
+  "sector_rotation_tickers": ["XLK", "XLV", "XLF", "XLE", "XLY", "XLP", "XLU", "XLI"],
+  "cross_asset_tickers": ["UUP", "TLT", "GLD", "HYG"],
+  "enable_options_implied_move_for_earnings": false,
   "enable_enrichment": true,
   "alpha_vantage_enabled": false,
+  "recent_activity_days": 90,
+  "holding_days_activity_days": null,
+  "enable_decision_journal": true,
+  "decision_journal_score_horizons": [1, 5, 20, 60],
+  "decision_journal_max_scored_decisions": 200,
+  "decision_journal_include_holds": false,
   "news_lookback_days": 7,
+  "news_prompt_max_articles": 2,
   "history_months": 10
 }
 ```
@@ -294,11 +738,28 @@ Raw machine-readable format for:
 | `budget_cad` | 3000 | Available CAD to deploy (overridden per run) |
 | `risk_tolerance` | "aggressive" | "moderate" for conservative recommendations |
 | `claude_model` | "claude-sonnet-4-6" | "claude-sonnet-4-6" (fast) or "claude-opus-4-7" (thorough) |
+| `claude_max_tokens` | 24000 | Max output tokens for structured JSON; paired with compact string caps and one retry to prevent truncation |
+| `claude_timeout_seconds` | 480 | Hard timeout for each Claude API call |
+| `enable_two_pass_review` | true | Always run the second Claude critique/revision pass |
+| `enable_opus_extended_thinking` | true | Enables extended thinking only when the selected model is Opus |
+| `opus_thinking_budget_tokens` | 4096 | Token budget reserved for Opus extended thinking |
 | `min_net_expected_return_pct` | 0.5 | Hurdle rate — trades below this are refused |
 | `max_position_pct` | 25 | Single position size cap (% of portfolio) |
+| `quote_reconciliation_threshold_pct` | 1.5 | Warn when holdings CSV prices differ materially from quote data |
+| `risk_benchmark_tickers` | SPY, QQQ, SMH | Benchmarks used for beta/risk estimates |
+| `sector_rotation_tickers` | XLK, XLV, XLF, XLE, XLY, XLP, XLU, XLI | Sector context shown to Claude and the report |
+| `cross_asset_tickers` | UUP, TLT, GLD, HYG | Dollar/rates/gold/credit context shown to Claude and the report |
 | `enable_enrichment` | true | Enable/disable all enrichment APIs |
 | `alpha_vantage_enabled` | false | Alpha Vantage free tier limited to 25 req/day; set true only with paid plan |
+| `enable_options_implied_move_for_earnings` | false | Optional yfinance options implied move lookup; disabled by default because option-chain calls can be slow |
+| `recent_activity_days` | 90 | Recent activity slice sent to Claude and used for previous-session execution checks |
+| `holding_days_activity_days` | null | Activity window used for FIFO holding-day calculation; `null` means parse the full export |
+| `enable_decision_journal` | true | Seed actionable recommendations into the local decision journal and render the scorecard |
+| `decision_journal_score_horizons` | 1, 5, 20, 60 | Calendar-day windows used to score model-vs-user outcomes |
+| `decision_journal_max_scored_decisions` | 200 | Max recorded decisions scored per run to keep historical price fetches bounded |
+| `decision_journal_include_holds` | false | Whether HOLD rows should be seeded into the journal; default keeps the journal action-focused |
 | `news_lookback_days` | 7 | How far back to fetch news headlines |
+| `news_prompt_max_articles` | 2 | Max articles per ticker included in the Claude prompt; report output can still show catalyst headlines |
 | `history_months` | 10 | Months of historical price data to fetch |
 
 ### Enrichment APIs (Professional-Grade Market Intelligence)
@@ -307,10 +768,10 @@ The app integrates **6 financial data sources** to enrich Claude's analysis with
 
 | API | Data | Rate Limit | Status |
 |-----|------|-----------|--------|
-| **Finnhub** | Analyst consensus, earnings calendar, insider activity, news sentiment | Free tier: unlimited | Phase 1 (parallel) |
-| **Polygon** | Previous-day OHLCV + VWAP signals | Free tier: 5/min | Phase 1 (parallel) |
+| **Finnhub** | Analyst consensus, analyst upgrades/downgrades, earnings calendar, insider activity, news sentiment | Free tier: unlimited | Phase 1 (parallel) |
+| **Polygon** | Previous-day OHLCV + VWAP signals; optional current snapshot if the API plan allows it | Free tier varies by endpoint | Phase 1 (parallel) |
 | **Twelve Data** | Real-time quotes, earnings dates (better for Canadian tickers) | Free tier: 5/min | Phase 1 (parallel) |
-| **FRED** (Federal Reserve) | Macro context: Fed Funds Rate, PCE inflation, yield curve, VIX | Free tier: unlimited | Phase 1 (parallel) |
+| **FRED** (Federal Reserve) | Macro context: Fed Funds Rate, CPI inflation, yield curve, VIX, plus macro-calendar estimates | Free tier: unlimited | Phase 1 (parallel) |
 | **CoinGecko** | BTC price, 7d change, Fear & Greed Index, macro risk signal | Free tier: 10-50/min | Phase 1 (parallel) |
 | **Alpha Vantage** (optional) | News sentiment analysis | **Free tier: 25/day** ⚠️ | Phase 2 (sequential) |
 
@@ -320,7 +781,7 @@ The app integrates **6 financial data sources** to enrich Claude's analysis with
 
 **API Key Setup:**
 
-Create `API_KEYS.txt` with all 7 keys (copy from `API_KEYS.template.txt`):
+Create `API_KEYS.txt` from the template:
 ```
 ANTHROPIC_API_KEY=sk-ant-...
 FINNHUB_API_KEY=cxxxxxxxxxxx
@@ -331,7 +792,7 @@ FRED_API_KEY=your_key_here
 COINGECKO_API_KEY=your_key_here
 ```
 
-All 7 keys are optional (any missing source is simply skipped). The program continues even if individual APIs fail.
+`ANTHROPIC_API_KEY` is required. The enrichment keys are optional; any missing or failing enrichment source is skipped and recorded in the report's data coverage notes.
 
 ---
 
@@ -407,12 +868,16 @@ Wealthsimple CSVs
 [News Fetcher]     ├→ yfinance → prices, history, PE, headlines, news
 [Fee Calculator]   ┘
     ↓
-[Claude Analyst] (with Config & Constants loaded) → JSON recommendations
+[Portfolio Analytics] → risk dashboard, company exposure, hedge suggestions
+    ↓
+[Claude Analyst] → first-pass JSON → quality gates + drift → second-pass JSON
     ↓
 [Report Generator] → markdown + CSV + JSON log
+    ↓
+[Optional UIs] → Streamlit browser dashboard / Textual terminal dashboard
 ```
 
-**Performance:** ~18 tickers in ~10 seconds on cold cache (vs ~60s with serial fetching)
+**Performance:** Market data, news, and enrichment calls run in parallel where possible. Runtime depends on portfolio size, API coverage, cache state, and the two Claude passes. Slow optional sources such as options implied-move lookup are disabled by default.
 
 ### Module Overview
 
@@ -421,7 +886,7 @@ Wealthsimple CSVs
 | Module | Purpose |
 |--------|---------|
 | `config.py` | Load and manage settings from `config/settings.json` |
-| `constants.py` | Shared constants: LEVERAGED_ETFS, DEDUP_PAIRS, SKIP_MARKET_DATA, CDR_EXCHANGES |
+| `constants.py` | Shared constants: leveraged ETF leverage map, company/share-class groups, DEDUP_PAIRS, SKIP_MARKET_DATA, CDR_EXCHANGES |
 | `_utils.py` | Helper functions: `safe_float()`, `clean_csv_row()`, `parse_session_filename()` |
 
 **Data Loading & Calculation**:
@@ -430,19 +895,20 @@ Wealthsimple CSVs
 |--------|---------|
 | `portfolio_loader.py` | Parse Wealthsimple Holdings CSV |
 | `activity_loader.py` | Parse Wealthsimple Activities CSV (trade history) |
-| `market_data.py` | Fetch live prices, history, PE via yfinance (parallel fetching with ThreadPoolExecutor) |
+| `market_data.py` | Fetch live prices, pre/after-market fields, history, fundamentals, dividends, and indicators via yfinance |
 | `news_fetcher.py` | Fetch recent news headlines (parallel fetching with ThreadPoolExecutor) |
 | `fee_calculator.py` | Model Wealthsimple fees + bid-ask spreads |
+| `portfolio_analytics.py` | Company exposure rollups, volatility, beta, drawdown, correlation, and hedge suggestions |
 
 **Enrichment & Analysis**:
 
 | Module | Purpose |
 |--------|---------|
 | `enriched_data.py` | Orchestrate 6 enrichment APIs in parallel (Finnhub, Polygon, Twelve Data, FRED, CoinGecko) + optional sequential Alpha Vantage |
-| `finnhub_client.py` | Fetch analyst consensus, earnings calendar, insider activity, news sentiment |
-| `polygon_client.py` | Fetch previous-day OHLCV + VWAP signals |
+| `finnhub_client.py` | Fetch analyst consensus, upgrade/downgrade events, earnings calendar, insider activity, news sentiment |
+| `polygon_client.py` | Fetch previous-day OHLCV + VWAP signals, plus optional current snapshot fields |
 | `twelve_data_client.py` | Fetch real-time quotes + earnings dates |
-| `fred_client.py` | Fetch macro context (Fed Funds, inflation, yield curve, VIX regime) |
+| `fred_client.py` | Fetch macro context (Fed Funds, inflation, yield curve, VIX regime) and deterministic event-calendar estimates |
 | `coingecko_client.py` | Fetch BTC price, Fear & Greed Index, macro risk signal |
 | `alpha_vantage_client.py` | Fetch news sentiment (thread-safe rate limiter; optional, disabled by default) |
 
@@ -450,33 +916,64 @@ Wealthsimple CSVs
 
 | Module | Purpose |
 |--------|---------|
-| `claude_analyst.py` | 23-rule system prompt, build enriched prompt, call Claude API, parse JSON response with new fields (invest_amount_usd, hold_tier, earnings_alert, target_exit_date, price targets, priority_actions) |
-| `report_generator.py` | Format markdown + CSV with priority actions table, hold tier labels, earnings badges, invest amounts, exit targets, price ranges |
-| `main.py` | CLI entry point, interactive setup, API key loading (API_KEYS.txt first, then .env), enrichment orchestration, CSV export with 12 columns |
+| `claude_analyst.py` | 40-rule system prompt, build enriched prompt, run two Claude passes, recover once from truncated JSON, parse sizing/catalyst/risk/hedge/priority fields |
+| `report_quality.py` | Deterministic quality warnings and hard gates for stale quotes, missing catalysts, risk controls, and sizing issues |
+| `backtester.py` | Evaluate mature recommendations by action, conviction, ticker, and recent realized examples for calibration |
+| `report_generator.py` | Format markdown + CSV with priority actions, quality warnings, risk dashboard, hold tiers, earnings badges, risk controls, and Bear/Bull ranges |
+| `main.py` | CLI entry point, interactive setup, API key loading (API_KEYS.txt first, then .env), enrichment orchestration, risk analytics, and CSV export |
+| `ui_launcher.py` | Shell menu for choosing the original CLI, Streamlit, or Textual; called by `run.sh` |
+| `ui_support.py` | Shared helpers for UI progress streaming, report/log discovery, latest-log dashboards, holdings preview, JSON validation, connectivity checks, and canonical report runs |
+| `app_gui.py` | Native tkinter launcher window used by the PyInstaller `.app`/`.exe` bundle |
 
-### Claude System Prompt (23 Rules)
+**Optional UI Entry Points**:
 
-Claude receives a detailed system prompt with **23 strategic rules** governing analysis and output structure:
+| File | Purpose |
+|------|---------|
+| `ui/streamlit_app.py` | Browser dashboard for CSV upload, report generation, markdown viewing, history, backtest, and JSON config editing |
+| `ui/textual_app.py` | Terminal dashboard for the same workflow using Textual widgets and scrollable panes |
+
+**Packaging**:
+
+| File | Purpose |
+|------|---------|
+| `tech_stock.spec` | PyInstaller build specification (data files, hidden imports, macOS `.app` bundle) |
+| `build_macos.sh` | One-command macOS build: installs deps → PyInstaller → `.app` → `.dmg` |
+| `build_windows.bat` | One-command Windows build: installs deps → PyInstaller → `.exe` |
+| `installer_windows.iss` | Optional Inno Setup script for a polished Windows installer |
+| `pyinstaller_hooks/` | Custom hooks to ensure Streamlit static assets are bundled |
+| `.github/workflows/build_release.yml` | CI release workflow: tags trigger `.dmg` + `.exe` builds |
+
+### Claude System Prompt (40 Rules)
+
+Claude receives a detailed system prompt with **40 strategic rules** governing analysis and output structure:
 
 **Input Data Claude Gets:**
 1. Portfolio snapshot — all holdings with cost basis, current value, P&L, unrealized gains (from portfolio_loader)
-2. Market data — current price, 1d/5d/1mo changes, PE, 52w highs/lows, last 5 closes (parallel fetch from market_data)
+2. Market data — current price, pre/after-market moves, 1d/5d/1mo changes, PE, FCF yield, margins, dividends, 52w highs/lows, last 5 closes (parallel fetch from market_data)
 3. Recent news — last 7 days of headlines per ticker (parallel fetch from news_fetcher)
 4. **Enriched intelligence** — analyst consensus, earnings calendars, insider activity, sentiment, macro context (from enriched_data.py)
 5. Fee snapshot — one-way and round-trip costs per ticker (from fee_calculator)
-6. Recent trades — your trading activity last 90 days (from activity_loader, if provided)
+6. Recent trades — your recent trading activity for prompt context plus full-export FIFO holding-age data when provided
 7. Session type — "morning" (pre-open) or "afternoon" (intraday + EOD positioning)
 8. Watchlist alerts — target entry/exit prices for monitored tickers (from config/watchlist.json)
+9. Quality warnings, previous-session drift/execution context, risk dashboard, company exposure rollup, and track-record calibration stats
 
-**Output Rules (Examples from the 23):**
+**Output Rules (Examples from the 40):**
+- **Rule 14 (Track Record Calibration):** Cap or reduce conviction when similar historical action/conviction buckets have weak returns or hit rates
 - **Rule 15 (Earnings Alert):** If earnings within 7 days, set `earnings_alert=true` and lead with "⚠️ EARNINGS [DATE]"
 - **Rule 17 (Enrichment Citation):** Cite analyst consensus, EPS beat streaks, insider activity in thesis statements
 - **Rule 18 (Investment Sizing):** Set `invest_amount_usd` based on conviction: 8–10 = 40% of session budget, 7 = 25%, 6 = 15%
 - **Rule 19 (Hold Tiers):** Every HOLD gets `hold_tier`: "watch" (conviction ≤5), "keep" (6–7), "add_on_dip" (≥8)
-- **Rule 20 (Time Horizons):** Exactly one of: intraday / 1-2 weeks / 1-3 months / 3-6 months / 6-12 months / 12-36 months
-- **Rule 21 (Exit Plan):** Every recommendation includes `target_exit_date` (e.g., "Jul 2026") and price range (low %, high %)
+- **Rule 20 (Time Horizons):** Exactly one of: intraday / next session / 1-3 trading days / 1-2 weeks / 1-3 months / 3-6 months / 6-12 months / 12-36 months
+- **Rule 21 (Exit Plan):** Every recommendation includes `target_exit_date` (e.g., "Jul 2026") and Bear/Bull range
 - **Rule 22 (Buy Signals):** Actively look for BUY opportunities — not just existing portfolio
 - **Rule 23 (Priority Actions):** Output `priority_actions` array — ordered "do this today" list by urgency
+- **Rule 27 (Risk Controls):** Include entry zone, stop-loss, and take-profit percentages
+- **Rule 28 (Catalyst Gate):** BUY/ADD on >5% movers or near-earnings names requires verified catalyst or manual review
+- **Rule 31 (Hedge Suggestions):** Include trim/rebalance and optional small inverse-ETF hedges when concentration or beta is high
+- **Rule 32 (Compact JSON):** Return at most 12 recommendation rows, use strict per-field length caps, and avoid repeating raw quote/news tables inside JSON strings
+
+The parser also normalizes missing per-row fields such as `action`, `conviction`, `net_expected_pct`, `fee_hurdle_pct`, and `time_horizon` to safe defaults before schema validation. Deterministic quality gates still flag unsupported recommendations after normalization.
 
 **Output JSON Structure:**
 ```json
@@ -486,7 +983,7 @@ Claude receives a detailed system prompt with **23 strategic rules** governing a
       "ticker": "NVDA",
       "action": "ADD",
       "conviction": 8,
-      "net_expected_return_pct": 14.89,
+      "net_expected_pct": 14.89,
       "invest_amount_usd": 500,
       "time_horizon": "3-6 months",
       "hold_tier": null,
@@ -494,19 +991,46 @@ Claude receives a detailed system prompt with **23 strategic rules** governing a
       "target_exit_date": "Jul 2026",
       "price_target_low_pct": -8.0,
       "price_target_high_pct": 18.0,
+      "risk_controls": {
+        "entry_zone_low_pct": -3.0,
+        "entry_zone_high_pct": 1.0,
+        "stop_loss_pct": -7.0,
+        "take_profit_pct": 18.0
+      },
+      "catalyst_verified": true,
+      "catalyst_source": "Finnhub analyst consensus + earnings history",
+      "manual_review_required": false,
       "thesis": "Core AI infrastructure. Analyst consensus: 66 analysts STRONG BUY. Beat estimates 4 quarters in a row. Insider buying strong."
     }
   ],
   "priority_actions": [
-    {"order": 1, "ticker": "NVDA", "action": "ADD", "reason": "Core position, good entry"},
-    {"order": 2, "ticker": "MSFT", "action": "HOLD", "reason": "Watch for earnings catalyst"}
+    {"order": 1, "ticker": "NVDA", "action": "ADD", "rationale": "Core position, good entry"},
+    {"order": 2, "ticker": "SOXL", "action": "SELL", "rationale": "Leveraged ETF decay and concentration risk"}
   ],
   "summary": "..."
 }
+```
 
 ---
 
 ## 🤔 FAQ
+
+### Q: Sonnet vs Opus — which should I use?
+
+**A:** Sonnet 4.6 covers ~90% of use cases at roughly 20% of the cost. Use **Opus 4.7** when:
+- Your portfolio has many positions and the conviction scores feel too uniform
+- You want extended thinking enabled (deeper chain-of-thought reasoning)
+- You're analysing an unusual macro environment (yield curve inversion, crypto correlation)
+
+Typical costs: Sonnet two-pass ≈ $0.30–$0.70 · Opus two-pass ≈ $1.50–$3.00+ depending on portfolio size and output length.
+
+### Q: What if an enrichment API is down?
+
+**A:** The app degrades gracefully. Each enrichment source (Finnhub, Polygon, Twelve Data, FRED, CoinGecko) is fetched in parallel inside a try/except block. A failed source is recorded in the report's "Data Coverage" section but does not stop the run. Claude still receives all available data and generates a full recommendation. You'll see something like `[Finnhub: ERROR — rate limit]` in the report header.
+
+### Q: How does two-pass review work?
+
+**A:** After Pass 1, the app runs deterministic quality checks (13 warning codes: stale quotes, missing catalyst, reversed price ranges, etc.) and compares this session's actions against the previous session's drift. Pass 2 sends Claude the Pass 1 JSON *plus* all quality warnings and drift data, and asks it to revise. This is why BUY recommendations on names that moved 7% overnight with no verified news typically get downgraded to HOLD — the quality gate is deterministic, but Claude also sees the warning in Pass 2 and adjusts its thesis.
 
 ### Q: What's the "invest_amount_usd" in the CSV?
 
@@ -525,17 +1049,18 @@ This helps you prioritize which HOLDs to monitor for entry opportunities.
 
 **A:** The app flags tickers with earnings within 7 days and adjusts the risk profile. Volatility often spikes around earnings, so the recommendation may suggest a shorter time horizon or smaller position size. Check your CSV for the `earnings_alert` column.
 
-### Q: What's the "Exit Target" and "Price Range"?
+### Q: What's the "Exit Target" and "Bear/Bull Case"?
 
 **A:** Every recommendation includes:
 - **Exit Target Date** (e.g., "Jul 2026") — when Claude expects you to close the position
-- **Price Range Low % / High %** — expected price move from entry (e.g., -8% to +18%)
+- **Bear Case % / Bull Case %** — conservative and optimistic expected moves from entry (e.g., -8% to +18%)
+- **Stop Loss % / Take Profit %** — risk-control levels relative to current price
 
 Use these to set stop-loss and take-profit orders in Wealthsimple.
 
 ### Q: How do I set up the enrichment APIs?
 
-**A:** Copy `API_KEYS.template.txt` to `API_KEYS.txt` and fill in your keys (signup links are in the template). All 7 keys are optional; missing APIs are simply skipped. To disable all enrichment, set `"enable_enrichment": false` in `config/settings.json`.
+**A:** Copy `API_KEYS.template.txt` to `API_KEYS.txt` and fill in your Anthropic key plus any enrichment keys you have. Anthropic is required for recommendations. Enrichment keys are optional; missing APIs are skipped and listed as coverage gaps where applicable. To disable all enrichment, set `"enable_enrichment": false` in `config/settings.json`.
 
 ### Q: Why is Alpha Vantage disabled by default?
 
@@ -559,8 +1084,8 @@ But you can run it as often as you like. Use `min_net_expected_return_pct` (defa
 
 ### Q: What's the cost per run?
 
-**A:** With Sonnet: ~$0.09 per run (~$0.18/day for 2 runs = ~$5.40/month)  
-With Opus: ~$0.45 per run (~$0.90/day = ~$27/month)  
+**A:** With Sonnet two-pass review, expect roughly `$0.30-$0.70` for a full portfolio run. The latest full run with 31 tracked tickers, enrichment enabled, 12 recommendation rows, and two Claude passes used 50,105 tokens and cost `$0.6341`.
+With Opus two-pass review, expect higher cost depending on output length and extended-thinking budget.
 **Note:** Enrichment APIs have no cost (all free tiers).
 
 ### Q: Can I schedule this automatically?
@@ -583,7 +1108,7 @@ With Opus: ~$0.45 per run (~$0.90/day = ~$27/month)
 ## 🛠️ Troubleshooting
 
 ### "API key not found"
-Make sure `.env` exists and contains `ANTHROPIC_API_KEY=your_key_here`. Check for typos.
+Make sure `API_KEYS.txt` or `.env` contains `ANTHROPIC_API_KEY=your_key_here`. The app loads `API_KEYS.txt` first and then `.env`.
 
 ### "Holdings CSV not found"
 The app looks for `holdings-report-*.csv` in `~/Downloads/`. Either:
@@ -592,10 +1117,36 @@ The app looks for `holdings-report-*.csv` in `~/Downloads/`. Either:
 3. Export a fresh Holdings report from Wealthsimple
 
 ### "No recent news available"
-This is normal. yfinance news availability varies by ticker and day. The app still generates recommendations based on price action and fundamentals.
+This can be normal for some tickers because yfinance news availability varies by ticker and day. If every ticker shows no news, clear `data/.cache/news/` and rerun; v1.10 parses the current `content.pubDate` news format and avoids caching empty headline responses.
 
 ### "Claude response parsing failed"
-The response was truncated. This can happen if you have 100+ positions or very large news volumes. Increase `max_tokens` in `claude_analyst.py` from 8192 to 16384.
+The response was truncated or not valid JSON. The current default `claude_max_tokens` is `24000`, Rule 32 enforces compact JSON, and the app retries once with emergency caps if truncation is detected. If this still happens with a very large portfolio or news-heavy run, reduce watchlist scope or disable optional enrichment before raising the token cap further. Higher token caps can raise cost and make non-streamed Claude responses slower.
+
+### "GitHub Actions cannot import src"
+The workflow sets `PYTHONPATH: ${{ github.workspace }}` for pytest. If you create another workflow, include the same environment variable or install the project as a package before running tests.
+
+---
+
+## 🧪 Testing And CI
+
+Run the local test suite:
+
+```bash
+source .venv/bin/activate
+PYTHONPATH="$(pwd)" python -m pytest -q
+```
+
+The repository includes a GitHub Actions workflow at `.github/workflows/tests.yml` that installs `requirements.txt` and runs `pytest -q` on push and pull requests. The workflow sets `PYTHONPATH` to the repository root so tests can import the local `src` package.
+
+Current focused coverage includes:
+- Holdings parsing, CDR detection, `.TO` normalization, CASH handling, and required-column failures
+- Sector/company exposure rollups, share-class aliasing, hedge suggestions, and risk dashboard behavior
+- Drift tracking for latest-session lookup, action flips, and conviction jumps
+- Schema normalization for risk controls, catalyst fields, and Bear/Bull ranges
+- Market-data indicators and mocked options implied-move helper
+- Report quality gates, normalized range warnings, decision-tree checks, near-earnings catalyst gating, and hard catalyst downgrades
+- Markdown rendering for quality warnings, critical actions, data freshness footnotes, risk dashboard, hedge suggestions, Bear/Bull labels, and cost footer
+- UI support helpers for canonical runner invocation, progress streaming, latest JSON-log dashboard summaries, report history ordering, JSON config validation, and default budget/model loading
 
 ---
 
@@ -603,6 +1154,8 @@ The response was truncated. This can happen if you have 100+ positions or very l
 
 ```
 tech_stock/
+├── .github/
+│   └── workflows/tests.yml      ← GitHub Actions pytest workflow
 ├── config/
 │   ├── portfolio.json           ← Fallback portfolio (used if no CSV provided)
 │   ├── watchlist.json           ← Tickers to monitor
@@ -613,29 +1166,55 @@ tech_stock/
 ├── reports/
 │   ├── YYYYMMDD_HHMM_morning.md ← Markdown report
 │   └── YYYYMMDD_HHMM_morning_recommendations.csv ← CSV table
+├── tests/                       ← Pytest suite for parsers, quality gates, rendering, drift, and analytics
 ├── src/
 │   ├── __init__.py
 │   ├── main.py                  ← Entry point (CLI + interactive, API key loading)
 │   ├── config.py                ← Load settings (single source of truth)
-│   ├── constants.py             ← Shared constants
+│   ├── constants.py             ← Shared constants, company aliases, leveraged ETF leverage
 │   ├── _utils.py                ← Helper functions (safe_float, clean_csv_row, etc.)
 │   ├── portfolio_loader.py      ← Parse Holdings CSV
 │   ├── activity_loader.py       ← Parse Activities CSV
-│   ├── market_data.py           ← Fetch prices via yfinance (parallel)
+│   ├── portfolio_analytics.py   ← Risk dashboard, company rollups, hedge suggestions
+│   ├── market_data.py           ← Fetch prices, pre/after-market fields, fundamentals, indicators
 │   ├── news_fetcher.py          ← Fetch headlines (parallel)
 │   ├── fee_calculator.py        ← Wealthsimple fee model
 │   ├── enriched_data.py         ← Orchestrate 6 enrichment APIs (Phase 1 parallel, Phase 2 sequential)
-│   ├── finnhub_client.py        ← Analyst consensus, earnings, insider activity, sentiment
-│   ├── polygon_client.py        ← Previous-day OHLCV + VWAP signals
+│   ├── finnhub_client.py        ← Analyst consensus, upgrades/downgrades, earnings, insider activity, sentiment
+│   ├── polygon_client.py        ← Previous-day OHLCV + VWAP signals, optional current snapshot
 │   ├── twelve_data_client.py    ← Real-time quotes, earnings dates (better Canadian coverage)
-│   ├── fred_client.py           ← Macro context (Fed rate, inflation, yield curve, VIX)
+│   ├── fred_client.py           ← Macro context plus calendar estimates
 │   ├── coingecko_client.py      ← BTC price, 7d change, Fear & Greed, macro risk signal
 │   ├── alpha_vantage_client.py  ← News sentiment (thread-safe rate limiter; optional)
-│   ├── claude_analyst.py        ← 23-rule system prompt, Claude API call, JSON parsing
-│   └── report_generator.py      ← Priority actions table, hold tiers, earnings badges, markdown + CSV
-├── requirements.txt             ← Python dependencies
-├── .env.example                 ← Template for API key
-├── .gitignore                   ← Excludes .env, .venv, reports/
+│   ├── backtester.py            ← Historical recommendation calibration
+│   ├── report_quality.py        ← Deterministic quality gates and warnings
+│   ├── claude_analyst.py        ← 40-rule prompt, two-pass Claude review, JSON retry/parsing
+│   ├── report_generator.py      ← Priority actions table, hold tiers, earnings badges, markdown + CSV
+│   ├── ui_support.py            ← Shared helpers for UI progress, dashboards, previews, validation, and connectivity
+│   └── ui_launcher.py           ← Interface chooser for CLI, Streamlit, and Textual
+├── ui/
+│   ├── streamlit_app.py         ← Optional browser dashboard
+│   └── textual_app.py           ← Optional terminal dashboard
+├── src/
+│   ├── app_gui.py               ← Native tkinter launcher (used by .app/.exe bundle)
+│   └── ui_launcher.py           ← Shell menu wrapper (used by run.sh)
+├── ui/
+│   ├── streamlit_app.py         ← Optional browser dashboard
+│   └── textual_app.py           ← Optional terminal dashboard
+├── assets/
+│   ├── icon.png                 ← App icon source
+│   └── icon.icns                ← macOS icon (generated by build_macos.sh)
+├── pyinstaller_hooks/
+│   └── hook-streamlit.py        ← Ensures Streamlit static assets are bundled
+├── run.sh                       ← Unified entry point (menu when no args, CLI passthrough with args)
+├── run-ui.sh                    ← Alias for run.sh (backward compat)
+├── build_macos.sh               ← macOS build: → dist/tech_stock.dmg
+├── build_windows.bat            ← Windows build: → dist/tech_stock/tech_stock.exe
+├── installer_windows.iss        ← Optional Inno Setup installer script
+├── tech_stock.spec              ← PyInstaller build specification
+├── requirements.txt             ← Python runtime + UI dependencies
+├── .env.example                 ← Template for API keys
+├── .gitignore                   ← Excludes .env, .venv, reports/, dist/, build/
 ├── README.md                    ← This file
 └── LICENSE                      ← MIT
 ```
@@ -686,6 +1265,6 @@ For issues or questions:
 
 ---
 
-**Last updated:** April 29, 2026 (Major upgrade: priority actions, invest sizing, hold tiers, earnings alerts, exit planning, 6 enrichment APIs)  
-**Version:** 1.2.0  
-**Status:** Production-ready with professional-grade signals and actionable recommendations
+**Last updated:** May 14, 2026 — OS-specific install paths for app-based and terminal-based use
+**Version:** 1.11.0
+**Status:** Production-ready — deterministic quality gates, current catalyst headlines, three interface options, native app distribution, paper-trading mode, decision journal

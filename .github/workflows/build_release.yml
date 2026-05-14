@@ -1,0 +1,170 @@
+name: Build & Release
+
+# Trigger on version tags  (e.g.  git tag v1.0.0 && git push --tags)
+# or manually from the Actions tab.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+jobs:
+  # ── macOS .dmg ─────────────────────────────────────────────────────────────
+  build-macos:
+    runs-on: macos-14          # Apple Silicon runner (M1) — fastest macOS build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies + PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install "pyinstaller>=6.0"
+
+      - name: Generate icon
+        run: |
+          mkdir -p assets
+          python - << 'EOF'
+          import subprocess, os, shutil
+          src = 'assets/icon.png'
+          # Generate icon.png if missing
+          if not os.path.exists(src):
+              # Minimal green circle PNG via Python stdlib
+              import struct, zlib
+              size = 512
+              raw = b''
+              for y in range(size):
+                  raw += b'\x00'
+                  for x in range(size):
+                      cx,cy = size//2, size//2
+                      if ((x-cx)**2+(y-cy)**2)**0.5 < size*0.46:
+                          raw += bytes([34,197,94,255])
+                      else:
+                          raw += bytes([0,0,0,0])
+              def chunk(n,d):
+                  c=struct.pack('>I',len(d))+n+d
+                  return c+struct.pack('>I',zlib.crc32(c[4:])&0xffffffff)
+              hdr=struct.pack('>II',size,size)+bytes([8,6,0,0,0])
+              png=b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',hdr)+chunk(b'IDAT',zlib.compress(raw,9))+chunk(b'IEND',b'')
+              open(src,'wb').write(png)
+
+          iconset='assets/icon.iconset'
+          os.makedirs(iconset,exist_ok=True)
+          for s in [16,32,64,128,256,512]:
+              subprocess.run(['sips','-z',str(s),str(s),src,'--out',f'{iconset}/icon_{s}x{s}.png'],capture_output=True)
+              subprocess.run(['sips','-z',str(s*2),str(s*2),src,'--out',f'{iconset}/icon_{s}x{s}@2x.png'],capture_output=True)
+          subprocess.run(['iconutil','-c','icns',iconset,'-o','assets/icon.icns'],check=True)
+          shutil.rmtree(iconset)
+          print('icon.icns created')
+          EOF
+
+      - name: Build with PyInstaller
+        run: pyinstaller tech_stock.spec --noconfirm --clean
+
+      - name: Ad-hoc code-sign
+        run: codesign --force --deep --sign - dist/tech_stock.app || true
+
+      - name: Package into .dmg
+        run: |
+          mkdir -p dist/dmg_staging
+          cp -R dist/tech_stock.app dist/dmg_staging/
+          ln -s /Applications dist/dmg_staging/Applications
+          hdiutil create -volname tech_stock -srcfolder dist/dmg_staging \
+              -ov -format UDRW dist/tech_stock_tmp.dmg
+          hdiutil convert dist/tech_stock_tmp.dmg -format UDZO \
+              -o dist/tech_stock.dmg
+          rm -rf dist/dmg_staging dist/tech_stock_tmp.dmg
+
+      - name: Upload .dmg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tech_stock-macos
+          path: dist/tech_stock.dmg
+          retention-days: 30
+
+  # ── Windows .exe ───────────────────────────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies + PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install "pyinstaller>=6.0"
+
+      - name: Generate icon.ico
+        shell: python
+        run: |
+          import struct, os
+          size = 32
+          img_data = bytearray()
+          for y in range(size):
+              for x in range(size):
+                  cx, cy = size//2, size//2
+                  r = ((x-cx)**2 + (y-cy)**2) ** 0.5
+                  if r < size*0.46:
+                      img_data += bytes([94, 197, 34, 255])
+                  else:
+                      img_data += bytes([0, 0, 0, 0])
+          bmp_header = struct.pack('<IiiHHIIiiII', 40, size, -size, 1, 32, 0, len(img_data), 0, 0, 0, 0)
+          img = bmp_header + bytes(img_data)
+          ico_dir = struct.pack('<HHH', 0, 1, 1)
+          img_entry = struct.pack('<BBBBHHII', size, size, 0, 0, 1, 32, len(img), 22)
+          os.makedirs('assets', exist_ok=True)
+          open('assets/icon.ico', 'wb').write(ico_dir + img_entry + img)
+          print('icon.ico created')
+
+      - name: Build with PyInstaller
+        run: pyinstaller tech_stock.spec --noconfirm --clean
+
+      - name: Upload .exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tech_stock-windows
+          path: dist/tech_stock/
+          retention-days: 30
+
+  # ── GitHub Release ─────────────────────────────────────────────────────────
+  release:
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tech_stock-macos
+          path: release/
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tech_stock-windows
+          path: release/windows/
+
+      - name: Zip Windows build
+        run: cd release && zip -r tech_stock-windows.zip windows/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/tech_stock.dmg
+            release/tech_stock-windows.zip
+          generate_release_notes: true

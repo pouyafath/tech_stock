@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from src._utils import clean_csv_row, safe_float
+from src.constants import LEVERAGED_ETFS
 
 
 # Minimum columns we need from the Wealthsimple Activities CSV.
@@ -29,11 +30,12 @@ REQUIRED_ACTIVITIES_COLUMNS = {
 
 def parse_activities_csv(
     csv_path: str | Path,
-    days: int = 90,
+    days: int | None = 90,
     activity_types: list[str] = None,
 ) -> list[dict]:
     """
-    Parse a Wealthsimple Activities CSV. Returns recent activities within last N days.
+    Parse a Wealthsimple Activities CSV. Returns activities within last N days.
+    Pass days=None to parse the full export.
 
     activity_types filter: defaults to ['Trade'] only.
     Pass None to get all types (Trade, Dividend, MoneyMovement, etc.)
@@ -59,7 +61,7 @@ def parse_activities_csv(
     if not csv_path.exists():
         raise FileNotFoundError(f"Activities CSV not found: {csv_path}")
 
-    cutoff = datetime.now() - timedelta(days=days)
+    cutoff = datetime.now() - timedelta(days=days) if days is not None else None
     activities = []
 
     with open(csv_path, encoding="utf-8-sig") as f:
@@ -95,7 +97,7 @@ def parse_activities_csv(
         except ValueError:
             continue
 
-        if tx_date < cutoff:
+        if cutoff is not None and tx_date < cutoff:
             continue
 
         activity_type = row.get("activity_type", "").strip()
@@ -147,12 +149,84 @@ def get_recent_trades_summary(activities: list[dict]) -> dict:
     return by_ticker
 
 
-def format_activities_for_prompt(activities: list[dict], days: int = 90) -> str:
-    """Format recent trade activities into a readable string for the Claude prompt."""
-    if not activities:
-        return f"No trades in the last {days} days."
+def holding_days_by_ticker(activities: list[dict], holdings: list[dict] = None) -> dict:
+    """
+    Estimate open-lot holding days by ticker from recent activities.
 
-    lines = [f"Recent trades (last {days} days, newest first):"]
+    Uses FIFO sells against buys. If the activity window misses the original
+    buy, returns duration_unknown=True for currently held tickers.
+    """
+    held_tickers = {h.get("ticker") for h in holdings or [] if h.get("quantity")}
+    lots_by_ticker = {}
+    oldest_activity_date = None
+    for activity in sorted(activities or [], key=lambda row: row.get("date", "")):
+        if activity.get("type") != "Trade":
+            continue
+        try:
+            activity_date = datetime.strptime(activity.get("date", ""), "%Y-%m-%d").date()
+            oldest_activity_date = (
+                activity_date if oldest_activity_date is None or activity_date < oldest_activity_date else oldest_activity_date
+            )
+        except (TypeError, ValueError):
+            pass
+        ticker = activity.get("ticker")
+        if not ticker:
+            continue
+        sub_type = (activity.get("sub_type") or "").upper()
+        quantity = activity.get("quantity") or 0
+        if quantity <= 0:
+            continue
+        lots = lots_by_ticker.setdefault(ticker, [])
+        if "BUY" in sub_type:
+            lots.append({"date": activity.get("date"), "quantity": quantity})
+        elif "SELL" in sub_type:
+            remaining = quantity
+            while lots and remaining > 0:
+                lot = lots[0]
+                used = min(lot["quantity"], remaining)
+                lot["quantity"] -= used
+                remaining -= used
+                if lot["quantity"] <= 1e-8:
+                    lots.pop(0)
+
+    today = datetime.now().date()
+    out = {}
+    tickers = held_tickers or set(lots_by_ticker)
+    for ticker in tickers:
+        if not ticker:
+            continue
+        lots = [lot for lot in lots_by_ticker.get(ticker, []) if lot.get("quantity", 0) > 1e-8]
+        earliest = None
+        for lot in lots:
+            try:
+                lot_date = datetime.strptime(lot["date"], "%Y-%m-%d").date()
+            except (TypeError, ValueError):
+                continue
+            earliest = lot_date if earliest is None or lot_date < earliest else earliest
+        duration_unknown = earliest is None and ticker in held_tickers
+        lower_bound_days = (
+            (today - oldest_activity_date).days
+            if duration_unknown and oldest_activity_date is not None
+            else None
+        )
+        out[ticker] = {
+            "ticker": ticker,
+            "days_held": (today - earliest).days if earliest else None,
+            "earliest_open_buy": earliest.isoformat() if earliest else None,
+            "duration_unknown": duration_unknown,
+            "lower_bound_days": lower_bound_days,
+            "is_leveraged_etf": ticker in LEVERAGED_ETFS,
+        }
+    return out
+
+
+def format_activities_for_prompt(activities: list[dict], days: int | None = 90) -> str:
+    """Format recent trade activities into a readable string for the Claude prompt."""
+    window = "full export" if days is None else f"last {days} days"
+    if not activities:
+        return f"No trades in the {window}."
+
+    lines = [f"Recent trades ({window}, newest first):"]
     for a in activities:
         if a["type"] != "Trade":
             continue
@@ -178,5 +252,6 @@ if __name__ == "__main__":
     path = sys.argv[1] if len(sys.argv) > 1 else "activities-export.csv"
     days = int(sys.argv[2]) if len(sys.argv) > 2 else 90
     activities = parse_activities_csv(path, days=days)
-    print(f"Loaded {len(activities)} trades from last {days} days")
+    window = "full export" if days is None else f"last {days} days"
+    print(f"Loaded {len(activities)} trades from {window}")
     print(format_activities_for_prompt(activities, days))

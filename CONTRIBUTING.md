@@ -26,7 +26,7 @@ cd tech_stock
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-pip install pytest black flake8  # dev dependencies
+pip install pytest black flake8 pyinstaller>=6.0  # dev dependencies
 ```
 
 ### 3. Create a Feature Branch
@@ -51,25 +51,37 @@ git checkout -b fix/your-bug-fix
    black src/
    
    # Check style
-   flake8 src/ --max-line-length=100
+   flake8 src/ --max-line-length=120
    
    # Run tests (if available)
    pytest tests/
    ```
 
-### Testing Your Changes
-
-Before submitting a PR, test with:
+### Building the Native App (optional)
 
 ```bash
-# Interactive mode
-python src/main.py
+# macOS — produces dist/tech_stock.dmg
+./build_macos.sh
 
-# CLI mode with your CSVs
-python src/main.py morning --holdings ~/Downloads/holdings-report.csv
+# Windows — produces dist\tech_stock\tech_stock.exe
+build_windows.bat
+```
+
+The `.spec` file controls what PyInstaller bundles. After adding new source files or data directories, update `datas` or `hiddenimports` in `tech_stock.spec` accordingly.
+
+### Testing Your Changes
+
+Before submitting a PR:
+
+```bash
+# Run the full test suite
+PYTHONPATH=$(pwd) pytest -q
+
+# Smoke test via the unified launcher
+./run.sh morning --holdings ~/Downloads/holdings-report.csv
 
 # Different models
-python src/main.py morning --holdings ~/Downloads/holdings-report.csv --model opus
+./run.sh morning --holdings ~/Downloads/holdings-report.csv --model opus
 ```
 
 Verify:
@@ -266,6 +278,10 @@ def generate_excel(
 ```
 
 ### Adding Tests
+
+Current baseline: run `PYTHONPATH="$(pwd)" python -m pytest -q` from the repo root. The May 2026 suite covers 160+ tests across parsers, report quality gates, Claude schema/retry behavior, UI helpers, market data, and report rendering.
+
+Do not commit generated reports, API caches, local recommendation logs, `data/paper_portfolio.json`, `data/thesis_log.json`, uploaded CSVs, or `.claude/worktrees/`.
 
 File: `tests/test_portfolio_loader.py`
 
