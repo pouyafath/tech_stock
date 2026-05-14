@@ -7,6 +7,7 @@ needing a terminal.
 
 Dispatch rules
 --------------
+* --desktop    : run the embedded Tkinter desktop app
 * --streamlit  : run the Streamlit web server in-process and open browser
 * --textual    : run the Textual TUI (same process)
 * --cli [args] : run the CLI (same process, remaining argv forwarded)
@@ -151,6 +152,13 @@ def _run_streamlit() -> None:
     )
 
 
+def _run_desktop() -> None:
+    """Run the embedded Tkinter desktop app."""
+    from src.desktop_app import main as desktop_main
+
+    desktop_main()
+
+
 def _run_textual() -> None:
     """Run the Textual TUI app directly."""
     import importlib.util
@@ -173,6 +181,9 @@ def _run_cli(extra: list[str]) -> None:
 # ── GUI launcher ─────────────────────────────────────────────────────────────
 
 _CHOICES = [
+    ("Desktop App",
+     "Embedded dashboard inside this app.\nNo browser required.",
+     "desktop"),
     ("Streamlit Web UI",
      "Opens a dashboard in your browser.\nFull feature set: Dashboard, Run, History, Backtest, Editor.",
      "streamlit"),
@@ -237,6 +248,25 @@ def _show_launcher() -> None:
 
     status_var = tk.StringVar(value="Choose an interface to start.")
 
+    def launch_desktop() -> None:
+        status_var.set("Starting embedded desktop app ...")
+        proc, log_path = _spawn_logged("--desktop", "desktop.log")
+
+        def check_startup() -> None:
+            if proc.poll() is not None:
+                details = _tail(log_path)
+                status_var.set("Desktop app failed to start. See the log file.")
+                messagebox.showerror(
+                    "Desktop app failed to start",
+                    "The embedded desktop app could not start.\n\n"
+                    f"Log file:\n{log_path}\n\n"
+                    f"Last log lines:\n{details or '(log was empty)'}",
+                )
+                return
+            status_var.set("Embedded desktop app is running.")
+
+        root.after(2000, check_startup)
+
     def launch_streamlit() -> None:
         port = _find_free_port()
         url = f"http://localhost:{port}"
@@ -280,7 +310,9 @@ def _show_launcher() -> None:
             messagebox.showerror("Could not open Terminal", str(exc))
 
     def launch(mode: str) -> None:
-        if mode == "streamlit":
+        if mode == "desktop":
+            launch_desktop()
+        elif mode == "streamlit":
             launch_streamlit()
         elif mode == "textual":
             launch_terminal("--textual")
@@ -341,7 +373,9 @@ def _show_launcher() -> None:
 def main() -> None:
     argv = sys.argv[1:]
 
-    if argv and argv[0] == "--streamlit":
+    if argv and argv[0] == "--desktop":
+        _run_desktop()
+    elif argv and argv[0] == "--streamlit":
         _run_streamlit()
     elif argv and argv[0] == "--textual":
         _run_textual()

@@ -4,6 +4,25 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.12.0] — 2026-05-14
+
+### Added — Embedded desktop application
+- **Embedded Desktop App** (`src/desktop_app.py`) — native Tkinter dashboard that runs inside the application window with no browser dependency.
+- **Desktop tabs** — Dashboard, Run Report, Report Viewer, History, Config Editor, and API Checks.
+- **Live report progress** — desktop runs stream CLI progress into the app while calling the same `src.ui_support.run_report_from_ui()` pipeline as Streamlit/Textual.
+- **Native launcher update** (`src/app_gui.py`) — adds **Desktop App** as the first option while keeping Streamlit Web UI, Textual Terminal UI, and CLI available.
+- **Source launcher update** (`src/ui_launcher.py`, `run.sh`) — `./run.sh 4` launches the embedded Desktop App from source.
+- **Packaging update** (`tech_stock.spec`) — includes the new desktop module and Tkinter submodules in PyInstaller builds.
+
+### Fixed
+- **Streamlit startup observability** — the native launcher now starts Streamlit as a child process, opens the default browser, and reports startup failures with a log path instead of silently closing.
+- **Streamlit/PyArrow compatibility** — requirements now pin `numpy<2` and include a compatible PyArrow range to avoid compiled-extension import crashes.
+
+### Tests
+- Full local suite: 171 tests passing.
+
+---
+
 ## [1.11.0] — 2026-05-13
 
 ### Added — Decision journal + outcome scoring

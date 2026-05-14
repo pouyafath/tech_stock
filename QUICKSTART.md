@@ -85,11 +85,12 @@ A menu appears — pick your interface:
   [1]  CLI             — Terminal, fastest
   [2]  Streamlit UI    — Web dashboard (opens browser)
   [3]  Textual TUI     — Terminal dashboard
+  [4]  Desktop App     — Embedded dashboard (no browser)
 
-  Choose [1/2/3, Enter = 1]:
+  Choose [1/2/3/4, Enter = 1]:
 ```
 
-> **No terminal?** Download `tech_stock.dmg` from the [Releases page](https://github.com/pouyafath/tech_stock/releases) and double-click for a native launcher.
+> **No terminal?** Download `tech_stock.dmg` from the [Releases page](https://github.com/pouyafath/tech_stock/releases), double-click for the native launcher, then choose **Desktop App** for the embedded no-browser interface.
 
 Choose **1 (CLI)** for your first run. Your API keys are read from `API_KEYS.txt` or `.env` automatically.
 
@@ -131,10 +132,14 @@ Latest paid validation: May 10, 2026 full Sonnet run, 31 tracked tickers, two Cl
 ```bash
 ./run.sh 2    # → Streamlit (opens browser automatically)
 ./run.sh 3    # → Textual TUI (keyboard-driven terminal dashboard)
+./run.sh 4    # → Desktop App (embedded dashboard, no browser)
 ```
 
 Or launch directly:
 ```bash
+# Embedded desktop dashboard
+.venv/bin/python src/desktop_app.py
+
 # Browser dashboard
 .venv/bin/python -m streamlit run ui/streamlit_app.py
 
@@ -144,6 +149,7 @@ Or launch directly:
 
 | UI | Best for |
 |----|----------|
+| **Desktop App** | Embedded no-browser dashboard with report runs, latest metrics, report viewer, history, config editing, and API checks |
 | **Streamlit** | CSV upload & preview, live run progress, dashboard metrics, Decision Journal, history compare, download buttons, JSON config editing |
 | **Textual** | Same features, no browser, journal summaries, keyboard shortcuts (`Ctrl+R` = run, `Ctrl+S` = save, `r` = refresh) |
 

@@ -6,6 +6,7 @@ Usage:
     python src/ui_launcher.py 1        # CLI (pass args through)
     python src/ui_launcher.py 2        # Streamlit
     python src/ui_launcher.py 3        # Textual
+    python src/ui_launcher.py 4        # Embedded desktop UI
 """
 
 from __future__ import annotations
@@ -40,6 +41,10 @@ OPTIONS = {
     "3": {
         "label": "Textual TUI     — Rich terminal UI, keyboard-driven, no browser needed",
         "desc": "Textual terminal dashboard",
+    },
+    "4": {
+        "label": "Desktop App     — Embedded dashboard, no browser needed",
+        "desc": "embedded desktop dashboard",
     },
 }
 
@@ -78,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
 
-    # Non-interactive: first arg is a choice key (1/2/3) passed by the shell script
+    # Non-interactive: first arg is a choice key (1/2/3/4) passed by the shell script
     choice = ""
     extra_args: list[str] = []
     if argv:
@@ -99,13 +104,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"    [{key}]  {meta['label']}")
         print()
         try:
-            choice = input("  Choose [1/2/3, Enter = 1]: ").strip() or "1"
+            choice = input("  Choose [1/2/3/4, Enter = 1]: ").strip() or "1"
         except (EOFError, KeyboardInterrupt):
             print()
             return 0
 
     if choice not in OPTIONS:
-        print(f"  Invalid choice: {choice!r}. Pick 1, 2, or 3.")
+        print(f"  Invalid choice: {choice!r}. Pick 1, 2, 3, or 4.")
         return 2
 
     print(f"\n  Launching: {OPTIONS[choice]['desc']} …\n")
@@ -119,6 +124,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if choice == "3":
         cmd = [sys.executable, str(ROOT / "ui" / "textual_app.py")] + extra_args
+        return subprocess.call(cmd, cwd=ROOT)
+
+    if choice == "4":
+        cmd = [sys.executable, str(ROOT / "src" / "desktop_app.py")] + extra_args
         return subprocess.call(cmd, cwd=ROOT)
 
     return 0  # unreachable
