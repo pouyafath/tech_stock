@@ -2,11 +2,12 @@
 # run.sh — One-command launcher for tech_stock portfolio advisor
 #
 # Usage:
-#   ./run.sh                            # Show UI-choice menu (CLI / Streamlit / Textual)
+#   ./run.sh                            # Show UI-choice menu (CLI / Streamlit / Textual / Desktop)
 #   ./run.sh morning                    # Skip menu → CLI, morning session
 #   ./run.sh afternoon --model opus     # Skip menu → CLI, afternoon + Opus
 #   ./run.sh 2                          # Skip menu → Streamlit directly
 #   ./run.sh 3                          # Skip menu → Textual directly
+#   ./run.sh 4                          # Skip menu → embedded desktop UI
 #
 # Requirements:
 #   - ANTHROPIC_API_KEY set in .env (or exported in your shell)
@@ -77,7 +78,7 @@ fi
 # With no arguments → show the UI-choice menu.
 # With arguments that look like a session flag (morning/afternoon/--...) →
 #   pass them straight to the CLI so existing cron/script callers still work.
-# With "2" or "3" as the first argument → jump straight to that UI.
+# With "2", "3", or "4" as the first argument → jump straight to that UI.
 
 if [ $# -eq 0 ]; then
     # No args: interactive menu

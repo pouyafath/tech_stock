@@ -41,11 +41,24 @@
 - ✅ **Trade History Context** — Loads your recent Wealthsimple trades to avoid whipsawing
 - ✅ **Decision Journal & Outcome Scoring** — Records accepted/ignored/modified recommendations and measures your results against the model
 - ✅ **Triple Output** — Markdown report + CSV table + JSON log for backtesting
-- ✅ **Three Interface Options** — Original CLI remains default, with optional Streamlit dashboard and Textual terminal UI
+- ✅ **Four Interface Options** — Original CLI remains default, with embedded Desktop App, Streamlit dashboard, and Textual terminal UI
 - ✅ **Model Choice** — Pick Sonnet 4.6 (~$0.30-$0.70/run typical two-pass range) or Opus 4.7 (higher cost, deeper analysis) per session
 - ✅ **Fast Parallel Fetching** — Concurrent API requests with caching and graceful degradation
 
 ---
+
+## ✨ What's New in v1.12.0 (May 14, 2026)
+
+**Fully embedded desktop application.**
+
+- **Embedded Desktop App** — new browser-free Tkinter dashboard packaged inside the native macOS/Windows app.
+- **Native tabs** — Dashboard, Run Report, Report Viewer, History, Config Editor, and API Checks are available inside the app window.
+- **Same report engine** — the desktop app calls `src.ui_support.run_report_from_ui()`, so it uses the same two-pass Claude report pipeline as CLI, Streamlit, and Textual.
+- **Live progress** — report generation streams CLI progress into the desktop window and loads the finished markdown report automatically.
+- **Launcher update** — the native launcher now offers Desktop App first, then Streamlit Web UI, Textual Terminal UI, and CLI.
+- **Source launch** — run `./run.sh 4` or `python src/desktop_app.py` to open the embedded UI from source.
+
+Current local suite: `pytest -q` passes with 171 tests.
 
 ## ✨ What's New in v1.11.0 (May 13, 2026)
 
@@ -112,7 +125,7 @@ v1.10 validation suite passed with 167 tests.
 
 **Native App Packaging + Unified Launcher:** Run tech_stock as a native macOS or Windows application — no terminal required.
 
-- **`./run.sh` Unified Entry Point** — Running `./run.sh` with no arguments now shows an interactive menu (CLI / Streamlit / Textual). Existing callers with arguments (e.g. `./run.sh morning`) still work unchanged.
+- **`./run.sh` Unified Entry Point** — Running `./run.sh` with no arguments now shows an interactive menu (CLI / Streamlit / Textual / Desktop). Existing callers with arguments (e.g. `./run.sh morning`) still work unchanged.
 - **Native macOS App** — `build_macos.sh` builds `dist/tech_stock.dmg` using PyInstaller. Double-click to install; dark-themed tkinter launcher window opens with three one-click buttons.
 - **Native Windows App** — `build_windows.bat` builds `dist\tech_stock\tech_stock.exe`. Optionally wrap in an Inno Setup installer via `installer_windows.iss`.
 - **GitHub Actions Release CI** — Push a version tag (`git tag v1.0.0 && git push --tags`) and GitHub Actions automatically builds both the `.dmg` and Windows `.exe`, then uploads them as release artifacts.
@@ -194,9 +207,9 @@ Each operating system has two supported ways to use tech_stock:
 
 | OS | App-based option | Terminal-based option |
 |---|---|---|
-| macOS | Native `.dmg` / `.app` launcher, or Streamlit browser dashboard | `./run.sh` or `python src/main.py` |
-| Windows | Native `.exe` launcher, or Streamlit browser dashboard | PowerShell / Command Prompt with `python src/main.py` |
-| Linux | Streamlit browser dashboard | `./run.sh` or `python src/main.py` |
+| macOS | Native `.dmg` / `.app` launcher with embedded Desktop App, or Streamlit browser dashboard | `./run.sh` or `python src/main.py` |
+| Windows | Native `.exe` launcher with embedded Desktop App, or Streamlit browser dashboard | PowerShell / Command Prompt with `python src/main.py` |
+| Linux | Embedded Desktop App from source, or Streamlit browser dashboard | `./run.sh` or `python src/main.py` |
 
 The terminal workflow is the most reliable for development and automation. The app-based workflow is better for users who prefer buttons, upload widgets, report history, and a dashboard.
 
@@ -264,9 +277,26 @@ chmod +x build_macos.sh
 
 Then open `dist/tech_stock.dmg`, drag `tech_stock.app` to Applications, and launch it. The launcher gives you buttons for:
 
+- Desktop App
 - Streamlit Web UI
 - Textual Terminal UI
 - Original CLI
+
+The **Desktop App** is fully embedded in the native application and does not need a browser. It includes Dashboard, Run Report, Report Viewer, History, Config Editor, and API Checks tabs.
+
+The **Streamlit Web UI** remains available for users who prefer a browser dashboard. It starts a local server and opens your default browser at a local URL such as `http://localhost:8501`. If your browser does not open automatically, the launcher shows the URL so you can paste it manually.
+
+**First launch on macOS:** current public builds are ad-hoc signed, not Apple-notarized. macOS may show `"tech_stock" Not Opened` or `Apple could not verify "tech_stock" is free of malware`. This is expected for unsigned/non-notarized open-source builds.
+
+To open it:
+
+1. Click **Done** on the warning.
+2. Open **System Settings → Privacy & Security**.
+3. Scroll to **Security**.
+4. Find `"tech_stock" was blocked to protect your Mac`.
+5. Click **Open Anyway**, then confirm.
+
+You only need to do this once per downloaded build. To avoid this warning for every user, the app must be signed with an Apple Developer ID certificate, submitted to Apple notarization, and stapled before release.
 
 #### macOS Option 2 — Terminal-Based
 
@@ -276,7 +306,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 chmod +x run.sh run-ui.sh
 
-# Interactive launcher: CLI / Streamlit / Textual
+# Interactive launcher: CLI / Streamlit / Textual / Desktop
 ./run.sh
 
 # Direct CLI
@@ -311,7 +341,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 chmod +x run.sh run-ui.sh
 
-# Interactive launcher: CLI / Streamlit / Textual
+# Interactive launcher: CLI / Streamlit / Textual / Desktop
 ./run.sh
 
 # Direct CLI
@@ -441,11 +471,12 @@ python src/main.py morning --holdings ~/Holdings.csv --model opus
 
 | Command | What happens |
 |---------|-------------|
-| `./run.sh` | Interactive menu — pick CLI / Streamlit / Textual |
+| `./run.sh` | Interactive menu — pick CLI / Streamlit / Textual / Desktop |
 | `./run.sh morning` | Skip menu → CLI, morning session |
 | `./run.sh afternoon --model opus` | Skip menu → CLI, Opus model |
 | `./run.sh 2` | Skip menu → Streamlit (browser opens automatically) |
 | `./run.sh 3` | Skip menu → Textual TUI |
+| `./run.sh 4` | Skip menu → embedded Desktop App |
 
 **Windows PowerShell / Command Prompt:**
 
@@ -456,8 +487,29 @@ python src/main.py morning --holdings ~/Holdings.csv --model opus
 | `python src\main.py afternoon --model opus --holdings "%USERPROFILE%\Downloads\holdings-report-YYYY-MM-DD.csv"` | Direct afternoon CLI run with Opus |
 | `python -m streamlit run ui\streamlit_app.py` | Streamlit browser dashboard |
 | `python ui\textual_app.py` | Textual terminal dashboard |
+| `python src\desktop_app.py` | Embedded desktop dashboard |
 
-All three interface options call the **same report engine** (`src/main.run()`). UI runs disable automatic file opening and return the generated markdown/CSV/JSON paths inside the interface.
+All four interface options call the **same report engine** (`src/main.run()`). UI runs disable automatic file opening and return the generated markdown/CSV/JSON paths inside the interface.
+
+### Embedded Desktop App
+
+```bash
+python src/desktop_app.py
+# or
+./run.sh 4
+```
+
+The Desktop App is a native Tkinter dashboard that runs inside the application window. It does not start Streamlit and does not need a browser.
+
+Tabs:
+- **Dashboard** — Shows latest JSON-log metrics for risk, priority actions, quality warnings, and Claude cost
+- **Run Report** — Select session/model/budgets, choose Wealthsimple CSVs, preview holdings, and run the same report pipeline as CLI mode with live progress
+- **Report Viewer** — Opens the latest generated markdown report inside the app
+- **History** — Browse previous markdown reports from `reports/`
+- **Config Editor** — Edit `config/settings.json`, `config/watchlist.json`, or fallback `config/portfolio.json` with JSON validation
+- **API Checks** — Check Anthropic, yfinance, Finnhub, and Polygon connectivity
+
+The embedded viewer shows markdown as readable plain text. Use Streamlit if you specifically want browser-rendered markdown tables and download buttons.
 
 ### Streamlit Dashboard
 
@@ -570,6 +622,8 @@ For users who don't want a terminal, tech_stock ships as a native desktop applic
 ```
 Double-click `tech_stock.dmg` → drag `tech_stock.app` to Applications → double-click.
 
+The local build uses ad-hoc signing. macOS Gatekeeper may block the first launch with `Apple could not verify "tech_stock" is free of malware`. Open **System Settings → Privacy & Security → Security** and click **Open Anyway** for `tech_stock`. This trust approval is normally needed once per build.
+
 **Windows:**
 ```bat
 build_windows.bat         :: builds dist\tech_stock\tech_stock.exe
@@ -584,12 +638,15 @@ git tag v1.0.0 && git push --tags
 ```
 GitHub Actions builds `.dmg` (macOS runner) and `.exe` (Windows runner) and attaches them to a GitHub Release. Download from the [Releases page](https://github.com/pouyafath/tech_stock/releases).
 
+Current macOS release artifacts are ad-hoc signed but not notarized. That means Apple Gatekeeper can block first launch until the user approves it in **System Settings → Privacy & Security → Open Anyway**. A warning-free macOS release requires an Apple Developer Program account, Developer ID signing, notarization, and stapling in the release workflow.
+
 ### What the App Does
 
 On launch the native app shows a dark-themed launcher window (built with tkinter — no extra dependency):
-- **Streamlit Web UI** — starts the Streamlit server and opens your browser
-- **Textual Terminal UI** — opens the keyboard-driven terminal dashboard
-- **Command-Line (CLI)** — opens a terminal and runs the original CLI
+- **Desktop App** — opens the embedded browser-free dashboard inside a native app window
+- **Streamlit Web UI** — starts the Streamlit server, opens your default browser, and shows the local URL if the browser does not open automatically
+- **Textual Terminal UI** — opens the keyboard-driven terminal dashboard in Terminal / Command Prompt
+- **Command-Line (CLI)** — opens Terminal / Command Prompt and runs the original CLI
 
 Your `.env` / `API_KEYS.txt` must exist in the same directory as the app or its parent.
 
@@ -1267,4 +1324,4 @@ For issues or questions:
 
 **Last updated:** May 14, 2026 — OS-specific install paths for app-based and terminal-based use
 **Version:** 1.11.0
-**Status:** Production-ready — deterministic quality gates, current catalyst headlines, three interface options, native app distribution, paper-trading mode, decision journal
+**Status:** Production-ready — deterministic quality gates, current catalyst headlines, four interface options, native app distribution, paper-trading mode, decision journal

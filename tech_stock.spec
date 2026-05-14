@@ -65,6 +65,7 @@ hiddenimports = [
     # Project modules
     "src.main",
     "src.ui_support",
+    "src.desktop_app",
     "src.claude_analyst",
     "src.market_data",
     "src.portfolio_loader",
@@ -83,6 +84,9 @@ hiddenimports = [
     "python_dotenv",
     "tkinter",
     "tkinter.font",
+    "tkinter.filedialog",
+    "tkinter.messagebox",
+    "tkinter.scrolledtext",
     "tkinter.ttk",
 ]
 hiddenimports += collect_submodules("streamlit")
