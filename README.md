@@ -188,68 +188,192 @@ v1.10 validation suite passed with 167 tests.
 - **Wealthsimple Premium account** with a USD trading account
 - **Optional UI dependencies** are included in `requirements.txt` (`streamlit` and `textual`)
 
-### Installation
+### Installation — Choose Your OS
+
+Each operating system has two supported ways to use tech_stock:
+
+| OS | App-based option | Terminal-based option |
+|---|---|---|
+| macOS | Native `.dmg` / `.app` launcher, or Streamlit browser dashboard | `./run.sh` or `python src/main.py` |
+| Windows | Native `.exe` launcher, or Streamlit browser dashboard | PowerShell / Command Prompt with `python src/main.py` |
+| Linux | Streamlit browser dashboard | `./run.sh` or `python src/main.py` |
+
+The terminal workflow is the most reliable for development and automation. The app-based workflow is better for users who prefer buttons, upload widgets, report history, and a dashboard.
+
+### Step 1 — Download Or Clone
+
+**Option A: Download a prebuilt app**
+
+Use this if you want the app-based macOS or Windows launcher:
+
+1. Open the [Releases page](https://github.com/pouyafath/tech_stock/releases).
+2. Download the latest macOS `.dmg` or Windows `.exe` / zipped app artifact.
+3. Put `API_KEYS.txt` beside the app, or in the project folder if you are running from source.
+
+Linux does not currently ship a `.deb`, `.rpm`, or AppImage. Use the Streamlit browser dashboard from source for the app-style Linux experience.
+
+**Option B: Clone the source**
+
+Use this for terminal mode, Streamlit, Textual, local development, or building the native app yourself:
 
 ```bash
-# Clone or navigate to the project
+git clone https://github.com/pouyafath/tech_stock.git
 cd tech_stock
-
-# Create and activate virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-# This installs the CLI/runtime dependencies plus optional Streamlit/Textual UI packages
-
-# Set up API keys (two options below)
 ```
 
-**Option A: Easy Way (Recommended for new users)**
+### Step 2 — Set Up API Keys
+
+Anthropic is required. Enrichment keys are optional but improve report quality.
+
+**Easy method, recommended:**
+
 ```bash
 cp API_KEYS.template.txt API_KEYS.txt
-# Open API_KEYS.txt in your editor and paste your API keys
-# (See signup links inside for each service)
 ```
 
-**Option B: Advanced Way (.env file)**
+Open `API_KEYS.txt` and paste your keys:
+
+```bash
+# macOS
+open API_KEYS.txt
+
+# Linux
+nano API_KEYS.txt
+
+# Windows PowerShell
+notepad API_KEYS.txt
+```
+
+**Advanced method:**
+
 ```bash
 cp .env.example .env
-# Edit .env and paste all your API keys
+# Edit .env in your editor
 ```
 
-### First Run — Choose Your Interface
+### macOS
+
+#### macOS Option 1 — App-Based
+
+Use the prebuilt `.dmg` from the [Releases page](https://github.com/pouyafath/tech_stock/releases), or build it locally:
 
 ```bash
+chmod +x build_macos.sh
+./build_macos.sh
+```
+
+Then open `dist/tech_stock.dmg`, drag `tech_stock.app` to Applications, and launch it. The launcher gives you buttons for:
+
+- Streamlit Web UI
+- Textual Terminal UI
+- Original CLI
+
+#### macOS Option 2 — Terminal-Based
+
+```bash
+python3 -m venv .venv
 source .venv/bin/activate
-chmod +x run.sh run-ui.sh   # make executable (first time only)
+pip install -r requirements.txt
+chmod +x run.sh run-ui.sh
+
+# Interactive launcher: CLI / Streamlit / Textual
 ./run.sh
-```
 
-You'll see a menu:
-```
-  [1]  CLI             — Terminal, fastest, pass session flags directly
-  [2]  Streamlit UI    — Web dashboard, open in browser, full feature set
-  [3]  Textual TUI     — Rich terminal UI, keyboard-driven, no browser needed
+# Direct CLI
+./run.sh morning
+./run.sh afternoon --model opus
 
-  Choose [1/2/3, Enter = 1]:
-```
-
-**No terminal?** Download `tech_stock.dmg` from the [Releases page](https://github.com/pouyafath/tech_stock/releases) and double-click — a native launcher window opens with the same three choices.
-
-**Shortcut — skip the menu:**
-```bash
-./run.sh morning          # → CLI, morning session
-./run.sh 2                # → Streamlit (opens browser automatically)
-./run.sh 3                # → Textual TUI
-```
-
-**Original interactive CLI (unchanged from before):**
-```bash
+# Original Python entrypoint
 python src/main.py
 ```
 
-You'll be walked through 5 questions:
+### Linux
+
+#### Linux Option 1 — App-Based Browser Dashboard
+
+Linux currently uses the Streamlit browser dashboard as its app-based interface:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+.venv/bin/python -m streamlit run ui/streamlit_app.py
+```
+
+Open the local URL printed by Streamlit, normally `http://localhost:8501`.
+
+#### Linux Option 2 — Terminal-Based
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+chmod +x run.sh run-ui.sh
+
+# Interactive launcher: CLI / Streamlit / Textual
+./run.sh
+
+# Direct CLI
+./run.sh morning
+./run.sh afternoon --model opus
+
+# Original Python entrypoint
+python src/main.py
+```
+
+### Windows
+
+#### Windows Option 1 — App-Based
+
+Use the prebuilt Windows artifact from the [Releases page](https://github.com/pouyafath/tech_stock/releases), or build it locally from PowerShell / Command Prompt:
+
+```bat
+build_windows.bat
+```
+
+Then run:
+
+```bat
+dist\tech_stock\tech_stock.exe
+```
+
+If you want an installer-style package, use `installer_windows.iss` with Inno Setup after building.
+
+#### Windows Option 2 — Terminal-Based
+
+PowerShell:
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+
+# Interactive CLI
+python src\main.py
+
+# Direct CLI
+python src\main.py morning --holdings "$HOME\Downloads\holdings-report-YYYY-MM-DD.csv"
+python src\main.py afternoon --model opus --holdings "$HOME\Downloads\holdings-report-YYYY-MM-DD.csv"
+
+# Browser dashboard
+python -m streamlit run ui\streamlit_app.py
+
+# Terminal dashboard
+python ui\textual_app.py
+```
+
+If PowerShell blocks activation, run:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+Then run `.\.venv\Scripts\Activate.ps1` again.
+
+### First Run — What To Expect
+
+In CLI mode, you will be walked through 5 questions:
 
 ```
 Session type (morning/afternoon) [Enter = morning]:
@@ -313,6 +437,8 @@ python src/main.py morning --holdings ~/Holdings.csv --model opus
 
 ### Running the Application
 
+**macOS / Linux:**
+
 | Command | What happens |
 |---------|-------------|
 | `./run.sh` | Interactive menu — pick CLI / Streamlit / Textual |
@@ -320,6 +446,16 @@ python src/main.py morning --holdings ~/Holdings.csv --model opus
 | `./run.sh afternoon --model opus` | Skip menu → CLI, Opus model |
 | `./run.sh 2` | Skip menu → Streamlit (browser opens automatically) |
 | `./run.sh 3` | Skip menu → Textual TUI |
+
+**Windows PowerShell / Command Prompt:**
+
+| Command | What happens |
+|---------|-------------|
+| `python src\main.py` | Interactive CLI |
+| `python src\main.py morning --holdings "%USERPROFILE%\Downloads\holdings-report-YYYY-MM-DD.csv"` | Direct morning CLI run |
+| `python src\main.py afternoon --model opus --holdings "%USERPROFILE%\Downloads\holdings-report-YYYY-MM-DD.csv"` | Direct afternoon CLI run with Opus |
+| `python -m streamlit run ui\streamlit_app.py` | Streamlit browser dashboard |
+| `python ui\textual_app.py` | Textual terminal dashboard |
 
 All three interface options call the **same report engine** (`src/main.run()`). UI runs disable automatic file opening and return the generated markdown/CSV/JSON paths inside the interface.
 
@@ -1129,6 +1265,6 @@ For issues or questions:
 
 ---
 
-**Last updated:** May 13, 2026 — decision journal, outcome scorecard, model-vs-user feedback loop (v1.11)
+**Last updated:** May 14, 2026 — OS-specific install paths for app-based and terminal-based use
 **Version:** 1.11.0
 **Status:** Production-ready — deterministic quality gates, current catalyst headlines, three interface options, native app distribution, paper-trading mode, decision journal
