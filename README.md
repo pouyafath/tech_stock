@@ -268,6 +268,18 @@ Then open `dist/tech_stock.dmg`, drag `tech_stock.app` to Applications, and laun
 - Textual Terminal UI
 - Original CLI
 
+**First launch on macOS:** current public builds are ad-hoc signed, not Apple-notarized. macOS may show `"tech_stock" Not Opened` or `Apple could not verify "tech_stock" is free of malware`. This is expected for unsigned/non-notarized open-source builds.
+
+To open it:
+
+1. Click **Done** on the warning.
+2. Open **System Settings → Privacy & Security**.
+3. Scroll to **Security**.
+4. Find `"tech_stock" was blocked to protect your Mac`.
+5. Click **Open Anyway**, then confirm.
+
+You only need to do this once per downloaded build. To avoid this warning for every user, the app must be signed with an Apple Developer ID certificate, submitted to Apple notarization, and stapled before release.
+
 #### macOS Option 2 — Terminal-Based
 
 ```bash
@@ -570,6 +582,8 @@ For users who don't want a terminal, tech_stock ships as a native desktop applic
 ```
 Double-click `tech_stock.dmg` → drag `tech_stock.app` to Applications → double-click.
 
+The local build uses ad-hoc signing. macOS Gatekeeper may block the first launch with `Apple could not verify "tech_stock" is free of malware`. Open **System Settings → Privacy & Security → Security** and click **Open Anyway** for `tech_stock`. This trust approval is normally needed once per build.
+
 **Windows:**
 ```bat
 build_windows.bat         :: builds dist\tech_stock\tech_stock.exe
@@ -583,6 +597,8 @@ Push a version tag to trigger automatic builds for both platforms:
 git tag v1.0.0 && git push --tags
 ```
 GitHub Actions builds `.dmg` (macOS runner) and `.exe` (Windows runner) and attaches them to a GitHub Release. Download from the [Releases page](https://github.com/pouyafath/tech_stock/releases).
+
+Current macOS release artifacts are ad-hoc signed but not notarized. That means Apple Gatekeeper can block first launch until the user approves it in **System Settings → Privacy & Security → Open Anyway**. A warning-free macOS release requires an Apple Developer Program account, Developer ID signing, notarization, and stapling in the release workflow.
 
 ### What the App Does
 
