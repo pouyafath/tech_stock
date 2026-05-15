@@ -4,6 +4,19 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.12.3] — 2026-05-14
+
+### Added — Desktop dashboard and report readability
+- **Action dashboard** — the embedded Desktop App Dashboard now surfaces the next action, portfolio/risk cards, priority action queue, quality gates, stop breaches, drift, hedge ideas, market context, and watchlist signals.
+- **Styled report reader** — Report Viewer and History now render markdown with styled headings, paragraph spacing, bold text, and aligned table blocks instead of raw markdown.
+- **Compact report paths** — Report Viewer keeps search paths available behind a Show/Hide control so the report content starts higher on the screen.
+- **Richer UI summaries** — UI summary helpers now expose session summary, market context, watchlist flags, trailing-stop breaches, sector warnings, and general warnings from the latest JSON log.
+
+### Tests
+- Full local suite: 171 tests passing.
+
+---
+
 ## [1.12.2] — 2026-05-14
 
 ### Fixed — Desktop report discovery visibility

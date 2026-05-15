@@ -47,12 +47,13 @@
 
 ---
 
-## ✨ What's New in v1.12.2 (May 14, 2026)
+## ✨ What's New in v1.12.3 (May 14, 2026)
 
-**Embedded desktop app with clearer file discovery.**
+**Embedded desktop app usability polish.**
 
 - **Embedded Desktop App** — new browser-free Tkinter dashboard packaged inside the native macOS/Windows app.
-- **Native tabs** — Dashboard, Run Report, Report Viewer, History, Config Editor, and API Checks are available inside the app window.
+- **Action dashboard** — Dashboard now starts with the next action, portfolio/risk cards, priority action queue, quality gates, stop breaches, drift, hedge ideas, market context, and watchlist signals.
+- **Styled report reader** — Report Viewer and History render markdown with headings, emphasized text, readable spacing, and aligned table blocks instead of raw markdown text.
 - **Report path visibility** — Report Viewer and History now show every report folder searched, with found/missing status and report counts.
 - **Cross-mode report discovery** — reports created from source or packaged app mode can be found from the Desktop App.
 - **Same report engine** — the desktop app calls `src.ui_support.run_report_from_ui()`, so it uses the same two-pass Claude report pipeline as CLI, Streamlit, and Textual.
@@ -504,14 +505,14 @@ python src/desktop_app.py
 The Desktop App is a native Tkinter dashboard that runs inside the application window. It does not start Streamlit and does not need a browser.
 
 Tabs:
-- **Dashboard** — Shows latest JSON-log metrics for risk, priority actions, quality warnings, and Claude cost
+- **Dashboard** — Shows the next action, portfolio/risk metric cards, priority action queue, quality gates, stop breaches, drift, hedge ideas, market context, watchlist signals, and Claude cost
 - **Run Report** — Select session/model/budgets, confirm auto-detected Wealthsimple CSV paths, preview holdings, and run the same report pipeline as CLI mode with live progress
-- **Report Viewer** — Opens the latest generated markdown report inside the app and shows every report folder searched
-- **History** — Browse previous markdown reports from all configured report search folders
+- **Report Viewer** — Opens the latest generated markdown report with styled headings, readable paragraph spacing, and aligned table blocks; search paths are available from **Show Search Paths**
+- **History** — Browse previous markdown reports from all configured report search folders and view them with the same styled markdown renderer
 - **Config Editor** — Edit `config/settings.json`, `config/watchlist.json`, or fallback `config/portfolio.json` with JSON validation
 - **API Checks** — Check Anthropic, yfinance, Finnhub, and Polygon connectivity, and show every API-key file path the app searches
 
-The embedded viewer shows markdown as readable plain text. Use Streamlit if you specifically want browser-rendered markdown tables and download buttons.
+The embedded viewer is a native styled markdown reader. Use Streamlit if you specifically want browser-rendered markdown, side-by-side history comparison, and download buttons.
 
 Default file locations:
 - **Source checkout:** app data is saved inside the project folder, for example `<project>/data/`, `<project>/reports/`, `<project>/temporary_upload/`, and `<project>/config/`.
@@ -530,7 +531,7 @@ Report search order for Report Viewer and History:
 5. `~/Downloads/tech_stock/reports/`
 6. Source checkout `reports/` folder
 
-The Desktop App shows this exact list, with found/missing status and report counts, in both the Report Viewer and History tabs.
+The Desktop App shows this exact list, with found/missing status and report counts, in History and behind **Show Search Paths** in Report Viewer.
 
 API key search order:
 1. `~/Documents/tech_stock/API_KEYS.txt` or `.env` in packaged app mode
