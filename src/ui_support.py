@@ -35,6 +35,7 @@ from src.main import (
     api_key_search_paths,
     find_csv_by_date,
     _load_api_keys_from_file,
+    report_search_paths,
     runtime_locations,
     run as run_cli_report,
 )
@@ -230,10 +231,29 @@ def run_report_from_ui(
     )
 
 
+def _ui_report_search_paths() -> list[Path]:
+    paths = report_search_paths()
+    report_dir = REPORTS_DIR.expanduser()
+    report_key = report_dir.resolve() if report_dir.exists() else report_dir
+    path_keys = {path.resolve() if path.exists() else path for path in paths}
+    if report_key not in path_keys:
+        return [report_dir]
+    return paths
+
+
 def list_reports(limit: int = 25) -> list[Path]:
-    if not REPORTS_DIR.exists():
-        return []
-    reports = sorted(REPORTS_DIR.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+    reports: list[Path] = []
+    seen: set[Path] = set()
+    for directory in _ui_report_search_paths():
+        if not directory.exists():
+            continue
+        for path in directory.glob("*.md"):
+            key = path.resolve()
+            if key in seen:
+                continue
+            seen.add(key)
+            reports.append(path)
+    reports = sorted(reports, key=lambda p: p.stat().st_mtime, reverse=True)
     return reports[:limit]
 
 
@@ -431,6 +451,19 @@ def api_key_locations() -> list[dict[str, Any]]:
         rows.append({
             "path": resolved,
             "exists": resolved.exists(),
+        })
+    return rows
+
+
+def report_locations() -> list[dict[str, Any]]:
+    """Return report search folders with existence/count flags for UIs."""
+    rows = []
+    for path in _ui_report_search_paths():
+        exists = path.exists()
+        rows.append({
+            "path": path,
+            "exists": exists,
+            "count": len(list(path.glob("*.md"))) if exists else 0,
         })
     return rows
 

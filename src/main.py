@@ -318,6 +318,31 @@ def api_key_search_paths() -> list[Path]:
     ]
 
 
+def _dedupe_paths(paths: list[Path]) -> list[Path]:
+    deduped: list[Path] = []
+    seen: set[Path] = set()
+    for path in paths:
+        expanded = path.expanduser()
+        key = expanded.resolve() if expanded.exists() else expanded
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(expanded)
+    return deduped
+
+
+def report_search_paths() -> list[Path]:
+    """Return user-facing report folders checked by report viewer/history UIs."""
+    return _dedupe_paths([
+        REPORTS_DIR,
+        Path.cwd() / "reports",
+        Path.home() / "Documents" / "tech_stock" / "reports",
+        Path.home() / "Desktop" / "tech_stock" / "reports",
+        Path.home() / "Downloads" / "tech_stock" / "reports",
+        SOURCE_ROOT / "reports",
+    ])
+
+
 def runtime_locations() -> dict[str, Path]:
     """Return user-facing data locations used by the app."""
     return {

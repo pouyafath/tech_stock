@@ -4,6 +4,19 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.12.2] — 2026-05-14
+
+### Fixed — Desktop report discovery visibility
+- **Report Viewer search paths** — the embedded Desktop App now shows every markdown report folder it checks, with found/missing status and report counts.
+- **History search paths** — the History tab now uses and displays the same multi-folder report discovery list.
+- **Cross-mode report discovery** — source runs and packaged-app runs can now find reports from the active workspace, current folder, `~/Documents/tech_stock/`, `~/Desktop/tech_stock/`, `~/Downloads/tech_stock/`, and the source checkout.
+- **README locations** — documentation now explains where source and packaged app runs save reports, logs, uploads, and config.
+
+### Tests
+- Full local suite: 171 tests passing.
+
+---
+
 ## [1.12.1] — 2026-05-14
 
 ### Fixed — Desktop app file discovery

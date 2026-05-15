@@ -36,6 +36,7 @@ from src.ui_support import (
     read_editable_json,
     read_text_file,
     relative_to_root,
+    report_locations,
     run_report_from_ui,
     validate_json_text,
     write_editable_json,
@@ -213,6 +214,12 @@ class DesktopApp(tk.Tk):
         self.report_path_label = ttk.Label(toolbar, text="", style="Muted.TLabel")
         self.report_path_label.pack(side="left", padx=12)
 
+        paths_panel = self._panel(self.report_tab, "Report Search Paths")
+        paths_panel.pack(fill="x", padx=16, pady=(0, 16))
+        self.report_paths_text = tk.Text(paths_panel, height=6, wrap="none", bg="#0f172a", fg="#e5e7eb")
+        self.report_paths_text.pack(fill="x")
+        self.refresh_report_paths_text()
+
         self.report_text = ScrolledText(self.report_tab, wrap="word", bg="#0b1020", fg="#e5e7eb", insertbackground="#e5e7eb")
         self.report_text.pack(fill="both", expand=True, padx=16, pady=(0, 16))
 
@@ -226,10 +233,15 @@ class DesktopApp(tk.Tk):
         body.add(right, weight=3)
 
         ttk.Button(left, text="Refresh", command=self.refresh_history).pack(anchor="w", pady=(0, 8))
+        paths_panel = self._panel(left, "History Search Paths")
+        paths_panel.pack(fill="x", pady=(0, 8))
+        self.history_paths_text = tk.Text(paths_panel, height=8, wrap="none", bg="#0f172a", fg="#e5e7eb")
+        self.history_paths_text.pack(fill="x")
         self.history_list = tk.Listbox(left, bg="#0f172a", fg="#e5e7eb", activestyle="dotbox")
         self.history_list.pack(fill="both", expand=True)
         self.history_list.bind("<<ListboxSelect>>", self._history_selected)
         self.history_paths: list[Path] = []
+        self.refresh_report_paths_text()
 
         self.history_text = ScrolledText(right, wrap="word", bg="#0b1020", fg="#e5e7eb", insertbackground="#e5e7eb")
         self.history_text.pack(fill="both", expand=True)
@@ -286,6 +298,21 @@ class DesktopApp(tk.Tk):
         self.api_paths_text.delete("1.0", "end")
         self.api_paths_text.insert("1.0", "\n".join(lines))
         self.api_paths_text.configure(state="disabled")
+
+    def refresh_report_paths_text(self) -> None:
+        lines = ["The app checks these folders for markdown reports, in order:"]
+        for row in report_locations():
+            marker = f"FOUND {row['count']}" if row["exists"] else "missing"
+            lines.append(f"- [{marker}] {row['path']}")
+        text = "\n".join(lines)
+        for widget_name in ("report_paths_text", "history_paths_text"):
+            widget = getattr(self, widget_name, None)
+            if widget is None:
+                continue
+            widget.configure(state="normal")
+            widget.delete("1.0", "end")
+            widget.insert("1.0", text)
+            widget.configure(state="disabled")
 
     def _field_combo(self, parent: ttk.Frame, label: str, var: tk.StringVar, values: list[str], col: int) -> None:
         ttk.Label(parent, text=label, background=self.panel, foreground=self.muted).grid(row=0, column=col, sticky="w", padx=(0, 12))
@@ -473,6 +500,7 @@ class DesktopApp(tk.Tk):
             tree.insert("", "end", values=row)
 
     def load_report(self, path: Path | None, *, select_tab: bool = False) -> None:
+        self.refresh_report_paths_text()
         self.latest_report_path = path
         text = read_text_file(path)
         self.report_text.delete("1.0", "end")
@@ -488,6 +516,7 @@ class DesktopApp(tk.Tk):
             self.tabs.select(self.report_tab)
 
     def refresh_history(self) -> None:
+        self.refresh_report_paths_text()
         self.history_paths = list_reports(limit=100)
         self.history_list.delete(0, "end")
         for path in self.history_paths:
