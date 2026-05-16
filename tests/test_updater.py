@@ -44,10 +44,25 @@ def test_check_for_update_selects_platform_asset(monkeypatch):
 
 def test_apply_update_preserves_workspace_for_no_update(tmp_path, monkeypatch):
     monkeypatch.setattr(updater, "user_workspace", lambda: tmp_path)
-    info = updater.UpdateInfo(current_version="1.13.0", latest_version="1.13.0", available=False)
+    info = updater.UpdateInfo(current_version="1.13.1", latest_version="1.13.1", available=False)
 
     result = updater.apply_update(info)
 
     assert result.ok is True
     assert result.downloaded_path is None
     assert result.log_path == tmp_path / "logs" / "update.log"
+
+
+def test_check_for_update_explains_certificate_failures(tmp_path, monkeypatch):
+    monkeypatch.setattr(updater, "update_log_path", lambda: tmp_path / "update.log")
+
+    def fail_fetch(timeout=6.0):
+        raise updater.urllib.error.URLError("[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed")
+
+    monkeypatch.setattr(updater, "fetch_latest_release", fail_fetch)
+
+    info = updater.check_for_update(current_version="1.13.1")
+
+    assert info.available is False
+    assert "Could not verify GitHub's HTTPS certificate" in str(info.error)
+    assert "CERTIFICATE_VERIFY_FAILED" in str(info.error)

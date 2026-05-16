@@ -4,6 +4,18 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.13.1] — 2026-05-16
+
+### Fixed — Packaged updater HTTPS certificates
+- **macOS/Windows update checks** now use the bundled `certifi` CA certificate bundle instead of relying on Python's default certificate lookup inside the packaged app.
+- **Packaging** now explicitly includes `certifi` data files so GitHub Release checks and downloads can verify HTTPS certificates.
+- **Error text** for certificate failures now explains the update-check problem instead of showing a raw `urlopen` SSL exception.
+
+### Tests
+- Full local suite: 176 tests passing.
+
+---
+
 ## [1.13.0] — 2026-05-16
 
 ### Added — In-app updates

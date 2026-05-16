@@ -26,6 +26,7 @@ datas += collect_data_files("textual")
 datas += collect_data_files("altair")
 datas += collect_data_files("pyarrow")      # required by streamlit
 datas += collect_data_files("vaderSentiment")
+datas += collect_data_files("certifi")      # CA bundle for HTTPS update checks
 
 # Our own source trees
 datas += [(str(ROOT / "src"),  "src")]

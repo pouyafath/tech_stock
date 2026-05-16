@@ -47,6 +47,15 @@
 
 ---
 
+## ✨ What's New in v1.13.1 (May 16, 2026)
+
+**Packaged updater certificate fix.**
+
+- **HTTPS update checks fixed** — packaged macOS/Windows builds now use the bundled `certifi` CA certificate bundle when checking GitHub Releases.
+- **Clearer update-check errors** — certificate failures are shown as update-check connectivity problems, not raw Python SSL exceptions.
+
+Current local suite: `pytest -q` passes with 176 tests.
+
 ## ✨ What's New in v1.13.0 (May 16, 2026)
 
 **In-app updates across interfaces.**

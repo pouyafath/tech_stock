@@ -8,6 +8,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import ssl
 import urllib.error
 import urllib.request
 import zipfile
@@ -22,6 +23,14 @@ REPO_OWNER = "pouyafath"
 REPO_NAME = "tech_stock"
 LATEST_RELEASE_URL = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
 RELEASES_PAGE_URL = f"https://github.com/{REPO_OWNER}/{REPO_NAME}/releases"
+
+
+def _certificate_error_message(exc: Exception) -> str:
+    return (
+        "Could not verify GitHub's HTTPS certificate while checking for updates. "
+        "This usually means the packaged app could not find a trusted CA bundle. "
+        f"Details: {exc}"
+    )
 
 
 @dataclass
@@ -118,6 +127,16 @@ def is_source_checkout() -> bool:
     return (source_root() / ".git").exists() and not getattr(sys, "frozen", False)
 
 
+def ssl_context() -> ssl.SSLContext:
+    """Build an HTTPS context that works inside PyInstaller bundles."""
+    try:
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return ssl.create_default_context()
+
+
 def fetch_latest_release(timeout: float = 6.0) -> dict[str, Any]:
     request = urllib.request.Request(
         LATEST_RELEASE_URL,
@@ -126,7 +145,7 @@ def fetch_latest_release(timeout: float = 6.0) -> dict[str, Any]:
             "User-Agent": f"tech_stock/{APP_VERSION}",
         },
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with urllib.request.urlopen(request, timeout=timeout, context=ssl_context()) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
@@ -136,8 +155,9 @@ def check_for_update(current_version: str | None = None, timeout: float = 6.0) -
     try:
         release = fetch_latest_release(timeout=timeout)
     except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
-        _log(f"check failed: {exc}")
-        return UpdateInfo(current_version=current, error=str(exc))
+        message = _certificate_error_message(exc) if "CERTIFICATE_VERIFY_FAILED" in str(exc) else str(exc)
+        _log(f"check failed: {message}")
+        return UpdateInfo(current_version=current, error=message)
 
     latest_tag = str(release.get("tag_name") or "")
     release_url = str(release.get("html_url") or RELEASES_PAGE_URL)
@@ -171,7 +191,7 @@ def download_asset(info: UpdateInfo, timeout: float = 60.0) -> Path:
     tmp_destination = destination.with_suffix(destination.suffix + ".part")
     _log(f"download start: {info.asset_url} -> {destination}")
     request = urllib.request.Request(info.asset_url, headers={"User-Agent": f"tech_stock/{APP_VERSION}"})
-    with urllib.request.urlopen(request, timeout=timeout) as response, tmp_destination.open("wb") as handle:
+    with urllib.request.urlopen(request, timeout=timeout, context=ssl_context()) as response, tmp_destination.open("wb") as handle:
         shutil.copyfileobj(response, handle)
     tmp_destination.replace(destination)
     _log(f"download complete: {destination}")
