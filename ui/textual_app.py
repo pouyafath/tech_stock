@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -9,6 +10,7 @@ from pathlib import Path
 from rich.table import Table
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
+from textual.screen import ModalScreen
 from textual.widgets import Button, Footer, Header, Input, Markdown, RichLog, Select, Static, TabbedContent, TabPane, TextArea
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,7 +18,10 @@ sys.path.insert(0, str(ROOT))
 
 from src.ui_support import (  # noqa: E402
     EDITABLE_JSON_FILES,
+    apply_available_update,
     check_connectivity,
+    check_update_available,
+    current_app_version,
     default_run_settings,
     decision_journal_snapshot,
     decision_scorecard_summary,
@@ -36,6 +41,53 @@ from src.ui_support import (  # noqa: E402
 
 
 ANSI_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+
+
+class UpdatePrompt(ModalScreen[bool]):
+    """Small yes/no prompt shown when startup finds a newer release."""
+
+    CSS = """
+    UpdatePrompt {
+        align: center middle;
+    }
+
+    #update_prompt {
+        width: 72;
+        height: auto;
+        padding: 2 3;
+        border: thick $primary;
+        background: $surface;
+    }
+
+    #update_prompt_title {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #update_prompt_buttons {
+        margin-top: 1;
+    }
+    """
+
+    def __init__(self, latest_version: str, current_version: str) -> None:
+        super().__init__()
+        self.latest_version = latest_version
+        self.current_version = current_version
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="update_prompt"):
+            yield Static("Update available", id="update_prompt_title")
+            yield Static(
+                f"Version {self.latest_version} is available. "
+                f"You are currently on {self.current_version}.\n\n"
+                "Reports, logs, uploaded CSVs, config files, and API keys will be kept."
+            )
+            with Horizontal(id="update_prompt_buttons"):
+                yield Button("Update now", id="confirm_update", variant="primary")
+                yield Button("Later", id="dismiss_update")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id == "confirm_update")
 
 
 class TechStockTUI(App):
@@ -73,7 +125,7 @@ class TechStockTUI(App):
         margin-top: 1;
     }
 
-    #dashboard_log, #connectivity_log, #backtest_log {
+    #dashboard_log, #connectivity_log, #backtest_log, #update_log {
         height: 1fr;
         border: solid $primary;
         padding: 1;
@@ -164,9 +216,15 @@ class TechStockTUI(App):
                 yield Button("Save JSON", id="save_json", variant="success")
                 yield Static("", id="editor_status")
                 yield TextArea("", language="json", id="editor_text")
+            with TabPane("Updates", id="updates"):
+                with Horizontal(classes="form-row"):
+                    yield Button("Check for updates", id="check_updates")
+                    yield Button("Update now", id="apply_update", variant="primary", disabled=True)
+                yield RichLog(id="update_log", wrap=True, highlight=True)
         yield Footer()
 
     def on_mount(self) -> None:
+        self.latest_update_info = None
         self._load_dashboard()
         self._load_today_report()
         self._load_history_report()
@@ -175,6 +233,8 @@ class TechStockTUI(App):
         # User triggers it explicitly with the "Refresh backtest" button.
         self._show_backtest_placeholder()
         self._load_editor_text()
+        if os.environ.get("TECH_STOCK_SKIP_UPDATE_CHECK") != "1":
+            self.run_worker(self._check_updates_async(startup=True), exclusive=False)
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
@@ -197,6 +257,10 @@ class TechStockTUI(App):
             self._load_editor_text()
         elif button_id == "save_json":
             self._save_editor_text()
+        elif button_id == "check_updates":
+            self.run_worker(self._check_updates_async(startup=False), exclusive=True)
+        elif button_id == "apply_update":
+            self.run_worker(self._apply_update_async(), exclusive=True)
 
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "editor_file":
@@ -223,6 +287,8 @@ class TechStockTUI(App):
             self.run_worker(self._load_backtest_async(), exclusive=True)
         elif active == "editor":
             self._load_editor_text()
+        elif active == "updates":
+            self.run_worker(self._check_updates_async(startup=False), exclusive=True)
 
     def action_run_report(self) -> None:
         self.run_worker(self._run_report(), exclusive=True)
@@ -438,6 +504,57 @@ class TechStockTUI(App):
         log.clear()
         log.write("Press 'Refresh backtest' to evaluate past recommendations.\nThis fetches live price data and may take 20–30 seconds.")
 
+    async def _check_updates_async(self, *, startup: bool) -> None:
+        log = self.query_one("#update_log", RichLog)
+        if not startup:
+            log.clear()
+            log.write("Checking GitHub Releases...")
+        info = await asyncio.to_thread(check_update_available)
+        self.latest_update_info = info
+        self.query_one("#apply_update", Button).disabled = not info.available
+        if info.error:
+            log.write(f"Update check failed: {info.error}")
+            return
+        if info.available:
+            message = (
+                f"Version {info.latest_version} is available. Current version: {info.current_version}.\n"
+                "Reports, logs, uploaded CSVs, config files, and API key files are kept in the app workspace.\n"
+                "Open the Updates tab and press 'Update now' to apply it."
+            )
+            log.write(message)
+            if startup:
+                self.notify(f"tech_stock v{info.latest_version} is available.")
+                self.call_later(self._prompt_startup_update, info)
+            return
+        if not startup:
+            log.write(f"Already up to date: v{info.current_version}")
+        else:
+            log.write(f"Current version: v{current_app_version()}")
+
+    def _prompt_startup_update(self, info) -> None:
+        latest = info.latest_version or "unknown"
+        self.push_screen(UpdatePrompt(latest, info.current_version), self._handle_startup_update_choice)
+
+    def _handle_startup_update_choice(self, should_update: bool | None) -> None:
+        if should_update:
+            self.run_worker(self._apply_update_async(), exclusive=True)
+
+    async def _apply_update_async(self) -> None:
+        log = self.query_one("#update_log", RichLog)
+        info = self.latest_update_info
+        if not info or not info.available:
+            await self._check_updates_async(startup=False)
+            return
+        log.write(f"Updating to version {info.latest_version}...")
+        result = await asyncio.to_thread(apply_available_update, info, restart=True)
+        log.write(result.message)
+        log.write(f"Update log: {result.log_path}")
+        if result.downloaded_path:
+            log.write(f"Downloaded file: {result.downloaded_path}")
+        if result.ok and result.restart_started:
+            log.write("Exiting so the updater can replace and reopen the app.")
+            await asyncio.sleep(1)
+            self.exit()
 
     def _write_bucket_table(self, log: RichLog, title: str, bucket: dict) -> None:
         rows = []

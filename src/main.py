@@ -62,6 +62,8 @@ from src.portfolio_analytics import (
 from src.portfolio_loader import compute_sector_exposure, parse_holdings_csv
 from src.recommendation_sizing import apply_trade_sizes
 from src.report_generator import generate_markdown, save_report, watchlist_price_alerts
+from src.updater import apply_update, check_for_update, cli_update_check, update_status_text
+from src.version import APP_VERSION
 
 CONFIG_DIR  = ROOT / "config"
 DATA_DIR    = ROOT / "data"
@@ -1007,8 +1009,11 @@ def run(
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] in {"update", "check-update"}:
+        raise SystemExit(cli_update_check(apply=sys.argv[1] == "update"))
+
     parser = argparse.ArgumentParser(
-        description="Tech Stock Portfolio Advisor — powered by Claude",
+        description=f"Tech Stock Portfolio Advisor — powered by Claude (v{APP_VERSION})",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Run without arguments for interactive mode (recommended).
@@ -1016,6 +1021,8 @@ Run without arguments for interactive mode (recommended).
 CLI examples:
   python src/main.py morning --holdings ~/Downloads/holdings-report-2026-04-23.csv
   python src/main.py morning --holdings ~/Downloads/holdings-report.csv --activities ~/Downloads/activities-export.csv
+  python src/main.py check-update
+  python src/main.py update
         """,
     )
     parser.add_argument("session", nargs="?", choices=["morning", "afternoon"],
@@ -1029,10 +1036,30 @@ CLI examples:
     parser.add_argument("--paper", action="store_true",
                         help="Also apply this run's recommendations to the paper portfolio "
                              "(data/paper_portfolio.json) so you can quantify discretion penalty.")
+    parser.add_argument("--version", action="version", version=f"tech_stock {APP_VERSION}")
 
     args = parser.parse_args()
 
     if args.session is None:
+        try:
+            info = check_for_update(timeout=4.0)
+            if info.available:
+                print(f"\n{C.YELLOW}Update available:{C.RESET} version {info.latest_version} (current {info.current_version})")
+                answer = input("Do you want to update now? [y/N]: ").strip().lower()
+                if answer in {"y", "yes"}:
+                    result = apply_update(info, restart=False)
+                    print(result.message)
+                    print(f"Update log: {result.log_path}")
+                    if result.ok:
+                        return
+            elif info.error:
+                print(f"{C.DIM}{update_status_text(info)}{C.RESET}")
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+        except Exception as exc:
+            print(f"{C.DIM}Update check skipped: {exc}{C.RESET}")
+
         cfg = interactive_setup()
         run(
             session_type=cfg["session_type"],

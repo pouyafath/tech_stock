@@ -47,21 +47,16 @@
 
 ---
 
-## ✨ What's New in v1.12.3 (May 14, 2026)
+## ✨ What's New in v1.13.0 (May 16, 2026)
 
-**Embedded desktop app usability polish.**
+**In-app updates across interfaces.**
 
-- **Embedded Desktop App** — new browser-free Tkinter dashboard packaged inside the native macOS/Windows app.
-- **Action dashboard** — Dashboard now starts with the next action, portfolio/risk cards, priority action queue, quality gates, stop breaches, drift, hedge ideas, market context, and watchlist signals.
-- **Styled report reader** — Report Viewer and History render markdown with headings, emphasized text, readable spacing, and aligned table blocks instead of raw markdown text.
-- **Report path visibility** — Report Viewer and History now show every report folder searched, with found/missing status and report counts.
-- **Cross-mode report discovery** — reports created from source or packaged app mode can be found from the Desktop App.
-- **Same report engine** — the desktop app calls `src.ui_support.run_report_from_ui()`, so it uses the same two-pass Claude report pipeline as CLI, Streamlit, and Textual.
-- **Live progress** — report generation streams CLI progress into the desktop window and loads the finished markdown report automatically.
-- **Launcher update** — the native launcher now offers Desktop App first, then Streamlit Web UI, Textual Terminal UI, and CLI.
-- **Source launch** — run `./run.sh 4` or `python src/desktop_app.py` to open the embedded UI from source.
+- **Startup update checks** — interactive apps check GitHub Releases on launch and ask before applying a newer version.
+- **Manual update controls** — Desktop App has an **Updates** tab, Streamlit has an **Updates** sidebar section, Textual has an **Updates** tab, the native launcher has **Check Updates**, and terminal users can run `python src/main.py check-update` or `python src/main.py update`.
+- **Data-safe updates** — reports, recommendation logs, uploaded CSVs, config files, decision journals, and API key files stay in the app workspace and are not deleted by app updates.
+- **Source checkout support** — source installs update with `git pull --ff-only`; packaged macOS/Windows builds download the correct GitHub release asset and stage/apply it.
 
-Current local suite: `pytest -q` passes with 171 tests.
+Current local suite: `pytest -q` passes with 175 tests.
 
 ## ✨ What's New in v1.11.0 (May 13, 2026)
 
@@ -284,8 +279,9 @@ Then open `dist/tech_stock.dmg`, drag `tech_stock.app` to Applications, and laun
 - Streamlit Web UI
 - Textual Terminal UI
 - Original CLI
+- Check Updates
 
-The **Desktop App** is fully embedded in the native application and does not need a browser. It includes Dashboard, Run Report, Report Viewer, History, Config Editor, and API Checks tabs.
+The **Desktop App** is fully embedded in the native application and does not need a browser. It includes Dashboard, Run Report, Report Viewer, History, Config Editor, API Checks, and Updates tabs.
 
 The **Streamlit Web UI** remains available for users who prefer a browser dashboard. It starts a local server and opens your default browser at a local URL such as `http://localhost:8501`. If your browser does not open automatically, the launcher shows the URL so you can paste it manually.
 
@@ -309,15 +305,18 @@ source .venv/bin/activate
 pip install -r requirements.txt
 chmod +x run.sh run-ui.sh
 
-# Interactive launcher: CLI / Streamlit / Textual / Desktop
+# Interactive launcher: CLI / Streamlit / Textual / Desktop / Update
 ./run.sh
 
 # Direct CLI
 ./run.sh morning
 ./run.sh afternoon --model opus
+./run.sh 5
 
 # Original Python entrypoint
 python src/main.py
+python src/main.py check-update
+python src/main.py update
 ```
 
 ### Linux
@@ -344,15 +343,18 @@ source .venv/bin/activate
 pip install -r requirements.txt
 chmod +x run.sh run-ui.sh
 
-# Interactive launcher: CLI / Streamlit / Textual / Desktop
+# Interactive launcher: CLI / Streamlit / Textual / Desktop / Update
 ./run.sh
 
 # Direct CLI
 ./run.sh morning
 ./run.sh afternoon --model opus
+./run.sh 5
 
 # Original Python entrypoint
 python src/main.py
+python src/main.py check-update
+python src/main.py update
 ```
 
 ### Windows
@@ -371,6 +373,8 @@ Then run:
 dist\tech_stock\tech_stock.exe
 ```
 
+The Windows launcher offers Desktop App, Streamlit Web UI, Textual Terminal UI, Command-Line mode, and Check Updates. The embedded Desktop App also has an Updates tab.
+
 If you want an installer-style package, use `installer_windows.iss` with Inno Setup after building.
 
 #### Windows Option 2 — Terminal-Based
@@ -388,6 +392,10 @@ python src\main.py
 # Direct CLI
 python src\main.py morning --holdings "$HOME\Downloads\holdings-report-YYYY-MM-DD.csv"
 python src\main.py afternoon --model opus --holdings "$HOME\Downloads\holdings-report-YYYY-MM-DD.csv"
+
+# Updates
+python src\main.py check-update
+python src\main.py update
 
 # Browser dashboard
 python -m streamlit run ui\streamlit_app.py
@@ -474,12 +482,15 @@ python src/main.py morning --holdings ~/Holdings.csv --model opus
 
 | Command | What happens |
 |---------|-------------|
-| `./run.sh` | Interactive menu — pick CLI / Streamlit / Textual / Desktop |
+| `./run.sh` | Interactive menu — pick CLI / Streamlit / Textual / Desktop / Update |
 | `./run.sh morning` | Skip menu → CLI, morning session |
 | `./run.sh afternoon --model opus` | Skip menu → CLI, Opus model |
 | `./run.sh 2` | Skip menu → Streamlit (browser opens automatically) |
 | `./run.sh 3` | Skip menu → Textual TUI |
 | `./run.sh 4` | Skip menu → embedded Desktop App |
+| `./run.sh 5` | Skip menu → check for updates |
+| `python src/main.py check-update` | Check GitHub Releases for a newer version |
+| `python src/main.py update` | Update a source checkout with `git pull --ff-only` or stage a packaged update |
 
 **Windows PowerShell / Command Prompt:**
 
@@ -488,6 +499,8 @@ python src/main.py morning --holdings ~/Holdings.csv --model opus
 | `python src\main.py` | Interactive CLI |
 | `python src\main.py morning --holdings "%USERPROFILE%\Downloads\holdings-report-YYYY-MM-DD.csv"` | Direct morning CLI run |
 | `python src\main.py afternoon --model opus --holdings "%USERPROFILE%\Downloads\holdings-report-YYYY-MM-DD.csv"` | Direct afternoon CLI run with Opus |
+| `python src\main.py check-update` | Check GitHub Releases for a newer version |
+| `python src\main.py update` | Update a source checkout with `git pull --ff-only` or stage a packaged update |
 | `python -m streamlit run ui\streamlit_app.py` | Streamlit browser dashboard |
 | `python ui\textual_app.py` | Textual terminal dashboard |
 | `python src\desktop_app.py` | Embedded desktop dashboard |
@@ -511,6 +524,7 @@ Tabs:
 - **History** — Browse previous markdown reports from all configured report search folders and view them with the same styled markdown renderer
 - **Config Editor** — Edit `config/settings.json`, `config/watchlist.json`, or fallback `config/portfolio.json` with JSON validation
 - **API Checks** — Check Anthropic, yfinance, Finnhub, and Polygon connectivity, and show every API-key file path the app searches
+- **Updates** — Check GitHub Releases, download/apply newer versions, and view update logs
 
 The embedded viewer is a native styled markdown reader. Use Streamlit if you specifically want browser-rendered markdown, side-by-side history comparison, and download buttons.
 
@@ -532,6 +546,21 @@ Report search order for Report Viewer and History:
 6. Source checkout `reports/` folder
 
 The Desktop App shows this exact list, with found/missing status and report counts, in History and behind **Show Search Paths** in Report Viewer.
+
+### Updating
+
+All interactive interfaces check GitHub Releases on startup and ask before applying a newer version. You can also check manually:
+
+- **Native launcher:** click **Check Updates**.
+- **Desktop App:** open the **Updates** tab.
+- **Streamlit:** use the **Updates** section in the sidebar.
+- **Textual:** open the **Updates** tab; startup checks show an Update now / Later prompt.
+- **Terminal:** run `python src/main.py check-update` or `python src/main.py update`.
+- **Unified launcher:** run `./run.sh 5`.
+
+Data is stored separately from the app binary, so updating does not remove your `reports/`, `data/recommendations_log/`, `temporary_upload/`, `config/`, `decision_journal.json`, `API_KEYS.txt`, or `.env` files. Update logs are written under the app workspace in `logs/update.log`.
+
+Packaged macOS and Windows builds download the correct asset from the latest GitHub Release. Source checkouts update with `git pull --ff-only`.
 
 API key search order:
 1. `~/Documents/tech_stock/API_KEYS.txt` or `.env` in packaged app mode

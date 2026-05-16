@@ -79,6 +79,12 @@ def test_latest_log_summary_reads_current_dashboard_fields(monkeypatch, tmp_path
         "hedge_suggestions": [{"instrument": "PSQ"}],
         "drift_vs_previous": [{"ticker": "AMD"}],
         "priority_actions": [{"ticker": "SOXL"}],
+        "trailing_stop_breaches": [{"ticker": "SPOT"}],
+        "watchlist_flags": [{"ticker": "CRM"}],
+        "sector_warnings": ["tech concentration"],
+        "warnings": ["general warning"],
+        "market_context_snapshot": {"XLK": {"change_pct_21d": 5.0}},
+        "session_summary": "summary",
         "usage_summary": {"cost_usd": 0.5},
         "recommendations": [{"ticker": "NVDA"}],
     }
@@ -92,6 +98,10 @@ def test_latest_log_summary_reads_current_dashboard_fields(monkeypatch, tmp_path
     assert summary["risk_dashboard"]["annualized_volatility_pct"] == 24.0
     assert summary["usage"]["cost_usd"] == 0.5
     assert summary["priority_actions"][0]["ticker"] == "SOXL"
+    assert summary["trailing_stop_breaches"][0]["ticker"] == "SPOT"
+    assert summary["watchlist_flags"][0]["ticker"] == "CRM"
+    assert summary["sector_warnings"] == ["tech concentration"]
+    assert summary["session_summary"] == "summary"
 
 
 def test_write_editable_json_validates_and_formats(monkeypatch, tmp_path):

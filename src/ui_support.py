@@ -40,6 +40,8 @@ from src.main import (
     run as run_cli_report,
 )
 from src.portfolio_loader import parse_holdings_csv
+from src.updater import UpdateInfo, UpdateResult, apply_update, check_for_update
+from src.version import APP_VERSION
 
 MODEL_OPTIONS = {
     "sonnet": ("claude-sonnet-4-6", "Sonnet 4.6"),
@@ -477,6 +479,21 @@ def report_locations() -> list[dict[str, Any]]:
 def app_data_locations() -> dict[str, Path]:
     """Return writable app data locations for UIs."""
     return runtime_locations()
+
+
+def current_app_version() -> str:
+    """Return the installed application version."""
+    return APP_VERSION
+
+
+def check_update_available(timeout: float = 6.0) -> UpdateInfo:
+    """Return latest GitHub release update status."""
+    return check_for_update(timeout=timeout)
+
+
+def apply_available_update(info: UpdateInfo, *, restart: bool = True) -> UpdateResult:
+    """Download/apply the selected update while preserving app data folders."""
+    return apply_update(info, restart=restart)
 
 
 def relative_to_root(path: Path | None) -> str:

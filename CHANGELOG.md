@@ -4,6 +4,20 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.13.0] — 2026-05-16
+
+### Added — In-app updates
+- **Shared updater** (`src/updater.py`) — checks GitHub Releases, compares semantic versions, selects the correct platform asset, downloads updates into the app workspace, and writes `logs/update.log`.
+- **Startup update checks** — interactive Desktop, Streamlit, Textual, and native launcher sessions check for newer releases and ask before applying an update.
+- **Manual update controls** — Desktop App adds an Updates tab, Streamlit adds an Updates sidebar section, Textual adds an Updates tab, the native launcher adds a Check Updates button, and terminal users can run `python src/main.py check-update` or `python src/main.py update`.
+- **Data preservation** — updates keep reports, recommendation logs, uploaded CSVs, config files, decision journals, and API key files in the durable app workspace.
+- **Version metadata** — app version now lives in `src/version.py`, and macOS bundle metadata reads that version during packaging.
+
+### Tests
+- Full local suite: 175 tests passing.
+
+---
+
 ## [1.12.3] — 2026-05-14
 
 ### Added — Desktop dashboard and report readability

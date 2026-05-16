@@ -12,6 +12,9 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 ROOT = Path(SPECPATH)  # directory containing this .spec file
+version_ns = {}
+exec((ROOT / "src" / "version.py").read_text(), version_ns)
+APP_VERSION = version_ns.get("APP_VERSION", "1.0.0")
 
 # ── Data files ────────────────────────────────────────────────────────────────
 # Streamlit ships a large static/ directory (JS, CSS, images) that must be
@@ -69,6 +72,8 @@ hiddenimports = [
     # Project modules
     "src.main",
     "src.ui_support",
+    "src.updater",
+    "src.version",
     "src.desktop_app",
     "src.claude_analyst",
     "src.market_data",
@@ -169,8 +174,8 @@ if sys.platform == "darwin":
         icon=icon,
         bundle_identifier="com.techstock.app",
         info_plist={
-            "CFBundleShortVersionString": "1.0.0",
-            "CFBundleVersion": "1",
+            "CFBundleShortVersionString": APP_VERSION,
+            "CFBundleVersion": APP_VERSION,
             "NSHighResolutionCapable": True,
             "NSRequiresAquaSystemAppearance": False,   # supports dark mode
             "LSMinimumSystemVersion": "12.0",

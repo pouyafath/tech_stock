@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sys
+import time
 from pathlib import Path
 from datetime import date
 
@@ -15,7 +17,10 @@ sys.path.insert(0, str(ROOT))
 
 from src.ui_support import (  # noqa: E402
     EDITABLE_JSON_FILES,
+    apply_available_update,
     check_connectivity,
+    check_update_available,
+    current_app_version,
     default_run_settings,
     decision_journal_snapshot,
     decision_scorecard_summary,
@@ -131,6 +136,37 @@ with st.sidebar:
     )
     budget_usd = st.number_input("USD budget", min_value=0.0, value=run_defaults["budget_usd"], step=50.0)
     budget_cad = st.number_input("CAD budget", min_value=0.0, value=run_defaults["budget_cad"], step=50.0)
+
+    st.divider()
+    st.subheader("Updates")
+    st.caption(f"Current version: v{current_app_version()}")
+    if "startup_update_checked" not in st.session_state and os.environ.get("TECH_STOCK_SKIP_UPDATE_CHECK") != "1":
+        st.session_state["startup_update_checked"] = True
+        st.session_state["update_info"] = check_update_available(timeout=4.0)
+    if st.button("Check for updates"):
+        st.session_state["update_info"] = check_update_available()
+    update_info = st.session_state.get("update_info")
+    if update_info:
+        if update_info.error:
+            st.warning(f"Update check failed: {update_info.error}")
+        elif update_info.available:
+            st.warning(f"Version {update_info.latest_version} is available.")
+            st.caption("Reports, logs, uploaded CSVs, config files, and API keys are kept in the app workspace.")
+            if st.button("Update now", type="primary"):
+                with st.spinner("Downloading and applying update..."):
+                    result = apply_available_update(update_info, restart=True)
+                if not result.ok:
+                    st.error(result.message)
+                    st.caption(f"Update log: {result.log_path}")
+                else:
+                    st.success(result.message)
+                    st.caption(f"Update log: {result.log_path}")
+                    if result.restart_started:
+                        st.info("The app will close so the updater can replace it, then reopen.")
+                        time.sleep(1)
+                        os._exit(0)
+        else:
+            st.success(f"Up to date: v{update_info.current_version}")
 
 tab_dashboard, tab_report, tab_run, tab_history, tab_backtest, tab_journal, tab_editor = st.tabs(
     ["Dashboard", "Today's Report", "Run Report", "History", "Backtest", "Decision Journal", "Portfolio Editor"]

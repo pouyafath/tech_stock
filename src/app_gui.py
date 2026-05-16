@@ -40,6 +40,9 @@ STREAMLIT_SCRIPT = _BUNDLE / "ui" / "streamlit_app.py"
 TEXTUAL_SCRIPT = _BUNDLE / "ui" / "textual_app.py"
 CLI_SCRIPT = _BUNDLE / "src" / "main.py"
 
+from src.updater import apply_update, check_for_update  # noqa: E402
+from src.version import APP_VERSION  # noqa: E402
+
 
 def _log_dir() -> Path:
     """Return a user-writable log directory for packaged GUI launches."""
@@ -248,6 +251,59 @@ def _show_launcher() -> None:
 
     status_var = tk.StringVar(value="Choose an interface to start.")
 
+    def check_for_updates(manual: bool = False) -> None:
+        status_var.set("Checking GitHub Releases for updates...")
+
+        def worker() -> None:
+            info = check_for_update()
+
+            def finish_check() -> None:
+                if info.error:
+                    status_var.set("Update check failed.")
+                    if manual:
+                        messagebox.showwarning("Update check failed", info.error)
+                    return
+                if not info.available:
+                    status_var.set(f"tech_stock v{info.current_version} is up to date.")
+                    if manual:
+                        messagebox.showinfo("No update available", f"tech_stock v{info.current_version} is up to date.")
+                    return
+                status_var.set(f"Version {info.latest_version} is available.")
+                should_update = messagebox.askyesno(
+                    "Update available",
+                    f"Version {info.latest_version} is available.\n\n"
+                    f"You are currently on version {info.current_version}.\n\n"
+                    "Do you want to update now?\n\n"
+                    "Reports, logs, uploaded CSVs, config files, and API key files will be kept.",
+                )
+                if not should_update:
+                    return
+                status_var.set(f"Updating to version {info.latest_version}...")
+
+                def apply_worker() -> None:
+                    result = apply_update(info, restart=True)
+
+                    def finish_apply() -> None:
+                        details = f"{result.message}\n\nUpdate log:\n{result.log_path}"
+                        if result.downloaded_path:
+                            details += f"\n\nDownloaded file:\n{result.downloaded_path}"
+                        if not result.ok:
+                            status_var.set("Update failed.")
+                            messagebox.showerror("Update failed", details)
+                            return
+                        status_var.set("Update started.")
+                        messagebox.showinfo("Update started", details)
+                        if result.restart_started:
+                            root.after(800, root.destroy)
+
+                    root.after(0, finish_apply)
+
+                threading.Thread(target=apply_worker, daemon=True).start()
+
+            root.after(0, finish_check)
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def launch_desktop() -> None:
         status_var.set("Starting embedded desktop app ...")
         proc, log_path = _spawn_logged("--desktop", "desktop.log")
@@ -356,6 +412,16 @@ def _show_launcher() -> None:
     sep2.pack(fill="x", padx=32)
     tk.Label(root, textvariable=status_var,
              fg=MUTED, bg=BG, font=desc_font).pack(pady=(10, 0))
+    tk.Button(
+        root,
+        text=f"Check Updates (v{APP_VERSION})",
+        font=desc_font,
+        bg=BG,
+        fg=GREEN,
+        relief="flat",
+        cursor="hand2",
+        command=lambda: check_for_updates(manual=True),
+    ).pack(pady=(4, 0))
     tk.Label(root, text="Powered by Claude  ·  Anthropic",
              fg=MUTED, bg=BG, font=desc_font).pack(pady=(4, 10))
 
@@ -364,6 +430,8 @@ def _show_launcher() -> None:
     w, h = root.winfo_width(), root.winfo_height()
     sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
     root.geometry(f"+{(sw-w)//2}+{(sh-h)//2}")
+    if os.environ.get("TECH_STOCK_SKIP_UPDATE_CHECK") != "1":
+        root.after(900, lambda: check_for_updates(manual=False))
 
     root.mainloop()
 

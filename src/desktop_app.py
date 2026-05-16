@@ -28,7 +28,10 @@ from src.ui_support import (
     EDITABLE_JSON_FILES,
     api_key_locations,
     app_data_locations,
+    apply_available_update,
     check_connectivity,
+    check_update_available,
+    current_app_version,
     default_run_settings,
     find_default_csvs,
     latest_log_summary,
@@ -68,6 +71,7 @@ class DesktopApp(tk.Tk):
 
         self.progress_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
         self.latest_report_path: Path | None = latest_report()
+        self.latest_update_info: Any = None
 
         self._configure_style()
         self._build_header()
@@ -77,6 +81,8 @@ class DesktopApp(tk.Tk):
         self.refresh_history()
         self.load_report(self.latest_report_path, select_tab=False)
         self.after(350, self.confirm_detected_csv_paths)
+        if os.environ.get("TECH_STOCK_SKIP_UPDATE_CHECK") != "1":
+            self.after(1200, lambda: self.start_update_check(startup=True))
 
     def _configure_style(self) -> None:
         style = ttk.Style(self)
@@ -123,6 +129,7 @@ class DesktopApp(tk.Tk):
         self.history_tab = ttk.Frame(self.tabs)
         self.editor_tab = ttk.Frame(self.tabs)
         self.health_tab = ttk.Frame(self.tabs)
+        self.update_tab = ttk.Frame(self.tabs)
 
         self.tabs.add(self.dashboard_tab, text="Dashboard")
         self.tabs.add(self.run_tab, text="Run Report")
@@ -130,6 +137,7 @@ class DesktopApp(tk.Tk):
         self.tabs.add(self.history_tab, text="History")
         self.tabs.add(self.editor_tab, text="Config Editor")
         self.tabs.add(self.health_tab, text="API Checks")
+        self.tabs.add(self.update_tab, text="Updates")
 
         self._build_dashboard_tab()
         self._build_run_tab()
@@ -137,6 +145,7 @@ class DesktopApp(tk.Tk):
         self._build_history_tab()
         self._build_editor_tab()
         self._build_health_tab()
+        self._build_update_tab()
 
     def _panel(self, parent: tk.Widget, title: str | None = None) -> ttk.Frame:
         frame = ttk.Frame(parent, style="Panel.TFrame", padding=14)
@@ -363,6 +372,27 @@ class DesktopApp(tk.Tk):
         self.health_tree = self._make_tree(self.health_tab, ["source", "ok", "latency_ms", "detail"], [160, 80, 110, 700])
         self.health_tree.pack(fill="both", expand=True, padx=16, pady=(0, 16))
 
+    def _build_update_tab(self) -> None:
+        top = ttk.Frame(self.update_tab)
+        top.pack(fill="x", padx=16, pady=16)
+        self.update_check_button = ttk.Button(top, text="Check For Updates", command=lambda: self.start_update_check(startup=False))
+        self.update_check_button.pack(side="left")
+        self.update_apply_button = ttk.Button(top, text="Update Now", command=self.start_update_apply)
+        self.update_apply_button.pack(side="left", padx=8)
+        self.update_apply_button.configure(state="disabled")
+        self.update_status = tk.StringVar(value=f"Current version: {current_app_version()}")
+        ttk.Label(top, textvariable=self.update_status, style="Muted.TLabel").pack(side="left", padx=12)
+
+        body = self._panel(self.update_tab, "Update Details")
+        body.pack(fill="both", expand=True, padx=16, pady=(0, 16))
+        self.update_text = tk.Text(body, height=18, wrap="word", bg="#0f172a", fg="#e5e7eb", padx=10, pady=8)
+        self.update_text.pack(fill="both", expand=True)
+        self._set_update_text(
+            "Updates are checked from GitHub Releases.\n\n"
+            "Your reports, recommendation logs, uploaded CSVs, config files, and API key files stay in the app workspace "
+            "and are not deleted by app updates."
+        )
+
     def _locations_summary(self) -> str:
         locations = app_data_locations()
         lines = ["App data folders:"]
@@ -397,6 +427,32 @@ class DesktopApp(tk.Tk):
             widget.delete("1.0", "end")
             widget.insert("1.0", text)
             widget.configure(state="disabled")
+
+    def _set_update_text(self, value: str) -> None:
+        self.update_text.configure(state="normal")
+        self.update_text.delete("1.0", "end")
+        self.update_text.insert("1.0", value)
+        self.update_text.configure(state="disabled")
+
+    def _format_update_info(self, info: Any) -> str:
+        lines = [
+            f"Current version: {info.current_version}",
+            f"Latest version: {info.latest_version or 'unknown'}",
+            f"Release page: {info.release_url}",
+        ]
+        if info.asset_name:
+            lines.append(f"Platform asset: {info.asset_name}")
+        lines.extend([
+            "",
+            "Data preservation:",
+            "- Reports, CSV outputs, JSON logs, API keys, config, uploads, and decision journals are stored in the app workspace.",
+            "- Updating replaces only the application files, not the workspace.",
+        ])
+        if info.body:
+            lines.extend(["", "Release notes:", self._trim_text(info.body, 1800)])
+        if info.error:
+            lines.extend(["", f"Error: {info.error}"])
+        return "\n".join(lines)
 
     def toggle_report_paths(self) -> None:
         if self.report_paths_visible:
@@ -655,6 +711,10 @@ class DesktopApp(tk.Tk):
                     self._report_run_done(payload)
                 elif kind == "health_done":
                     self._connectivity_done(payload)
+                elif kind == "update_check_done":
+                    self._update_check_done(payload)
+                elif kind == "update_apply_done":
+                    self._update_apply_done(payload)
         except queue.Empty:
             pass
         self.after(100, self._drain_progress_queue)
@@ -936,6 +996,80 @@ class DesktopApp(tk.Tk):
             self.health_tree,
             [[row.get("source"), row.get("ok"), row.get("latency_ms"), row.get("detail")] for row in rows],
         )
+
+    def start_update_check(self, *, startup: bool = False) -> None:
+        self.update_check_button.configure(state="disabled")
+        self.update_status.set("Checking GitHub Releases...")
+        if not startup:
+            self.tabs.select(self.update_tab)
+
+        def worker() -> None:
+            info = check_update_available()
+            self.progress_queue.put(("update_check_done", {"info": info, "startup": startup}))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _update_check_done(self, payload: dict[str, Any]) -> None:
+        info = payload["info"]
+        startup = bool(payload.get("startup"))
+        self.latest_update_info = info
+        self.update_check_button.configure(state="normal")
+        self.update_apply_button.configure(state="normal" if info.available else "disabled")
+        self._set_update_text(self._format_update_info(info))
+
+        if info.error:
+            self.update_status.set("Update check failed.")
+            if not startup:
+                messagebox.showwarning("Update check failed", str(info.error))
+            return
+
+        if not info.available:
+            self.update_status.set(f"Up to date: v{info.current_version}")
+            if not startup:
+                messagebox.showinfo("No update available", f"tech_stock v{info.current_version} is up to date.")
+            return
+
+        self.update_status.set(f"Version {info.latest_version} is available.")
+        should_update = messagebox.askyesno(
+            "Update available",
+            f"Version {info.latest_version} is available.\n\n"
+            f"You are currently on version {info.current_version}.\n\n"
+            "Do you want to update now?\n\n"
+            "Your reports, logs, uploaded CSVs, config files, and API key files will be kept.",
+        )
+        if should_update:
+            self.start_update_apply()
+
+    def start_update_apply(self) -> None:
+        info = self.latest_update_info
+        if not info or not getattr(info, "available", False):
+            self.start_update_check(startup=False)
+            return
+        self.update_check_button.configure(state="disabled")
+        self.update_apply_button.configure(state="disabled")
+        self.update_status.set(f"Updating to version {info.latest_version}...")
+        self.tabs.select(self.update_tab)
+
+        def worker() -> None:
+            result = apply_available_update(info, restart=True)
+            self.progress_queue.put(("update_apply_done", result))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _update_apply_done(self, result: Any) -> None:
+        self.update_check_button.configure(state="normal")
+        self.update_apply_button.configure(state="normal" if self.latest_update_info and self.latest_update_info.available else "disabled")
+        self.update_status.set("Update ready." if result.ok else "Update failed.")
+        details = f"{result.message}\n\nUpdate log:\n{result.log_path}"
+        if result.downloaded_path:
+            details += f"\n\nDownloaded file:\n{result.downloaded_path}"
+        self._set_update_text(details)
+        if not result.ok:
+            messagebox.showerror("Update failed", details)
+            return
+        messagebox.showinfo("Update started", details)
+        if result.restart_started:
+            self.after(800, self.destroy)
 
 
 def main() -> None:
