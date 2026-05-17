@@ -4,6 +4,18 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.13.2] — 2026-05-17
+
+### Improved — Desktop dashboard
+- **Action cockpit layout** replaces the dense dashboard tables with wrapped action cards, severity-colored quality gate cards, and stop-breach cards.
+- **Metric cards** now include secondary context such as benchmark beta, drawdown estimate, concentration risk, warning totals, and token count.
+- **Next-action panel** now carries a colored urgency stripe and summarizes priority actions, quality gates, and stop breaches at a glance.
+
+### Tests
+- Full local suite: 176 tests passing.
+
+---
+
 ## [1.13.1] — 2026-05-16
 
 ### Fixed — Packaged updater HTTPS certificates

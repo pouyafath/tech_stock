@@ -155,6 +155,15 @@ class DesktopApp(tk.Tk):
             )
         return frame
 
+    def _dashboard_panel(self, parent: tk.Widget, title: str) -> tuple[tk.Frame, tk.Frame]:
+        panel = tk.Frame(parent, bg=self.panel, highlightthickness=1, highlightbackground="#2b2d42")
+        header = tk.Frame(panel, bg=self.panel)
+        header.pack(fill="x", padx=14, pady=(12, 6))
+        tk.Label(header, text=title, bg=self.panel, fg=self.text, font=("Helvetica", 14, "bold")).pack(anchor="w")
+        body = tk.Frame(panel, bg=self.panel)
+        body.pack(fill="both", expand=True, padx=14, pady=(0, 14))
+        return panel, body
+
     def _scrollable_frame(self, parent: tk.Widget) -> ttk.Frame:
         outer = ttk.Frame(parent)
         outer.pack(fill="both", expand=True)
@@ -172,66 +181,91 @@ class DesktopApp(tk.Tk):
     def _build_dashboard_tab(self) -> None:
         content = self._scrollable_frame(self.dashboard_tab)
 
-        top = ttk.Frame(content)
-        top.pack(fill="x", padx=16, pady=16)
+        top = tk.Frame(content, bg=self.bg)
+        top.pack(fill="x", padx=16, pady=(14, 10))
         ttk.Button(top, text="Refresh Dashboard", command=self.refresh_dashboard).pack(side="left")
         self.dashboard_caption = ttk.Label(top, text="", style="Muted.TLabel")
         self.dashboard_caption.pack(side="left", padx=12)
 
-        signal = self._panel(content)
+        signal = tk.Frame(content, bg="#171827", highlightthickness=1, highlightbackground="#303044")
         signal.pack(fill="x", padx=16, pady=(0, 12))
+        self.signal_accent = tk.Frame(signal, bg=self.accent, width=5)
+        self.signal_accent.pack(side="left", fill="y")
+        signal_body = tk.Frame(signal, bg="#171827", padx=16, pady=14)
+        signal_body.pack(side="left", fill="both", expand=True)
+        self.signal_kicker = tk.StringVar(value="ACTION PULSE")
         self.signal_title = tk.StringVar(value="No report loaded")
         self.signal_body = tk.StringVar(value="Run a report to populate action signals.")
-        ttk.Label(
-            signal,
-            textvariable=self.signal_title,
-            background=self.panel,
-            foreground=self.accent,
-            font=("Helvetica", 18, "bold"),
+        self.signal_meta = tk.StringVar(value="")
+        tk.Label(
+            signal_body,
+            textvariable=self.signal_kicker,
+            bg="#171827",
+            fg=self.muted,
+            font=("Helvetica", 10, "bold"),
         ).pack(anchor="w")
         ttk.Label(
-            signal,
+            signal_body,
+            textvariable=self.signal_title,
+            background="#171827",
+            foreground=self.accent,
+            font=("Helvetica", 20, "bold"),
+        ).pack(anchor="w", pady=(3, 0))
+        ttk.Label(
+            signal_body,
             textvariable=self.signal_body,
-            background=self.panel,
+            background="#171827",
             foreground=self.text,
             wraplength=1040,
             justify="left",
-        ).pack(anchor="w", pady=(6, 0))
+        ).pack(anchor="w", fill="x", pady=(8, 0))
+        ttk.Label(
+            signal_body,
+            textvariable=self.signal_meta,
+            background="#171827",
+            foreground=self.muted,
+        ).pack(anchor="w", pady=(10, 0))
 
-        metrics = ttk.Frame(content)
+        metrics = tk.Frame(content, bg=self.bg)
         metrics.pack(fill="x", padx=16)
         self.metric_vars: dict[str, tk.StringVar] = {}
-        for label in ["Portfolio", "P&L", "SPY Beta", "Annual Vol", "Top-3 Conc.", "Warnings", "Claude Cost"]:
-            box = self._panel(metrics)
-            box.pack(side="left", fill="x", expand=True, padx=(0, 10))
-            ttk.Label(box, text=label, background=self.panel, foreground=self.muted).pack(anchor="w")
+        self.metric_hint_vars: dict[str, tk.StringVar] = {}
+        metric_labels = ["Portfolio", "P&L", "SPY Beta", "Annual Vol", "Top-3 Conc.", "Warnings", "Claude Cost"]
+        for col in range(4):
+            metrics.columnconfigure(col, weight=1, uniform="metrics")
+        for index, label in enumerate(metric_labels):
+            row = index // 4
+            col = index % 4
+            box = tk.Frame(metrics, bg=self.card, highlightthickness=1, highlightbackground="#2b2d42", padx=14, pady=12)
+            box.grid(row=row, column=col, sticky="ew", padx=(0 if col == 0 else 8, 0), pady=(0, 8))
+            tk.Label(box, text=label.upper(), bg=self.card, fg=self.muted, font=("Helvetica", 10, "bold")).pack(anchor="w")
             var = tk.StringVar(value="N/A")
+            hint = tk.StringVar(value="")
             self.metric_vars[label] = var
-            ttk.Label(box, textvariable=var, background=self.panel, foreground=self.text, font=("Helvetica", 18, "bold")).pack(
+            self.metric_hint_vars[label] = hint
+            tk.Label(box, textvariable=var, bg=self.card, fg=self.text, font=("Helvetica", 20, "bold")).pack(
                 anchor="w", pady=(4, 0)
             )
+            tk.Label(box, textvariable=hint, bg=self.card, fg=self.muted, font=("Helvetica", 10)).pack(anchor="w", pady=(4, 0))
 
-        action_panel = self._panel(content, "Action Queue")
+        action_panel, self.action_cards = self._dashboard_panel(content, "Action Queue")
         action_panel.pack(fill="x", padx=16, pady=(16, 10))
-        self.priority_tree = self._make_tree(action_panel, ["priority", "ticker", "action", "size", "reason"], [70, 90, 90, 170, 650], height=8)
 
         middle = ttk.Frame(content)
         middle.pack(fill="both", expand=True, padx=16, pady=(0, 10))
-        left = self._panel(middle, "Quality Gates")
+        left, self.warning_cards = self._dashboard_panel(middle, "Quality Gates")
         left.pack(side="left", fill="both", expand=True, padx=(0, 8))
-        right = self._panel(middle, "Risk & Exposure")
+        right, risk_body = self._dashboard_panel(middle, "Risk & Exposure")
         right.pack(side="left", fill="both", expand=True, padx=(8, 0))
-        self.warning_tree = self._make_tree(left, ["severity", "ticker", "code", "required_action"], [90, 80, 190, 430], height=7)
-        self.risk_text = self._readonly_text(right, height=11)
+        self.risk_text = self._readonly_text(risk_body, height=11)
 
         lower = ttk.Frame(content)
         lower.pack(fill="both", expand=True, padx=16, pady=(0, 16))
-        trailing_panel = self._panel(lower, "Stops & Breaches")
+        trailing_panel, self.stop_cards = self._dashboard_panel(lower, "Stops & Breaches")
         trailing_panel.pack(side="left", fill="both", expand=True, padx=(0, 8))
-        drift_panel = self._panel(lower, "Drift, Hedges & Market Signals")
+        drift_panel, signal_text_body = self._dashboard_panel(lower, "Drift, Hedges & Market Signals")
         drift_panel.pack(side="left", fill="both", expand=True, padx=(8, 0))
-        self.trailing_tree = self._make_tree(trailing_panel, ["ticker", "current", "stop", "gain", "action"], [90, 100, 100, 90, 120], height=5)
-        self.signal_text = self._readonly_text(drift_panel, height=11)
+        self.signal_text = self._readonly_text(signal_text_body, height=11)
 
     def _build_run_tab(self) -> None:
         defaults = find_default_csvs()
@@ -845,12 +879,173 @@ class DesktopApp(tk.Tk):
                 lines.append(f"- {row.get('ticker')}: {self._trim_text(row.get('why_noteworthy'), 125)}")
         return "\n".join(lines) or "No drift, hedge, market, or watchlist signals available yet."
 
+    def _dashboard_tone(self, key: Any) -> tuple[str, str]:
+        value = str(key or "").upper()
+        if value in {"BUY", "ADD"}:
+            return self.good, "#10231a"
+        if value in {"SELL", "HIGH"}:
+            return self.danger, "#2a1618"
+        if value in {"TRIM", "MEDIUM"}:
+            return self.warning, "#261f12"
+        if value in {"WATCH", "LOW"}:
+            return self.muted, "#151827"
+        return self.accent, "#171827"
+
+    def _set_metric(self, label: str, value: str, hint: str = "") -> None:
+        if label in self.metric_vars:
+            self.metric_vars[label].set(value)
+        if label in self.metric_hint_vars:
+            self.metric_hint_vars[label].set(hint)
+
+    def _clear_dashboard_section(self, frame: tk.Frame) -> None:
+        for child in frame.winfo_children():
+            child.destroy()
+
+    def _empty_dashboard_section(self, frame: tk.Frame, message: str) -> None:
+        self._clear_dashboard_section(frame)
+        tk.Label(
+            frame,
+            text=message,
+            bg=self.panel,
+            fg=self.muted,
+            justify="left",
+            anchor="w",
+            padx=8,
+            pady=8,
+        ).pack(fill="x")
+
+    def _dashboard_tag(self, parent: tk.Widget, text: Any, *, color: str) -> None:
+        tk.Label(
+            parent,
+            text=str(text or ""),
+            bg=color,
+            fg="#0a0a10",
+            font=("Helvetica", 10, "bold"),
+            padx=8,
+            pady=2,
+        ).pack(side="left", padx=(0, 6))
+
+    def _wrapped_dashboard_label(self, parent: tk.Widget, text: str, *, bg: str, fg: str, font: tuple[str, int, str] | tuple[str, int] = ("Helvetica", 11)) -> tk.Label:
+        label = tk.Label(parent, text=text, bg=bg, fg=fg, font=font, justify="left", anchor="w", wraplength=900)
+        label.pack(fill="x", pady=(6, 0))
+        parent.bind("<Configure>", lambda event, widget=label: widget.configure(wraplength=max(event.width - 20, 260)))
+        return label
+
+    def _render_action_cards(self, rows: list[dict[str, Any]]) -> None:
+        self._clear_dashboard_section(self.action_cards)
+        if not rows:
+            self._empty_dashboard_section(self.action_cards, "No priority actions in the latest report.")
+            return
+        for row in rows[:8]:
+            action = row.get("action") or ""
+            accent, bg = self._dashboard_tone(action)
+            card = tk.Frame(self.action_cards, bg=bg, highlightthickness=1, highlightbackground="#303044")
+            card.pack(fill="x", pady=(0, 8))
+            tk.Frame(card, bg=accent, width=5).pack(side="left", fill="y")
+            body = tk.Frame(card, bg=bg, padx=12, pady=10)
+            body.pack(side="left", fill="both", expand=True)
+
+            header = tk.Frame(body, bg=bg)
+            header.pack(fill="x")
+            self._dashboard_tag(header, f"#{row.get('order', '')}", color=accent)
+            self._dashboard_tag(header, action, color=accent)
+            tk.Label(
+                header,
+                text=str(row.get("ticker") or ""),
+                bg=bg,
+                fg=self.text,
+                font=("Helvetica", 13, "bold"),
+            ).pack(side="left", padx=(2, 10))
+            size = row.get("action_size_label") or row.get("shares") or row.get("invest_amount_usd") or ""
+            if size:
+                tk.Label(header, text=str(size), bg=bg, fg=self.muted, font=("Helvetica", 11)).pack(side="left")
+
+            reason = row.get("rationale") or row.get("reason") or row.get("message") or ""
+            self._wrapped_dashboard_label(body, self._trim_text(reason, 360), bg=bg, fg=self.text)
+        if len(rows) > 8:
+            tk.Label(
+                self.action_cards,
+                text=f"{len(rows) - 8} more actions are in the full report.",
+                bg=self.panel,
+                fg=self.muted,
+            ).pack(anchor="w", pady=(0, 4))
+
+    def _render_warning_cards(self, rows: list[dict[str, Any]]) -> None:
+        self._clear_dashboard_section(self.warning_cards)
+        if not rows:
+            self._empty_dashboard_section(self.warning_cards, "No quality warnings in the latest report.")
+            return
+        for row in rows[:7]:
+            severity = str(row.get("severity") or "LOW").upper()
+            accent, bg = self._dashboard_tone(severity)
+            card = tk.Frame(self.warning_cards, bg=bg, highlightthickness=1, highlightbackground="#303044")
+            card.pack(fill="x", pady=(0, 8))
+            body = tk.Frame(card, bg=bg, padx=10, pady=8)
+            body.pack(fill="both", expand=True)
+            header = tk.Frame(body, bg=bg)
+            header.pack(fill="x")
+            self._dashboard_tag(header, severity, color=accent)
+            if row.get("ticker"):
+                self._dashboard_tag(header, row.get("ticker"), color="#64748b")
+            tk.Label(
+                header,
+                text=str(row.get("code") or ""),
+                bg=bg,
+                fg=self.text,
+                font=("Helvetica", 11, "bold"),
+            ).pack(side="left", padx=(2, 0))
+            message = row.get("action_required") or row.get("message") or ""
+            self._wrapped_dashboard_label(body, self._trim_text(message, 240), bg=bg, fg=self.text, font=("Helvetica", 10))
+        if len(rows) > 7:
+            tk.Label(
+                self.warning_cards,
+                text=f"{len(rows) - 7} more warnings are in the report.",
+                bg=self.panel,
+                fg=self.muted,
+            ).pack(anchor="w", pady=(0, 4))
+
+    def _render_stop_cards(self, rows: list[dict[str, Any]]) -> None:
+        self._clear_dashboard_section(self.stop_cards)
+        if not rows:
+            self._empty_dashboard_section(self.stop_cards, "No trailing-stop breaches in the latest report.")
+            return
+        for row in rows[:5]:
+            action = row.get("recommended_action") or "REVIEW"
+            accent, bg = self._dashboard_tone(action)
+            card = tk.Frame(self.stop_cards, bg=bg, highlightthickness=1, highlightbackground="#303044")
+            card.pack(fill="x", pady=(0, 8))
+            body = tk.Frame(card, bg=bg, padx=10, pady=8)
+            body.pack(fill="both", expand=True)
+            header = tk.Frame(body, bg=bg)
+            header.pack(fill="x")
+            self._dashboard_tag(header, row.get("ticker") or "", color=accent)
+            self._dashboard_tag(header, action, color=accent)
+            metrics = (
+                f"Now {self._fmt_price(row.get('current_price'))} | "
+                f"Stop {self._fmt_price(row.get('stop_price'))} | "
+                f"Gain {self._fmt_pct(row.get('current_gain_pct'), signed=True)}"
+            )
+            tk.Label(header, text=metrics, bg=bg, fg=self.text, font=("Helvetica", 10, "bold")).pack(side="left")
+            note = row.get("rationale") or row.get("message") or ""
+            if note:
+                self._wrapped_dashboard_label(body, self._trim_text(note, 220), bg=bg, fg=self.muted, font=("Helvetica", 10))
+
     def refresh_dashboard(self) -> None:
         summary = latest_log_summary()
         if not summary:
             self.dashboard_caption.configure(text="No recommendation JSON logs found yet.")
+            self.signal_accent.configure(bg=self.muted)
+            self.signal_kicker.set("ACTION PULSE")
             self.signal_title.set("No report loaded")
             self.signal_body.set("Run a report to populate action signals.")
+            self.signal_meta.set("")
+            for label in self.metric_vars:
+                self._set_metric(label, "N/A")
+            self._empty_dashboard_section(self.action_cards, "Run a report to populate priority actions.")
+            self._empty_dashboard_section(self.warning_cards, "Run a report to populate quality gates.")
+            self._empty_dashboard_section(self.stop_cards, "Run a report to populate stop breaches.")
+            self._set_readonly_text(self.risk_text, "No risk dashboard available yet.")
+            self._set_readonly_text(self.signal_text, "No drift or market signals available yet.")
             return
         self.dashboard_caption.configure(text=str(summary.get("session_file", "")))
         title, body = self._dashboard_signal(summary)
@@ -863,54 +1058,25 @@ class DesktopApp(tk.Tk):
         usage = summary.get("usage") or {}
         warnings = summary.get("quality_warnings") or []
         medium_plus = sum(1 for row in warnings if str(row.get("severity", "")).lower() in {"high", "medium"})
-        self.metric_vars["Portfolio"].set(self._fmt_money(health.get("total_value_usd_equivalent") or risk.get("total_value_usd")))
-        self.metric_vars["P&L"].set(self._fmt_pct(health.get("overall_pnl_pct"), signed=True))
-        self.metric_vars["SPY Beta"].set(str(beta.get("SPY", "N/A")))
-        self.metric_vars["Annual Vol"].set(f"{risk.get('annualized_volatility_pct', 0):.1f}%")
-        self.metric_vars["Top-3 Conc."].set(f"{risk.get('top3_concentration_pct', 0):.1f}%")
-        self.metric_vars["Warnings"].set(str(medium_plus))
-        self.metric_vars["Claude Cost"].set(f"${usage.get('cost_usd', 0):.4f}")
-        self._replace_tree_rows(
-            self.priority_tree,
-            [
-                [
-                    row.get("order", ""),
-                    row.get("ticker", ""),
-                    row.get("action", ""),
-                    row.get("action_size_label") or row.get("shares") or row.get("invest_amount_usd") or "",
-                    self._trim_text(row.get("rationale") or row.get("reason") or row.get("message"), 150),
-                ]
-                for row in summary.get("priority_actions", [])
-            ],
-            tag_index=2,
-        )
-        self._replace_tree_rows(
-            self.warning_tree,
-            [
-                [
-                    str(row.get("severity", "")).upper(),
-                    row.get("ticker", ""),
-                    row.get("code", ""),
-                    self._trim_text(row.get("action_required") or row.get("message"), 130),
-                ]
-                for row in summary.get("quality_warnings", [])
-            ],
-            tag_index=0,
-        )
-        self._replace_tree_rows(
-            self.trailing_tree,
-            [
-                [
-                    row.get("ticker", ""),
-                    self._fmt_price(row.get("current_price")),
-                    self._fmt_price(row.get("stop_price")),
-                    self._fmt_pct(row.get("current_gain_pct"), signed=True),
-                    row.get("recommended_action", ""),
-                ]
-                for row in summary.get("trailing_stop_breaches", [])
-            ],
-            tag_index=4,
-        )
+        actions = summary.get("priority_actions", []) or []
+        breaches = summary.get("trailing_stop_breaches", []) or []
+        first_action = actions[0] if actions else {}
+        signal_color, _signal_bg = self._dashboard_tone(first_action.get("action") if first_action else ("HIGH" if medium_plus else "LOW"))
+        self.signal_accent.configure(bg=signal_color)
+        self.signal_kicker.set("NEXT TRADER ACTION" if actions else "ACTION PULSE")
+        self.signal_meta.set(f"{len(actions)} priority actions | {medium_plus} high/medium quality gates | {len(breaches)} stop breaches")
+
+        concentration = str(health.get("concentration_risk") or "unknown").upper()
+        self._set_metric("Portfolio", self._fmt_money(health.get("total_value_usd_equivalent") or risk.get("total_value_usd")), "USD equivalent")
+        self._set_metric("P&L", self._fmt_pct(health.get("overall_pnl_pct"), signed=True), "overall")
+        self._set_metric("SPY Beta", str(beta.get("SPY", "N/A")), f"QQQ {beta.get('QQQ', 'N/A')} | SMH {beta.get('SMH', 'N/A')}")
+        self._set_metric("Annual Vol", f"{risk.get('annualized_volatility_pct', 0):.1f}%", f"max DD {self._fmt_pct(risk.get('max_drawdown_estimate_pct'), signed=True)}")
+        self._set_metric("Top-3 Conc.", f"{risk.get('top3_concentration_pct', 0):.1f}%", f"risk {concentration}")
+        self._set_metric("Warnings", str(medium_plus), f"{len(warnings)} total gates")
+        self._set_metric("Claude Cost", f"${usage.get('cost_usd', 0):.4f}", f"{int(usage.get('total_tokens', 0) or 0):,} tokens")
+        self._render_action_cards(actions)
+        self._render_warning_cards(warnings)
+        self._render_stop_cards(breaches)
         self._set_readonly_text(self.risk_text, self._risk_summary_text(summary))
         self._set_readonly_text(self.signal_text, self._signals_summary_text(summary))
 

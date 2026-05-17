@@ -47,6 +47,16 @@
 
 ---
 
+## ✨ What's New in v1.13.2 (May 17, 2026)
+
+**Cleaner embedded dashboard.**
+
+- **Action cockpit layout** — the Desktop App dashboard now uses action cards instead of a wide raw table.
+- **Wrapped trade rationale** — priority actions, quality warnings, and stop breaches now wrap inside readable cards instead of clipping across the screen.
+- **Better decision hierarchy** — the top panel shows the next trader action, warning count, and stop-breach count before the detailed report sections.
+
+Current local suite: `pytest -q` passes with 176 tests.
+
 ## ✨ What's New in v1.13.1 (May 16, 2026)
 
 **Packaged updater certificate fix.**
