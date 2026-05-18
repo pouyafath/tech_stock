@@ -4,6 +4,20 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.13.6] — 2026-05-18
+
+### Added — API health and key management
+- **Complete API health checks** now cover Anthropic, yfinance, Finnhub, Polygon, Twelve Data, FRED, CoinGecko, and Alpha Vantage.
+- **Desktop API Key Manager** lets users add/update/delete supported API keys from the API Checks tab.
+- **Streamlit API Key Manager** exposes the same masked key inventory and save/delete flow in the browser dashboard.
+- **Secret-safe display** masks configured key values and shows the source file path without printing full secrets.
+
+### Tests
+- Added focused API key manager tests.
+- Full local suite: 183 tests passing.
+
+---
+
 ## [1.13.5] — 2026-05-18
 
 ### Fixed — Native Tk search crash

@@ -26,7 +26,9 @@ if str(ROOT) not in sys.path:
 
 from src.ui_support import (
     EDITABLE_JSON_FILES,
+    API_KEY_FIELDS,
     api_key_locations,
+    api_key_inventory,
     app_data_locations,
     apply_available_update,
     check_connectivity,
@@ -43,6 +45,8 @@ from src.ui_support import (
     relative_to_root,
     report_locations,
     run_report_from_ui,
+    delete_api_key,
+    save_api_key,
     validate_json_text,
     write_editable_json,
 )
@@ -429,6 +433,40 @@ class DesktopApp(tk.Tk):
         self.health_status = tk.StringVar(value="Ready.")
         ttk.Label(top, textvariable=self.health_status, style="Muted.TLabel").pack(side="left", padx=12)
 
+        manager = self._panel(self.health_tab, "API Key Manager")
+        manager.pack(fill="x", padx=16, pady=(0, 16))
+        self.api_key_options = {f"{field['label']} ({field['env']})": field["env"] for field in API_KEY_FIELDS}
+        self.api_key_choice = tk.StringVar(value=next(iter(self.api_key_options)))
+        self.api_key_value = tk.StringVar()
+        self.api_key_manager_status = tk.StringVar(value="")
+
+        row = ttk.Frame(manager, style="Panel.TFrame")
+        row.pack(fill="x")
+        ttk.Label(row, text="Key", background=self.panel, foreground=self.muted).pack(side="left")
+        key_combo = ttk.Combobox(
+            row,
+            textvariable=self.api_key_choice,
+            values=list(self.api_key_options),
+            state="readonly",
+            width=34,
+        )
+        key_combo.pack(side="left", padx=(8, 12))
+        key_combo.bind("<<ComboboxSelected>>", lambda _event: self.refresh_api_key_manager())
+        ttk.Label(row, text="New value", background=self.panel, foreground=self.muted).pack(side="left")
+        ttk.Entry(row, textvariable=self.api_key_value, show="*", width=44).pack(side="left", padx=(8, 12))
+        ttk.Button(row, text="Save / Update", command=self.save_selected_api_key).pack(side="left")
+        ttk.Button(row, text="Delete", command=self.delete_selected_api_key).pack(side="left", padx=(8, 0))
+        ttk.Label(manager, textvariable=self.api_key_manager_status, background=self.panel, foreground=self.muted).pack(anchor="w", pady=(8, 0))
+
+        self.api_key_tree = self._make_tree(
+            manager,
+            ["api", "configured", "masked_value", "source"],
+            [170, 110, 180, 760],
+            height=7,
+        )
+        self.api_key_tree.pack(fill="x", pady=(10, 0))
+        self.refresh_api_key_manager()
+
         paths_panel = self._panel(self.health_tab, "API Key Search Paths")
         paths_panel.pack(fill="x", padx=16, pady=(0, 16))
         self.api_paths_text = tk.Text(paths_panel, height=8, wrap="none", bg="#0f172a", fg="#e5e7eb")
@@ -478,6 +516,56 @@ class DesktopApp(tk.Tk):
         self.api_paths_text.delete("1.0", "end")
         self.api_paths_text.insert("1.0", "\n".join(lines))
         self.api_paths_text.configure(state="disabled")
+
+    def _selected_api_env_name(self) -> str:
+        return self.api_key_options.get(self.api_key_choice.get()) or API_KEY_FIELDS[0]["env"]
+
+    def refresh_api_key_manager(self) -> None:
+        rows = []
+        selected_env = self._selected_api_env_name()
+        selected_status = ""
+        for row in api_key_inventory():
+            source = row.get("source_path")
+            source_text = str(source) if source else ""
+            rows.append([row["label"], "YES" if row["configured"] else "NO", row.get("masked") or "", source_text])
+            if row["env"] == selected_env:
+                selected_status = (
+                    f"Current {row['label']}: "
+                    f"{row.get('masked') or 'not configured'}"
+                    f"{' from ' + source_text if source_text else ''}"
+                )
+        self._replace_tree_rows(self.api_key_tree, rows)
+        self.api_key_value.set("")
+        self.api_key_manager_status.set(selected_status or "Select an API key to update.")
+        if hasattr(self, "api_paths_text"):
+            self.refresh_api_paths_text()
+
+    def save_selected_api_key(self) -> None:
+        env_name = self._selected_api_env_name()
+        value = self.api_key_value.get().strip()
+        if not value:
+            messagebox.showerror("Missing API key", "Paste the full new API key value before saving.")
+            return
+        try:
+            path = save_api_key(env_name, value)
+        except Exception as exc:
+            messagebox.showerror("Save failed", str(exc))
+            return
+        self.api_key_manager_status.set(f"Saved {env_name} to {path}")
+        self.refresh_api_key_manager()
+
+    def delete_selected_api_key(self) -> None:
+        env_name = self._selected_api_env_name()
+        if not messagebox.askyesno("Delete API key", f"Remove {env_name} from all discovered API key files?"):
+            return
+        try:
+            touched = delete_api_key(env_name)
+        except Exception as exc:
+            messagebox.showerror("Delete failed", str(exc))
+            return
+        detail = ", ".join(str(path) for path in touched) if touched else "no files contained this key"
+        self.api_key_manager_status.set(f"Deleted {env_name}: {detail}")
+        self.refresh_api_key_manager()
 
     def refresh_report_paths_text(self) -> None:
         lines = ["The app checks these folders for markdown reports, in order:"]
@@ -1347,6 +1435,7 @@ class DesktopApp(tk.Tk):
     def start_connectivity_check(self) -> None:
         self.health_status.set("Checking APIs...")
         self.refresh_api_paths_text()
+        self.refresh_api_key_manager()
         self._replace_tree_rows(self.health_tree, [])
 
         def worker() -> None:

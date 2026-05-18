@@ -47,6 +47,17 @@
 
 ---
 
+## ✨ What's New in v1.13.6 (May 18, 2026)
+
+**Complete API health checks and key management.**
+
+- **All optional APIs visible** — API Checks now tests Anthropic, yfinance, Finnhub, Polygon, Twelve Data, FRED, CoinGecko, and Alpha Vantage.
+- **Desktop API Key Manager** — add/update/delete API keys from the embedded app without manually editing `API_KEYS.txt`.
+- **Streamlit API Key Manager** — the browser dashboard can also show masked configured keys and save/delete API keys.
+- **Secret-safe display** — current key values are masked; updating requires pasting the full new key.
+
+Current local suite: `pytest -q` passes with 183 tests.
+
 ## ✨ What's New in v1.13.5 (May 18, 2026)
 
 **Native Tk search crash fixed.**
@@ -572,7 +583,7 @@ Tabs:
 - **Report Viewer** — Opens the latest generated markdown report with styled headings, readable paragraph spacing, aligned table blocks, native word search, highlighted matches, Next/Previous controls, and search paths behind **Show Search Paths**
 - **History** — Browse previous markdown reports from all configured report search folders and view/search them with the same styled markdown renderer
 - **Config Editor** — Edit `config/settings.json`, `config/watchlist.json`, or fallback `config/portfolio.json` with JSON validation
-- **API Checks** — Check Anthropic, yfinance, Finnhub, and Polygon connectivity, and show every API-key file path the app searches
+- **API Checks** — Check Anthropic, yfinance, Finnhub, Polygon, Twelve Data, FRED, CoinGecko, and Alpha Vantage connectivity; show every API-key file path; add/update/delete API keys from the app
 - **Updates** — Check GitHub Releases, download/apply newer versions, and view update logs
 
 The embedded viewer is a native styled markdown reader. Use Streamlit if you specifically want browser-rendered markdown, side-by-side history comparison, and download buttons.

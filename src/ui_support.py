@@ -56,6 +56,51 @@ EDITABLE_JSON_FILES = {
 
 DECISION_JOURNAL_PATH = DATA_DIR / "decision_journal.json"
 
+API_KEY_FIELDS = [
+    {
+        "env": "ANTHROPIC_API_KEY",
+        "label": "Anthropic",
+        "required": True,
+        "help": "Required for Claude recommendations.",
+    },
+    {
+        "env": "FINNHUB_API_KEY",
+        "label": "Finnhub",
+        "required": False,
+        "help": "Analyst consensus, upgrades/downgrades, earnings, insider activity, sentiment.",
+    },
+    {
+        "env": "POLYGON_API_KEY",
+        "label": "Polygon",
+        "required": False,
+        "help": "Previous-session OHLCV/VWAP and optional current snapshots.",
+    },
+    {
+        "env": "TWELVE_DATA_API_KEY",
+        "label": "Twelve Data",
+        "required": False,
+        "help": "Real-time quote redundancy and earnings dates.",
+    },
+    {
+        "env": "FRED_API_KEY",
+        "label": "FRED",
+        "required": False,
+        "help": "Macro indicators and USD/CAD FX.",
+    },
+    {
+        "env": "COINGECKO_API_KEY",
+        "label": "CoinGecko",
+        "required": False,
+        "help": "Crypto/risk sentiment. Key is optional for the public endpoint.",
+    },
+    {
+        "env": "ALPHA_VANTAGE_API_KEY",
+        "label": "Alpha Vantage",
+        "required": False,
+        "help": "Optional news sentiment and earnings estimates.",
+    },
+]
+
 
 class TeeProgressIO(io.TextIOBase):
     """Capture CLI output while optionally streaming complete lines to a UI."""
@@ -382,7 +427,120 @@ def write_editable_json(label: str, content: str) -> Path:
     return path
 
 
-def check_connectivity(timeout: float = 5.0) -> list[dict[str, Any]]:
+def _read_env_style_file(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not path.exists():
+        return values
+    try:
+        for raw_line in path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or line.startswith("=") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key:
+                values[key] = value
+    except Exception:
+        return values
+    return values
+
+
+def _write_env_style_file(path: Path, updates: dict[str, str | None]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    rendered: list[str] = []
+    seen: set[str] = set()
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#") or line.startswith("=") or "=" not in line:
+            rendered.append(raw_line)
+            continue
+        key, _value = line.split("=", 1)
+        key = key.strip()
+        if key in updates:
+            value = (updates[key] or "").strip()
+            if value and key not in seen:
+                rendered.append(f"{key}={value}")
+            seen.add(key)
+            continue
+        rendered.append(raw_line)
+    for key, value in updates.items():
+        value = (value or "").strip()
+        if key not in seen and value:
+            rendered.append(f"{key}={value}")
+    path.write_text("\n".join(rendered).rstrip() + "\n", encoding="utf-8")
+    return path
+
+
+def _preferred_api_key_file() -> Path:
+    for path in api_key_search_paths():
+        if path.name == "API_KEYS.txt" and path.exists():
+            return path
+    return Path.home() / "Documents" / "tech_stock" / "API_KEYS.txt"
+
+
+def mask_secret(value: str | None) -> str:
+    if not value:
+        return ""
+    if len(value) <= 8:
+        return "*" * len(value)
+    return f"{value[:4]}...{value[-4:]}"
+
+
+def api_key_inventory() -> list[dict[str, Any]]:
+    """Return configured API-key fields with masked values and discovered source files."""
+    _load_api_keys_from_file()
+    file_values = [(path, _read_env_style_file(path)) for path in api_key_search_paths() if path.exists()]
+    rows: list[dict[str, Any]] = []
+    for field in API_KEY_FIELDS:
+        env_name = field["env"]
+        source = None
+        value = os.environ.get(env_name) or ""
+        for path, values in file_values:
+            if env_name in values and values[env_name]:
+                source = path
+                value = values[env_name]
+                break
+        rows.append({
+            **field,
+            "configured": bool(value),
+            "masked": mask_secret(value),
+            "source_path": source,
+        })
+    return rows
+
+
+def save_api_key(env_name: str, value: str) -> Path:
+    valid = {field["env"] for field in API_KEY_FIELDS}
+    if env_name not in valid:
+        raise ValueError(f"Unsupported API key: {env_name}")
+    cleaned = value.strip()
+    if not cleaned:
+        raise ValueError("API key value is empty.")
+    path = _preferred_api_key_file()
+    _write_env_style_file(path, {env_name: cleaned})
+    os.environ[env_name] = cleaned
+    return path
+
+
+def delete_api_key(env_name: str) -> list[Path]:
+    valid = {field["env"] for field in API_KEY_FIELDS}
+    if env_name not in valid:
+        raise ValueError(f"Unsupported API key: {env_name}")
+    touched: list[Path] = []
+    for path in api_key_search_paths():
+        if not path.exists():
+            continue
+        values = _read_env_style_file(path)
+        if env_name in values:
+            _write_env_style_file(path, {env_name: None})
+            touched.append(path)
+    os.environ.pop(env_name, None)
+    return touched
+
+
+def check_connectivity(timeout: float = 12.0) -> list[dict[str, Any]]:
     """Best-effort API/data-source health checks for the optional UIs."""
     _load_api_keys_from_file()
     checks: list[dict[str, Any]] = []
@@ -394,6 +552,10 @@ def check_connectivity(timeout: float = 5.0) -> list[dict[str, Any]]:
             "latency_ms": round((time.perf_counter() - started) * 1000),
             "detail": detail,
         })
+
+    def record_missing(source: str, env_name: str, started: float, *, optional: bool = True) -> None:
+        suffix = " missing (optional)" if optional else " missing"
+        record(source, False, f"{env_name}{suffix}", started)
 
     try:
         import requests
@@ -424,10 +586,11 @@ def check_connectivity(timeout: float = 5.0) -> list[dict[str, Any]]:
         started = time.perf_counter()
         key = os.environ.get("FINNHUB_API_KEY")
         if not key:
-            record("Finnhub", False, "FINNHUB_API_KEY missing", started)
+            record_missing("Finnhub", "FINNHUB_API_KEY", started)
         else:
             response = requests.get("https://finnhub.io/api/v1/quote", params={"symbol": "AAPL", "token": key}, timeout=timeout)
-            record("Finnhub", response.ok, f"HTTP {response.status_code}", started)
+            ok = response.ok and bool((response.json() if response.text else {}).get("c"))
+            record("Finnhub", ok, f"HTTP {response.status_code}", started)
     except Exception as exc:
         record("Finnhub", False, str(exc), started if "started" in locals() else time.perf_counter())
 
@@ -436,12 +599,91 @@ def check_connectivity(timeout: float = 5.0) -> list[dict[str, Any]]:
         started = time.perf_counter()
         key = os.environ.get("POLYGON_API_KEY")
         if not key:
-            record("Polygon", False, "POLYGON_API_KEY missing", started)
+            record_missing("Polygon", "POLYGON_API_KEY", started)
         else:
             response = requests.get("https://api.polygon.io/v2/aggs/ticker/AAPL/prev", params={"apiKey": key}, timeout=timeout)
-            record("Polygon", response.ok, f"HTTP {response.status_code}", started)
+            payload = response.json() if response.text else {}
+            ok = response.ok and bool(payload.get("results"))
+            record("Polygon", ok, f"HTTP {response.status_code}", started)
     except Exception as exc:
         record("Polygon", False, str(exc), started if "started" in locals() else time.perf_counter())
+
+    try:
+        import requests
+        started = time.perf_counter()
+        key = os.environ.get("TWELVE_DATA_API_KEY")
+        if not key:
+            record_missing("Twelve Data", "TWELVE_DATA_API_KEY", started)
+        else:
+            response = requests.get("https://api.twelvedata.com/quote", params={"symbol": "AAPL", "apikey": key}, timeout=timeout)
+            payload = response.json() if response.text else {}
+            ok = response.ok and payload.get("status") != "error" and bool(payload.get("close") or payload.get("price"))
+            detail = f"HTTP {response.status_code}"
+            if isinstance(payload, dict) and payload.get("message"):
+                detail = f"{detail}: {payload.get('message')}"
+            record("Twelve Data", ok, detail, started)
+    except Exception as exc:
+        record("Twelve Data", False, str(exc), started if "started" in locals() else time.perf_counter())
+
+    try:
+        import requests
+        started = time.perf_counter()
+        key = os.environ.get("FRED_API_KEY")
+        if not key:
+            record_missing("FRED", "FRED_API_KEY", started)
+        else:
+            response = requests.get(
+                "https://api.stlouisfed.org/fred/series/observations",
+                params={"series_id": "DFF", "api_key": key, "file_type": "json", "sort_order": "desc", "limit": 1},
+                timeout=timeout,
+            )
+            payload = response.json() if response.text else {}
+            ok = response.ok and bool(payload.get("observations"))
+            record("FRED", ok, f"HTTP {response.status_code}", started)
+    except Exception as exc:
+        record("FRED", False, str(exc), started if "started" in locals() else time.perf_counter())
+
+    try:
+        import requests
+        started = time.perf_counter()
+        key = os.environ.get("COINGECKO_API_KEY")
+        headers = {}
+        if key:
+            header_name = "x-cg-pro-api-key" if not key.startswith("CG-") else "x-cg-demo-api-key"
+            headers[header_name] = key
+        response = requests.get(
+            "https://api.coingecko.com/api/v3/simple/price",
+            params={"ids": "bitcoin", "vs_currencies": "usd"},
+            headers=headers,
+            timeout=timeout,
+        )
+        payload = response.json() if response.text else {}
+        ok = response.ok and bool((payload.get("bitcoin") or {}).get("usd"))
+        detail = f"HTTP {response.status_code}" + ("" if key else " (public endpoint, no key)")
+        record("CoinGecko", ok, detail, started)
+    except Exception as exc:
+        record("CoinGecko", False, str(exc), started if "started" in locals() else time.perf_counter())
+
+    try:
+        import requests
+        started = time.perf_counter()
+        key = os.environ.get("ALPHA_VANTAGE_API_KEY")
+        if not key:
+            record_missing("Alpha Vantage", "ALPHA_VANTAGE_API_KEY", started)
+        else:
+            response = requests.get(
+                "https://www.alphavantage.co/query",
+                params={"function": "GLOBAL_QUOTE", "symbol": "AAPL", "apikey": key},
+                timeout=timeout,
+            )
+            payload = response.json() if response.text else {}
+            ok = response.ok and bool(payload.get("Global Quote"))
+            detail = f"HTTP {response.status_code}"
+            if isinstance(payload, dict) and (payload.get("Note") or payload.get("Information")):
+                detail = f"{detail}: {payload.get('Note') or payload.get('Information')}"
+            record("Alpha Vantage", ok, detail, started)
+    except Exception as exc:
+        record("Alpha Vantage", False, str(exc), started if "started" in locals() else time.perf_counter())
 
     return checks
 

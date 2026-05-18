@@ -17,6 +17,8 @@ sys.path.insert(0, str(ROOT))
 
 from src.ui_support import (  # noqa: E402
     EDITABLE_JSON_FILES,
+    API_KEY_FIELDS,
+    api_key_inventory,
     apply_available_update,
     check_connectivity,
     check_update_available,
@@ -34,6 +36,8 @@ from src.ui_support import (  # noqa: E402
     relative_to_root,
     run_backtest_summary,
     run_report_from_ui,
+    delete_api_key,
+    save_api_key,
     save_decision_from_ui,
     save_uploaded_bytes,
     validate_json_text,
@@ -235,6 +239,38 @@ with tab_dashboard:
             with st.spinner("Checking connectivity..."):
                 checks = check_connectivity()
             st.dataframe(pd.DataFrame(checks), hide_index=True, width="stretch")
+
+    with st.expander("API Key Manager"):
+        inventory = api_key_inventory()
+        st.dataframe(
+            pd.DataFrame([
+                {
+                    "API": row["label"],
+                    "Configured": row["configured"],
+                    "Masked value": row["masked"],
+                    "Source": str(row["source_path"] or ""),
+                }
+                for row in inventory
+            ]),
+            hide_index=True,
+            width="stretch",
+        )
+        labels = [f"{field['label']} ({field['env']})" for field in API_KEY_FIELDS]
+        selected_label = st.selectbox("API key", labels)
+        selected_env = next(field["env"] for field in API_KEY_FIELDS if selected_label.endswith(f"({field['env']})"))
+        new_value = st.text_input("New API key value", type="password", key="api_key_new_value")
+        c_save, c_delete = st.columns(2)
+        with c_save:
+            if st.button("Save / Update API key"):
+                if not new_value.strip():
+                    st.error("Paste the full API key value before saving.")
+                else:
+                    path = save_api_key(selected_env, new_value)
+                    st.success(f"Saved {selected_env} to {path}")
+        with c_delete:
+            if st.button("Delete API key"):
+                touched = delete_api_key(selected_env)
+                st.warning(f"Deleted {selected_env}. Files changed: {len(touched)}")
 
 with tab_run:
     st.subheader("Generate Report")
