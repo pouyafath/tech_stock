@@ -47,6 +47,16 @@
 
 ---
 
+## ✨ What's New in v1.13.3 (May 18, 2026)
+
+**Searchable embedded reports.**
+
+- **Report Viewer search** — the Desktop App now has a native search box with highlighted matches, current-match focus, match counts, Next/Previous navigation, and Clear.
+- **History search** — selected historical reports use the same searchable markdown viewer.
+- **Keyboard shortcut** — press `Cmd+F` on macOS or `Ctrl+F` on Windows/Linux to jump to the report search field.
+
+Current local suite: `pytest -q` passes with 176 tests.
+
 ## ✨ What's New in v1.13.2 (May 17, 2026)
 
 **Cleaner embedded dashboard.**
@@ -539,8 +549,8 @@ The Desktop App is a native Tkinter dashboard that runs inside the application w
 Tabs:
 - **Dashboard** — Shows the next action, portfolio/risk metric cards, priority action queue, quality gates, stop breaches, drift, hedge ideas, market context, watchlist signals, and Claude cost
 - **Run Report** — Select session/model/budgets, confirm auto-detected Wealthsimple CSV paths, preview holdings, and run the same report pipeline as CLI mode with live progress
-- **Report Viewer** — Opens the latest generated markdown report with styled headings, readable paragraph spacing, and aligned table blocks; search paths are available from **Show Search Paths**
-- **History** — Browse previous markdown reports from all configured report search folders and view them with the same styled markdown renderer
+- **Report Viewer** — Opens the latest generated markdown report with styled headings, readable paragraph spacing, aligned table blocks, native word search, highlighted matches, Next/Previous controls, and search paths behind **Show Search Paths**
+- **History** — Browse previous markdown reports from all configured report search folders and view/search them with the same styled markdown renderer
 - **Config Editor** — Edit `config/settings.json`, `config/watchlist.json`, or fallback `config/portfolio.json` with JSON validation
 - **API Checks** — Check Anthropic, yfinance, Finnhub, and Polygon connectivity, and show every API-key file path the app searches
 - **Updates** — Check GitHub Releases, download/apply newer versions, and view update logs

@@ -72,10 +72,13 @@ class DesktopApp(tk.Tk):
         self.progress_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
         self.latest_report_path: Path | None = latest_report()
         self.latest_update_info: Any = None
+        self.search_state: dict[str, dict[str, Any]] = {}
 
         self._configure_style()
         self._build_header()
         self._build_tabs()
+        self.bind_all("<Command-f>", self.focus_active_search)
+        self.bind_all("<Control-f>", self.focus_active_search)
         self.after(100, self._drain_progress_queue)
         self.refresh_dashboard()
         self.refresh_history()
@@ -320,6 +323,7 @@ class DesktopApp(tk.Tk):
         self.report_paths_button.pack(side="left", padx=8)
         self.report_path_label = ttk.Label(toolbar, text="", style="Muted.TLabel")
         self.report_path_label.pack(side="left", padx=12)
+        self._build_search_controls(toolbar, "report", lambda: self.report_text)
 
         self.report_paths_panel = self._panel(self.report_tab, "Report Search Paths")
         self.report_paths_visible = False
@@ -360,6 +364,9 @@ class DesktopApp(tk.Tk):
         self.history_paths: list[Path] = []
         self.refresh_report_paths_text()
 
+        search_bar = ttk.Frame(right, style="Panel.TFrame")
+        search_bar.pack(fill="x", pady=(0, 10))
+        self._build_search_controls(search_bar, "history", lambda: self.history_text)
         self.history_text = ScrolledText(
             right,
             wrap="word",
@@ -498,6 +505,152 @@ class DesktopApp(tk.Tk):
         self.report_paths_button.configure(text="Hide Search Paths")
         self.report_paths_visible = True
 
+    def _build_search_controls(self, parent: tk.Widget, key: str, get_widget: Any) -> None:
+        query = tk.StringVar()
+        status = tk.StringVar(value="Search")
+        state: dict[str, Any] = {
+            "query": query,
+            "status": status,
+            "matches": [],
+            "current": -1,
+            "last_query": "",
+            "get_widget": get_widget,
+        }
+        self.search_state[key] = state
+
+        frame = ttk.Frame(parent)
+        frame.pack(side="right")
+        ttk.Label(frame, text="Search", style="Muted.TLabel").pack(side="left", padx=(0, 6))
+        entry = ttk.Entry(frame, textvariable=query, width=24)
+        entry.pack(side="left")
+        state["entry"] = entry
+        ttk.Button(frame, text="Previous", command=lambda: self._run_search(key, direction=-1)).pack(side="left", padx=(6, 0))
+        ttk.Button(frame, text="Next", command=lambda: self._run_search(key, direction=1)).pack(side="left", padx=(4, 0))
+        ttk.Button(frame, text="Clear", command=lambda: self._clear_search_highlights(key)).pack(side="left", padx=(4, 0))
+        ttk.Label(frame, textvariable=status, style="Muted.TLabel").pack(side="left", padx=(8, 0))
+
+        entry.bind("<Return>", lambda _event: self._entry_search(key, direction=1))
+        entry.bind("<Shift-Return>", lambda _event: self._entry_search(key, direction=-1))
+        query.trace_add("write", lambda *_args: self._refresh_search_after_text_change(key))
+
+    def _entry_search(self, key: str, *, direction: int) -> str:
+        self._run_search(key, direction=direction)
+        return "break"
+
+    def focus_active_search(self, _event: object | None = None) -> str:
+        selected = self.tabs.select()
+        tab_text = self.tabs.tab(selected, "text") if selected else ""
+        if tab_text == "History":
+            key = "history"
+        else:
+            key = "report"
+            if tab_text != "Report Viewer":
+                self.tabs.select(self.report_tab)
+        state = self.search_state.get(key)
+        entry = state.get("entry") if state else None
+        if entry:
+            entry.focus_set()
+            entry.selection_range(0, "end")
+        return "break"
+
+    def _search_text_widget(self, key: str) -> tk.Text | None:
+        state = self.search_state.get(key)
+        if not state:
+            return None
+        try:
+            widget = state["get_widget"]()
+        except (AttributeError, tk.TclError):
+            return None
+        return widget if isinstance(widget, tk.Text) else None
+
+    def _refresh_search_after_text_change(self, key: str) -> None:
+        state = self.search_state.get(key)
+        if not state:
+            return
+        state["matches"] = []
+        state["current"] = -1
+        state["last_query"] = ""
+        if state["query"].get().strip():
+            self._run_search(key, direction=1)
+        else:
+            self._clear_search_highlights(key, clear_query=False)
+
+    def _clear_search_highlights(self, key: str, *, clear_query: bool = True) -> None:
+        state = self.search_state.get(key)
+        if not state:
+            return
+        widget = self._search_text_widget(key)
+        if widget:
+            widget.tag_remove("search_match", "1.0", "end")
+            widget.tag_remove("search_current", "1.0", "end")
+        state["matches"] = []
+        state["current"] = -1
+        state["last_query"] = ""
+        if clear_query and state["query"].get():
+            state["query"].set("")
+        state["status"].set("Search")
+
+    def _run_search(self, key: str, *, direction: int) -> None:
+        state = self.search_state.get(key)
+        if not state:
+            return
+        query = state["query"].get()
+        if not query.strip():
+            self._clear_search_highlights(key, clear_query=False)
+            return
+        if query != state.get("last_query") or not state.get("matches"):
+            self._collect_search_matches(key, query)
+        matches: list[tuple[str, str]] = state.get("matches", [])
+        if not matches:
+            state["status"].set("0 matches")
+            return
+        current = int(state.get("current", -1))
+        if current == -1:
+            current = len(matches) - 1 if direction < 0 else 0
+        else:
+            current = (current + direction) % len(matches)
+        self._select_search_match(key, current)
+
+    def _collect_search_matches(self, key: str, query: str) -> None:
+        state = self.search_state.get(key)
+        widget = self._search_text_widget(key)
+        if not state or not widget:
+            return
+        widget.tag_remove("search_match", "1.0", "end")
+        widget.tag_remove("search_current", "1.0", "end")
+        matches: list[tuple[str, str]] = []
+        start = "1.0"
+        while True:
+            index = widget.search(query, start, nocase=True, stopindex="end")
+            if not index:
+                break
+            end = f"{index}+{len(query)}c"
+            matches.append((index, end))
+            widget.tag_add("search_match", index, end)
+            start = end
+        widget.tag_raise("search_match")
+        widget.tag_raise("search_current")
+        state["matches"] = matches
+        state["current"] = -1
+        state["last_query"] = query
+        state["status"].set(f"0/{len(matches)}" if matches else "0 matches")
+
+    def _select_search_match(self, key: str, match_index: int) -> None:
+        state = self.search_state.get(key)
+        widget = self._search_text_widget(key)
+        if not state or not widget:
+            return
+        matches: list[tuple[str, str]] = state.get("matches", [])
+        if not matches:
+            return
+        widget.tag_remove("search_current", "1.0", "end")
+        start, end = matches[match_index]
+        widget.tag_add("search_current", start, end)
+        widget.tag_raise("search_current")
+        widget.see(start)
+        state["current"] = match_index
+        state["status"].set(f"{match_index + 1}/{len(matches)}")
+
     def _configure_markdown_tags(self, widget: tk.Text) -> None:
         base_font = tkfont.Font(family="Helvetica", size=13)
         mono_font = tkfont.Font(family="Menlo", size=12)
@@ -511,6 +664,8 @@ class DesktopApp(tk.Tk):
         widget.tag_configure("table", font=mono_font, background="#e5e7eb", foreground="#111827", lmargin1=10, lmargin2=10, spacing1=1, spacing3=1)
         widget.tag_configure("table_header", font=("Menlo", 12, "bold"), background="#d1d5db", foreground="#111827", lmargin1=10, lmargin2=10)
         widget.tag_configure("rule", foreground="#94a3b8", spacing1=6, spacing3=6)
+        widget.tag_configure("search_match", background="#fde68a", foreground="#111827")
+        widget.tag_configure("search_current", background="#fb923c", foreground="#111827")
 
     def _insert_inline_markdown(self, widget: tk.Text, text: str, base_tag: str = "body") -> None:
         parts = re.split(r"(\*\*[^*]+\*\*)", text)
@@ -1096,11 +1251,13 @@ class DesktopApp(tk.Tk):
         if not path or not text:
             self.report_path_label.configure(text="No report selected.")
             self._render_markdown(self.report_text, "## No report found yet\n\nRun a report or choose one from History.")
+            self._refresh_search_after_text_change("report")
             if select_tab:
                 self.tabs.select(self.report_tab)
             return
         self.report_path_label.configure(text=relative_to_root(path))
         self._render_markdown(self.report_text, text)
+        self._refresh_search_after_text_change("report")
         if select_tab:
             self.tabs.select(self.report_tab)
 
@@ -1117,6 +1274,7 @@ class DesktopApp(tk.Tk):
             return
         path = self.history_paths[selection[0]]
         self._render_markdown(self.history_text, read_text_file(path) or "## Could not read report")
+        self._refresh_search_after_text_change("history")
 
     def load_editor_file(self) -> None:
         label = self.editor_file_var.get()

@@ -4,6 +4,18 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.13.3] — 2026-05-18
+
+### Added — Desktop report search
+- **Report Viewer search** adds a native search field with highlighted matches, current-match focus, match counts, Next/Previous navigation, and Clear.
+- **History report search** adds the same search controls to the selected historical report preview.
+- **Keyboard shortcut** supports `Cmd+F` on macOS and `Ctrl+F` on Windows/Linux to focus report search.
+
+### Tests
+- Full local suite: 176 tests passing.
+
+---
+
 ## [1.13.2] — 2026-05-17
 
 ### Improved — Desktop dashboard
