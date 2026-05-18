@@ -32,6 +32,7 @@
 - ✅ **Risk Controls** — Entry zones, stop-loss, take-profit, catalyst verification, and manual-review flags per recommendation
 - ✅ **Exit Planning** — Target exit dates and Bear Case / Bull Case ranges for every trade
 - ✅ **Portfolio Risk Dashboard** — Beta, volatility, drawdown estimate, company exposure rollups, and hedge suggestions
+- ✅ **Buy Signals View** — Source-backed BUY/ADD and add-on-dip snapshots with analyst consensus, targets, catalysts, quality warnings, and data-source notes
 - ✅ **8 Time Horizons** — Intraday / next session / 1-3 trading days / 1-2 weeks / 1-3 months / 3-6 months / 6-12 months / 12-36 months
 - ✅ **6 Enrichment APIs** — Parallel data from Finnhub, Polygon, Twelve Data, FRED, CoinGecko (+ optional Alpha Vantage)
 - ✅ **Fee-Aware** — Refuses to recommend trades below the fee hurdle (default 0.5% net expected return)
@@ -46,6 +47,17 @@
 - ✅ **Fast Parallel Fetching** — Concurrent API requests with caching and graceful degradation
 
 ---
+
+## ✨ What's New in v1.13.7 (May 18, 2026)
+
+**Source-backed Buy Signals view.**
+
+- **Buy Signals tab** — Desktop, Streamlit, and Textual now show BUY/ADD and add-on-dip candidates from the latest recommendation log.
+- **Consensus and target snapshots** — shows Finnhub analyst consensus plus Yahoo/yfinance analyst target fields when available.
+- **Catalyst and risk tabs** — separates catalyst source, manual-review status, recent news, technicals, insider activity, earnings, quality warnings, and invalidation notes.
+- **Source transparency** — each candidate includes explicit source notes so UI claims are tied to data feeds instead of generated graphics.
+
+Current local suite: `pytest -q` passes with 186 tests.
 
 ## ✨ What's New in v1.13.6 (May 18, 2026)
 
@@ -579,6 +591,7 @@ The Desktop App is a native Tkinter dashboard that runs inside the application w
 
 Tabs:
 - **Dashboard** — Shows the next action, portfolio/risk metric cards, priority action queue, quality gates, stop breaches, drift, hedge ideas, market context, watchlist signals, and Claude cost
+- **Buy Signals** — Shows source-backed BUY/ADD and add-on-dip snapshots with overview, consensus/targets, catalysts/risks, and source notes
 - **Run Report** — Select session/model/budgets, confirm auto-detected Wealthsimple CSV paths, preview holdings, and run the same report pipeline as CLI mode with live progress
 - **Report Viewer** — Opens the latest generated markdown report with styled headings, readable paragraph spacing, aligned table blocks, native word search, highlighted matches, Next/Previous controls, and search paths behind **Show Search Paths**
 - **History** — Browse previous markdown reports from all configured report search folders and view/search them with the same styled markdown renderer

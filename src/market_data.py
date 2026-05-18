@@ -359,6 +359,11 @@ def _fetch_ticker_raw(ticker: str, history_months: int, include_options: bool = 
         if dividend_yield is not None and dividend_yield <= 1
         else dividend_yield
     )
+    analyst_target_low = _safe_float(info.get("targetLowPrice"))
+    analyst_target_mean = _safe_float(info.get("targetMeanPrice"))
+    analyst_target_median = _safe_float(info.get("targetMedianPrice"))
+    analyst_target_high = _safe_float(info.get("targetHighPrice"))
+    number_of_analyst_opinions = info.get("numberOfAnalystOpinions")
 
     return {
         "ticker": ticker,
@@ -394,6 +399,14 @@ def _fetch_ticker_raw(ticker: str, history_months: int, include_options: bool = 
         "operating_margins": info.get("operatingMargins"),
         "operating_margin_pct": operating_margin_pct,
         "debt_to_equity": info.get("debtToEquity"),
+        "analyst_target_low": analyst_target_low,
+        "analyst_target_mean": analyst_target_mean,
+        "analyst_target_median": analyst_target_median,
+        "analyst_target_high": analyst_target_high,
+        "number_of_analyst_opinions": number_of_analyst_opinions,
+        "recommendation_key": info.get("recommendationKey"),
+        "recommendation_mean": _safe_float(info.get("recommendationMean")),
+        "analyst_target_source": "yfinance:quoteSummary",
         "dividend_rate": info.get("dividendRate"),
         "dividend_yield_pct": dividend_yield_pct,
         "ex_dividend_date": _epoch_to_utc_iso(info.get("exDividendDate")),
@@ -417,7 +430,10 @@ def get_ticker_data(ticker: str, history_months: int = 10) -> dict:
     settings = load_settings()
     cache_enabled = settings.get("cache_enabled", True)
     ttl = settings.get("market_data_cache_ttl_seconds", settings.get("cache_ttl_seconds", 3600))
-    cache_version = settings.get("market_data_cache_version", 4)
+    try:
+        cache_version = max(int(settings.get("market_data_cache_version", 5) or 5), 5)
+    except (TypeError, ValueError):
+        cache_version = 5
     include_options = settings.get("enable_options_implied_move_all", False)
 
     try:

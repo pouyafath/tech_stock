@@ -25,6 +25,7 @@ from src.decision_journal import (
     record_decision,
     run_scorecard as run_decision_scorecard,
 )
+from src.enriched_data import enrich
 from src.main import (
     CONFIG_DIR,
     DATA_DIR,
@@ -39,6 +40,8 @@ from src.main import (
     runtime_locations,
     run as run_cli_report,
 )
+from src.market_data import get_market_data
+from src.news_fetcher import aggregate_sentiment, get_news_for_tickers
 from src.portfolio_loader import parse_holdings_csv
 from src.updater import UpdateInfo, UpdateResult, apply_update, check_for_update
 from src.version import APP_VERSION
@@ -344,6 +347,152 @@ def latest_log_summary() -> dict[str, Any]:
         "usage": data.get("usage") or data.get("usage_summary") or {},
         "recommendations": data.get("recommendations") or [],
         "portfolio_health": portfolio_health,
+    }
+
+
+BUY_SIGNAL_ACTIONS = {"BUY", "ADD"}
+BUY_SIGNAL_HOLD_TIERS = {"add_on_dip"}
+
+
+def is_buy_signal_candidate(recommendation: dict[str, Any]) -> bool:
+    action = (recommendation.get("action") or "").upper()
+    hold_tier = (recommendation.get("hold_tier") or "").lower()
+    return action in BUY_SIGNAL_ACTIONS or hold_tier in BUY_SIGNAL_HOLD_TIERS
+
+
+def target_upside_pct(target: float | int | None, current_price: float | int | None) -> float | None:
+    try:
+        if target is None or current_price is None or float(current_price) <= 0:
+            return None
+        return round((float(target) - float(current_price)) / float(current_price) * 100, 1)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
+def _load_latest_log_payload() -> tuple[Path | None, dict[str, Any]]:
+    logs = list_logs(limit=1)
+    if not logs:
+        return None, {}
+    path = logs[0]
+    try:
+        return path, json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return path, {"error": str(exc)}
+
+
+def _sort_buy_signal_recommendations(recommendations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def sort_key(rec: dict[str, Any]) -> tuple[int, float, str]:
+        action = (rec.get("action") or "").upper()
+        action_rank = 0 if action in {"BUY", "ADD"} else 1
+        try:
+            conviction = float(rec.get("conviction") or 0)
+        except (TypeError, ValueError):
+            conviction = 0
+        return (action_rank, -conviction, rec.get("ticker") or "")
+
+    return sorted([rec for rec in recommendations if is_buy_signal_candidate(rec)], key=sort_key)
+
+
+def buy_signal_insights(limit: int = 8) -> dict[str, Any]:
+    """
+    Build a data-backed buy-signal view from the latest recommendation log plus
+    refreshed source data. No LLM is called here; the insight rows are
+    deterministic summaries of source fields.
+    """
+    path, payload = _load_latest_log_payload()
+    if not path:
+        return {"session_file": "", "candidates": [], "error": "No recommendation JSON logs found."}
+    if payload.get("error"):
+        return {"session_file": path.name, "candidates": [], "error": payload["error"]}
+
+    recs = _sort_buy_signal_recommendations(payload.get("recommendations") or [])[:limit]
+    tickers = [rec.get("ticker") for rec in recs if rec.get("ticker")]
+    market_data = get_market_data(tickers) if tickers else {}
+    enriched = enrich(tickers) if tickers else {}
+    news_by_ticker = get_news_for_tickers(tickers) if tickers else {}
+    quality_by_ticker: dict[str, list[dict[str, Any]]] = {}
+    for warning in payload.get("quality_warnings") or []:
+        ticker = warning.get("ticker")
+        if ticker:
+            quality_by_ticker.setdefault(ticker, []).append(warning)
+
+    candidates = []
+    for rec in recs:
+        ticker = rec.get("ticker")
+        md = market_data.get(ticker) or {}
+        per_ticker = ((enriched.get("per_ticker") or {}).get(ticker) or {}) if ticker else {}
+        analyst = per_ticker.get("analyst_consensus") or {}
+        price = md.get("current_price") or rec.get("target_entry_or_exit")
+        price_targets = {
+            "low": md.get("analyst_target_low"),
+            "mean": md.get("analyst_target_mean"),
+            "median": md.get("analyst_target_median"),
+            "high": md.get("analyst_target_high"),
+            "analyst_count": md.get("number_of_analyst_opinions") or analyst.get("total_analysts"),
+            "source": md.get("analyst_target_source") if md.get("analyst_target_mean") else "",
+        }
+        price_targets["mean_upside_pct"] = target_upside_pct(price_targets["mean"], price)
+        price_targets["high_upside_pct"] = target_upside_pct(price_targets["high"], price)
+        price_targets["low_upside_pct"] = target_upside_pct(price_targets["low"], price)
+        indicators = md.get("indicators") or {}
+        news = news_by_ticker.get(ticker) or []
+        source_notes = [
+            f"Quote: {md.get('quote_source') or 'unavailable'}",
+            "Analyst consensus: Finnhub /stock/recommendation" if analyst else "Analyst consensus: unavailable",
+            "Analyst targets: Yahoo Finance via yfinance" if price_targets.get("mean") else "Analyst targets: unavailable",
+            "Recent news: Yahoo Finance via yfinance",
+            "Quality gates: deterministic report_quality checks",
+        ]
+        if per_ticker.get("insider_activity"):
+            source_notes.append("Insider activity: Finnhub insider transactions")
+        if per_ticker.get("upcoming_earnings"):
+            source_notes.append("Earnings calendar: Finnhub")
+
+        candidates.append({
+            "ticker": ticker,
+            "action": rec.get("action"),
+            "hold_tier": rec.get("hold_tier"),
+            "conviction": rec.get("conviction"),
+            "action_amount": rec.get("action_amount") or rec.get("invest_amount_usd"),
+            "action_amount_currency": rec.get("action_amount_currency") or "USD",
+            "current_price": price,
+            "currency": md.get("currency") or "USD",
+            "change_pct_1d": md.get("change_pct_1d"),
+            "quote_timestamp_utc": md.get("quote_timestamp_utc"),
+            "analyst_consensus": analyst,
+            "price_targets": price_targets,
+            "latest_rating_changes": (per_ticker.get("upgrade_downgrade") or [])[:4],
+            "insider_activity": per_ticker.get("insider_activity") or {},
+            "upcoming_earnings": per_ticker.get("upcoming_earnings") or {},
+            "earnings_history": (per_ticker.get("earnings_history") or [])[:4],
+            "technical": {
+                "rsi_14": indicators.get("rsi_14"),
+                "macd_hist": indicators.get("macd_hist"),
+                "atr_pct_of_price": indicators.get("atr_pct_of_price"),
+                "price_vs_sma50_pct": indicators.get("price_vs_sma50_pct"),
+                "price_vs_sma200_pct": indicators.get("price_vs_sma200_pct"),
+                "volatility_20d_pct": indicators.get("volatility_20d_pct"),
+                "volume_spike_ratio": indicators.get("volume_spike_ratio"),
+            },
+            "catalyst_verified": rec.get("catalyst_verified"),
+            "catalyst_source": rec.get("catalyst_source"),
+            "manual_review_required": rec.get("manual_review_required"),
+            "quality_warnings": quality_by_ticker.get(ticker, []),
+            "news": news[:3],
+            "news_summary": aggregate_sentiment(news),
+            "thesis": rec.get("thesis") or "",
+            "risk_or_invalidation": rec.get("risk_or_invalidation") or "",
+            "source_notes": source_notes,
+        })
+
+    return {
+        "session_file": path.name,
+        "session_path": path,
+        "session_summary": payload.get("session_summary") or "",
+        "candidates": candidates,
+        "sources_active": enriched.get("sources_active") or [],
+        "degradation": enriched.get("degradation") or [],
+        "fetched_at": datetime.now().isoformat(timespec="seconds"),
     }
 
 

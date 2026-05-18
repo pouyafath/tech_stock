@@ -20,6 +20,7 @@ from src.ui_support import (  # noqa: E402
     API_KEY_FIELDS,
     api_key_inventory,
     apply_available_update,
+    buy_signal_insights,
     check_connectivity,
     check_update_available,
     current_app_version,
@@ -172,8 +173,8 @@ with st.sidebar:
         else:
             st.success(f"Up to date: v{update_info.current_version}")
 
-tab_dashboard, tab_report, tab_run, tab_history, tab_backtest, tab_journal, tab_editor = st.tabs(
-    ["Dashboard", "Today's Report", "Run Report", "History", "Backtest", "Decision Journal", "Portfolio Editor"]
+tab_dashboard, tab_buy, tab_report, tab_run, tab_history, tab_backtest, tab_journal, tab_editor = st.tabs(
+    ["Dashboard", "Buy Signals", "Today's Report", "Run Report", "History", "Backtest", "Decision Journal", "Portfolio Editor"]
 )
 
 with tab_dashboard:
@@ -271,6 +272,75 @@ with tab_dashboard:
             if st.button("Delete API key"):
                 touched = delete_api_key(selected_env)
                 st.warning(f"Deleted {selected_env}. Files changed: {len(touched)}")
+
+with tab_buy:
+    st.subheader("Buy Signals")
+    st.caption("Data-backed snapshots from the latest recommendation log plus refreshed yfinance/Yahoo, Finnhub, and quality-gate data.")
+    if st.button("Refresh Buy Signal Insights"):
+        with st.spinner("Refreshing buy signals from source data..."):
+            st.session_state["buy_signal_insights"] = buy_signal_insights()
+    buy_data = st.session_state.get("buy_signal_insights")
+    if not buy_data:
+        st.info("Click Refresh Buy Signal Insights to load the latest BUY/ADD and add-on-dip candidates.")
+    elif buy_data.get("error"):
+        st.error(buy_data["error"])
+    else:
+        st.caption(f"{buy_data.get('session_file')} | fetched {buy_data.get('fetched_at')}")
+        candidates = buy_data.get("candidates") or []
+        if not candidates:
+            st.info("No buy signal candidates found in the latest recommendation log.")
+        else:
+            overview_rows = []
+            consensus_rows = []
+            for item in candidates:
+                targets = item.get("price_targets") or {}
+                analyst = item.get("analyst_consensus") or {}
+                overview_rows.append({
+                    "Ticker": item.get("ticker"),
+                    "Action": item.get("action") or item.get("hold_tier"),
+                    "Conviction": item.get("conviction"),
+                    "Current": item.get("current_price"),
+                    "Consensus": analyst.get("consensus_label"),
+                    "Mean target upside %": targets.get("mean_upside_pct"),
+                    "Warnings": ", ".join(w.get("code", "") for w in item.get("quality_warnings") or []),
+                })
+                consensus_rows.append({
+                    "Ticker": item.get("ticker"),
+                    "Buy": analyst.get("buy"),
+                    "Hold": analyst.get("hold"),
+                    "Sell": analyst.get("sell"),
+                    "Analysts": targets.get("analyst_count") or analyst.get("total_analysts"),
+                    "Low target": targets.get("low"),
+                    "Mean target": targets.get("mean"),
+                    "High target": targets.get("high"),
+                    "Source": targets.get("source") or "N/A",
+                })
+            sub_overview, sub_consensus, sub_catalysts, sub_sources = st.tabs(["Overview", "Consensus & Targets", "Catalysts & Risk", "Sources"])
+            with sub_overview:
+                st.dataframe(pd.DataFrame(overview_rows), hide_index=True, width="stretch")
+            with sub_consensus:
+                st.dataframe(pd.DataFrame(consensus_rows), hide_index=True, width="stretch")
+            with sub_catalysts:
+                for item in candidates:
+                    with st.expander(f"{item.get('ticker')} — {item.get('action') or item.get('hold_tier')}"):
+                        st.write(f"**Catalyst:** {item.get('catalyst_source') or 'N/A'}")
+                        st.write(f"**Verified:** {item.get('catalyst_verified')} | **Manual review:** {item.get('manual_review_required')}")
+                        st.write(f"**Risk/invalidation:** {item.get('risk_or_invalidation') or 'N/A'}")
+                        news = item.get("news") or []
+                        if news:
+                            st.markdown("**Recent news**")
+                            for article in news:
+                                st.write(f"- {article.get('published_at', '')} — {article.get('title', '')} ({article.get('publisher', '')})")
+            with sub_sources:
+                st.write("Active enrichment sources:", ", ".join(buy_data.get("sources_active") or ["none reported"]))
+                for item in candidates:
+                    st.markdown(f"**{item.get('ticker')}**")
+                    for note in item.get("source_notes") or []:
+                        st.write(f"- {note}")
+                degradation = buy_data.get("degradation") or []
+                if degradation:
+                    st.warning("Some source calls degraded.")
+                    st.dataframe(pd.DataFrame(degradation), hide_index=True, width="stretch")
 
 with tab_run:
     st.subheader("Generate Report")

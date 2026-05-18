@@ -4,6 +4,22 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.13.7] — 2026-05-18
+
+### Added — Source-backed Buy Signals
+- **Buy Signals tab** added to Desktop, Streamlit, and Textual for BUY/ADD and add-on-dip candidates from the latest recommendation log.
+- **Consensus and target snapshots** show Finnhub analyst buy/hold/sell consensus and Yahoo/yfinance analyst target fields when available.
+- **Catalyst and risk detail** separates catalyst source, manual-review flag, recent news, technicals, insider activity, earnings, quality warnings, and invalidation notes.
+- **Source transparency** lists the data feed behind each signal so the UI does not present unsourced visual claims.
+
+### Changed
+- Market data now stores Yahoo/yfinance analyst target fields and uses cache version 5 for the expanded schema.
+
+### Tests
+- Full local suite: 186 tests passing.
+
+---
+
 ## [1.13.6] — 2026-05-18
 
 ### Added — API health and key management

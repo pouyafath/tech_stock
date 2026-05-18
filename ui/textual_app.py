@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT))
 from src.ui_support import (  # noqa: E402
     EDITABLE_JSON_FILES,
     apply_available_update,
+    buy_signal_insights,
     check_connectivity,
     check_update_available,
     current_app_version,
@@ -125,7 +126,7 @@ class TechStockTUI(App):
         margin-top: 1;
     }
 
-    #dashboard_log, #connectivity_log, #backtest_log, #update_log {
+    #dashboard_log, #connectivity_log, #buy_signals_log, #backtest_log, #update_log {
         height: 1fr;
         border: solid $primary;
         padding: 1;
@@ -164,6 +165,9 @@ class TechStockTUI(App):
                     yield Button("Check connectivity", id="check_connectivity")
                 yield RichLog(id="dashboard_log", wrap=True, highlight=True)
                 yield RichLog(id="connectivity_log", wrap=True, highlight=True)
+            with TabPane("Buy Signals", id="buy_signals"):
+                yield Button("Refresh buy signals", id="refresh_buy_signals")
+                yield RichLog(id="buy_signals_log", wrap=True, highlight=True)
             with TabPane("Run Report", id="run"):
                 with Horizontal(classes="form-row"):
                     with Vertical(classes="form-col"):
@@ -226,6 +230,7 @@ class TechStockTUI(App):
     def on_mount(self) -> None:
         self.latest_update_info = None
         self._load_dashboard()
+        self._show_buy_signals_placeholder()
         self._load_today_report()
         self._load_history_report()
         # Backtest is NOT loaded on mount — it fetches live price data from
@@ -244,6 +249,8 @@ class TechStockTUI(App):
             self._load_dashboard()
         elif button_id == "check_connectivity":
             await self._check_connectivity()
+        elif button_id == "refresh_buy_signals":
+            self.run_worker(self._load_buy_signals_async(), exclusive=True)
         elif button_id == "refresh_today":
             self._load_today_report()
         elif button_id == "refresh_history":
@@ -416,6 +423,41 @@ class TechStockTUI(App):
         checks = await asyncio.to_thread(check_connectivity)
         log.clear()
         self._write_rows_table(log, "Connectivity", checks, ["source", "ok", "latency_ms", "detail"])
+
+    def _show_buy_signals_placeholder(self) -> None:
+        log = self.query_one("#buy_signals_log", RichLog)
+        log.clear()
+        log.write("Press Refresh buy signals to load source-backed BUY/ADD and add-on-dip candidates.")
+
+    async def _load_buy_signals_async(self) -> None:
+        log = self.query_one("#buy_signals_log", RichLog)
+        log.clear()
+        log.write("Refreshing buy signals...")
+        data = await asyncio.to_thread(buy_signal_insights)
+        log.clear()
+        if data.get("error"):
+            log.write(data["error"])
+            return
+        log.write(f"Latest log: {data.get('session_file')} | fetched {data.get('fetched_at')}")
+        rows = []
+        for item in data.get("candidates") or []:
+            targets = item.get("price_targets") or {}
+            analyst = item.get("analyst_consensus") or {}
+            rows.append({
+                "ticker": item.get("ticker"),
+                "action": item.get("action") or item.get("hold_tier"),
+                "conviction": item.get("conviction"),
+                "current_price": item.get("current_price"),
+                "consensus": analyst.get("consensus_label"),
+                "mean_upside_pct": targets.get("mean_upside_pct"),
+                "warnings": ", ".join(w.get("code", "") for w in item.get("quality_warnings") or []),
+            })
+        self._write_rows_table(log, "Buy Signal Overview", rows, ["ticker", "action", "conviction", "current_price", "consensus", "mean_upside_pct", "warnings"])
+        for item in data.get("candidates") or []:
+            log.write(f"\n{item.get('ticker')} — catalyst: {item.get('catalyst_source') or 'N/A'}")
+            log.write(f"Risk/invalidation: {item.get('risk_or_invalidation') or 'N/A'}")
+            for note in item.get("source_notes") or []:
+                log.write(f"  source: {note}")
 
     def _write_rows_table(self, log: RichLog, title: str, rows: list[dict], columns: list[str]) -> None:
         if not rows:

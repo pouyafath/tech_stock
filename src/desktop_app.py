@@ -31,6 +31,7 @@ from src.ui_support import (
     api_key_inventory,
     app_data_locations,
     apply_available_update,
+    buy_signal_insights,
     check_connectivity,
     check_update_available,
     current_app_version,
@@ -115,6 +116,7 @@ class DesktopApp(tk.Tk):
         self.after(350, self.confirm_detected_csv_paths)
         if os.environ.get("TECH_STOCK_SKIP_UPDATE_CHECK") != "1":
             self.after(1200, lambda: self.start_update_check(startup=True))
+        self.after(1600, self.start_buy_signal_refresh)
 
     def _configure_style(self) -> None:
         style = ttk.Style(self)
@@ -156,6 +158,7 @@ class DesktopApp(tk.Tk):
         self.tabs.pack(fill="both", expand=True, padx=18, pady=(0, 18))
 
         self.dashboard_tab = ttk.Frame(self.tabs)
+        self.buy_signals_tab = ttk.Frame(self.tabs)
         self.run_tab = ttk.Frame(self.tabs)
         self.report_tab = ttk.Frame(self.tabs)
         self.history_tab = ttk.Frame(self.tabs)
@@ -164,6 +167,7 @@ class DesktopApp(tk.Tk):
         self.update_tab = ttk.Frame(self.tabs)
 
         self.tabs.add(self.dashboard_tab, text="Dashboard")
+        self.tabs.add(self.buy_signals_tab, text="Buy Signals")
         self.tabs.add(self.run_tab, text="Run Report")
         self.tabs.add(self.report_tab, text="Report Viewer")
         self.tabs.add(self.history_tab, text="History")
@@ -172,6 +176,7 @@ class DesktopApp(tk.Tk):
         self.tabs.add(self.update_tab, text="Updates")
 
         self._build_dashboard_tab()
+        self._build_buy_signals_tab()
         self._build_run_tab()
         self._build_report_tab()
         self._build_history_tab()
@@ -298,6 +303,43 @@ class DesktopApp(tk.Tk):
         drift_panel, signal_text_body = self._dashboard_panel(lower, "Drift, Hedges & Market Signals")
         drift_panel.pack(side="left", fill="both", expand=True, padx=(8, 0))
         self.signal_text = self._readonly_text(signal_text_body, height=11)
+
+    def _build_buy_signals_tab(self) -> None:
+        top = ttk.Frame(self.buy_signals_tab)
+        top.pack(fill="x", padx=16, pady=16)
+        self.buy_signal_button = ttk.Button(top, text="Refresh Buy Signals", command=self.start_buy_signal_refresh)
+        self.buy_signal_button.pack(side="left")
+        self.buy_signal_status = tk.StringVar(value="Uses latest report plus refreshed source data.")
+        ttk.Label(top, textvariable=self.buy_signal_status, style="Muted.TLabel").pack(side="left", padx=12)
+
+        self.buy_signal_tabs = ttk.Notebook(self.buy_signals_tab)
+        self.buy_signal_tabs.pack(fill="both", expand=True, padx=16, pady=(0, 16))
+
+        overview = ttk.Frame(self.buy_signal_tabs)
+        consensus = ttk.Frame(self.buy_signal_tabs)
+        catalysts = ttk.Frame(self.buy_signal_tabs)
+        sources = ttk.Frame(self.buy_signal_tabs)
+        self.buy_signal_tabs.add(overview, text="Overview")
+        self.buy_signal_tabs.add(consensus, text="Consensus & Targets")
+        self.buy_signal_tabs.add(catalysts, text="Catalysts & Risk")
+        self.buy_signal_tabs.add(sources, text="Sources")
+
+        self.buy_overview_tree = self._make_tree(
+            overview,
+            ["ticker", "action", "conviction", "amount", "price", "consensus", "mean_upside", "warnings"],
+            [90, 90, 90, 120, 110, 150, 120, 360],
+        )
+        self.buy_overview_tree.pack(fill="both", expand=True)
+
+        self.buy_consensus_tree = self._make_tree(
+            consensus,
+            ["ticker", "buy", "hold", "sell", "analysts", "low", "mean", "high", "mean_upside", "source"],
+            [80, 80, 80, 80, 90, 100, 100, 100, 120, 280],
+        )
+        self.buy_consensus_tree.pack(fill="both", expand=True)
+
+        self.buy_catalyst_text = self._readonly_text(catalysts, height=24)
+        self.buy_sources_text = self._readonly_text(sources, height=24)
 
     def _build_run_tab(self) -> None:
         defaults = find_default_csvs()
@@ -1028,6 +1070,8 @@ class DesktopApp(tk.Tk):
                     self._report_run_done(payload)
                 elif kind == "health_done":
                     self._connectivity_done(payload)
+                elif kind == "buy_signals_done":
+                    self._buy_signals_done(payload)
                 elif kind == "update_check_done":
                     self._update_check_done(payload)
                 elif kind == "update_apply_done":
@@ -1056,6 +1100,139 @@ class DesktopApp(tk.Tk):
             f"CSV: {relative_to_root(result.csv_path)}\n"
             f"JSON: {relative_to_root(result.log_path)}",
         )
+        self.start_buy_signal_refresh()
+
+    def start_buy_signal_refresh(self) -> None:
+        if not hasattr(self, "buy_signal_button"):
+            return
+        self.buy_signal_button.configure(state="disabled")
+        self.buy_signal_status.set("Refreshing buy signals from source data...")
+
+        def worker() -> None:
+            self.progress_queue.put(("buy_signals_done", buy_signal_insights()))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _buy_signals_done(self, payload: dict[str, Any]) -> None:
+        self.buy_signal_button.configure(state="normal")
+        if payload.get("error"):
+            self.buy_signal_status.set(payload["error"])
+            self._replace_tree_rows(self.buy_overview_tree, [])
+            self._replace_tree_rows(self.buy_consensus_tree, [])
+            self._set_readonly_text(self.buy_catalyst_text, payload["error"])
+            self._set_readonly_text(self.buy_sources_text, payload["error"])
+            return
+        candidates = payload.get("candidates") or []
+        self.buy_signal_status.set(
+            f"{len(candidates)} candidates from {payload.get('session_file', 'latest log')} | fetched {payload.get('fetched_at', '')}"
+        )
+        overview_rows = []
+        consensus_rows = []
+        catalyst_lines = []
+        source_lines = [
+            f"Session log: {payload.get('session_file', '')}",
+            f"Fetched at: {payload.get('fetched_at', '')}",
+            "",
+            "Active enrichment sources:",
+            ", ".join(payload.get("sources_active") or ["none reported"]),
+            "",
+        ]
+        for item in candidates:
+            ticker = item.get("ticker") or ""
+            targets = item.get("price_targets") or {}
+            analyst = item.get("analyst_consensus") or {}
+            warnings = item.get("quality_warnings") or []
+            amount = item.get("action_amount")
+            amount_currency = item.get("action_amount_currency") or "USD"
+            amount_text = f"{self._fmt_money(amount)} {amount_currency}" if amount else ""
+            overview_rows.append([
+                ticker,
+                item.get("action") or item.get("hold_tier") or "",
+                item.get("conviction"),
+                amount_text,
+                self._fmt_price(item.get("current_price")),
+                analyst.get("consensus_label") or "N/A",
+                self._fmt_pct(targets.get("mean_upside_pct"), signed=True),
+                "; ".join(w.get("code", "") for w in warnings[:3]) or "none",
+            ])
+            consensus_rows.append([
+                ticker,
+                analyst.get("buy", "N/A"),
+                analyst.get("hold", "N/A"),
+                analyst.get("sell", "N/A"),
+                targets.get("analyst_count") or analyst.get("total_analysts") or "N/A",
+                self._fmt_price(targets.get("low")),
+                self._fmt_price(targets.get("mean")),
+                self._fmt_price(targets.get("high")),
+                self._fmt_pct(targets.get("mean_upside_pct"), signed=True),
+                targets.get("source") or "N/A",
+            ])
+            catalyst_lines.extend(self._format_buy_signal_detail(item))
+            source_lines.append(f"{ticker}:")
+            for note in item.get("source_notes") or []:
+                source_lines.append(f"  - {note}")
+        degradation = payload.get("degradation") or []
+        if degradation:
+            source_lines.extend(["", "Data coverage warnings:"])
+            for row in degradation[:12]:
+                ticker = f"{row.get('ticker')}: " if row.get("ticker") else ""
+                source_lines.append(f"  - {ticker}{row.get('source')}.{row.get('operation')} unavailable ({row.get('error')})")
+
+        self._replace_tree_rows(self.buy_overview_tree, overview_rows, tag_index=1)
+        self._replace_tree_rows(self.buy_consensus_tree, consensus_rows)
+        self._set_readonly_text(self.buy_catalyst_text, "\n".join(catalyst_lines) or "No buy signal candidates found.")
+        self._set_readonly_text(self.buy_sources_text, "\n".join(source_lines))
+
+    def _format_buy_signal_detail(self, item: dict[str, Any]) -> list[str]:
+        ticker = item.get("ticker") or ""
+        lines = [f"{ticker} — {item.get('action') or item.get('hold_tier') or ''} | conviction {item.get('conviction')}", "-" * 78]
+        catalyst = item.get("catalyst_source") or "No catalyst source recorded in latest report."
+        lines.append(f"Catalyst: {catalyst}")
+        lines.append(f"Verified: {item.get('catalyst_verified')} | Manual review: {item.get('manual_review_required')}")
+        technical = item.get("technical") or {}
+        lines.append(
+            "Technical: "
+            f"RSI {technical.get('rsi_14', 'N/A')} | "
+            f"MACD hist {technical.get('macd_hist', 'N/A')} | "
+            f"ATR {self._fmt_pct(technical.get('atr_pct_of_price'))} | "
+            f"20d vol {self._fmt_pct(technical.get('volatility_20d_pct'))}"
+        )
+        insider = item.get("insider_activity") or {}
+        if insider:
+            lines.append(
+                "Insider activity: "
+                f"{insider.get('signal', 'N/A')} | buys {insider.get('buys', 'N/A')} / "
+                f"sells {insider.get('sells', 'N/A')} | net {insider.get('net_shares', 'N/A')}"
+            )
+        earnings = item.get("upcoming_earnings") or {}
+        if earnings.get("date"):
+            lines.append(f"Next earnings: {earnings.get('date')} {earnings.get('hour') or ''} | EPS est {earnings.get('eps_estimate')}")
+        rating_changes = item.get("latest_rating_changes") or []
+        if rating_changes:
+            lines.append("Recent rating changes:")
+            for row in rating_changes[:4]:
+                lines.append(
+                    f"  - {str(row.get('date') or '')[:10]} {row.get('firm') or 'unknown firm'}: "
+                    f"{row.get('from_grade') or 'N/A'} -> {row.get('to_grade') or 'N/A'} ({row.get('action') or 'rating change'})"
+                )
+        news = item.get("news") or []
+        if news:
+            summary = item.get("news_summary") or {}
+            lines.append(
+                f"Recent news sentiment: avg {summary.get('avg_sentiment', 0):+.2f}; "
+                f"{summary.get('bullish_count', 0)} bullish / {summary.get('neutral_count', 0)} neutral / "
+                f"{summary.get('bearish_count', 0)} bearish"
+            )
+            for article in news[:3]:
+                lines.append(f"  - {article.get('published_at', '')} {article.get('title', '')} ({article.get('publisher', '')})")
+        warnings = item.get("quality_warnings") or []
+        if warnings:
+            lines.append("Quality warnings:")
+            for warning in warnings[:4]:
+                lines.append(f"  - {warning.get('severity', '').upper()} {warning.get('code')}: {warning.get('action_required') or warning.get('message')}")
+        lines.append(f"Risk/invalidation: {item.get('risk_or_invalidation') or 'N/A'}")
+        lines.append("")
+        return lines
 
     def _fmt_money(self, value: Any) -> str:
         try:
