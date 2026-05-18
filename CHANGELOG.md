@@ -4,10 +4,22 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.13.4] — 2026-05-18
+
+### Fixed — Desktop report search crash
+- **Search typing no longer runs live whole-report highlighting** on every keypress, preventing packaged Tk crashes when entering common letters.
+- **Find button added** so users can type a full word first, then search with **Find**, `Enter`, **Next**, or **Previous**.
+- **Match highlight cap** limits very broad searches to the first 500 visible matches and marks the count with `+`.
+
+### Tests
+- Full local suite: 176 tests passing.
+
+---
+
 ## [1.13.3] — 2026-05-18
 
 ### Added — Desktop report search
-- **Report Viewer search** adds a native search field with highlighted matches, current-match focus, match counts, Next/Previous navigation, and Clear.
+- **Report Viewer search** adds a native search field with highlighted matches, current-match focus, match counts, Find, Next/Previous navigation, and Clear.
 - **History report search** adds the same search controls to the selected historical report preview.
 - **Keyboard shortcut** supports `Cmd+F` on macOS and `Ctrl+F` on Windows/Linux to focus report search.
 

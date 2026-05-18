@@ -48,6 +48,9 @@ from src.ui_support import (
 )
 
 
+SEARCH_MATCH_LIMIT = 500
+
+
 class DesktopApp(tk.Tk):
     """Native desktop dashboard for users who do not want a browser UI."""
 
@@ -514,6 +517,7 @@ class DesktopApp(tk.Tk):
             "matches": [],
             "current": -1,
             "last_query": "",
+            "truncated": False,
             "get_widget": get_widget,
         }
         self.search_state[key] = state
@@ -524,14 +528,15 @@ class DesktopApp(tk.Tk):
         entry = ttk.Entry(frame, textvariable=query, width=24)
         entry.pack(side="left")
         state["entry"] = entry
-        ttk.Button(frame, text="Previous", command=lambda: self._run_search(key, direction=-1)).pack(side="left", padx=(6, 0))
+        ttk.Button(frame, text="Find", command=lambda: self._run_search(key, direction=1)).pack(side="left", padx=(6, 0))
+        ttk.Button(frame, text="Previous", command=lambda: self._run_search(key, direction=-1)).pack(side="left", padx=(4, 0))
         ttk.Button(frame, text="Next", command=lambda: self._run_search(key, direction=1)).pack(side="left", padx=(4, 0))
         ttk.Button(frame, text="Clear", command=lambda: self._clear_search_highlights(key)).pack(side="left", padx=(4, 0))
         ttk.Label(frame, textvariable=status, style="Muted.TLabel").pack(side="left", padx=(8, 0))
 
         entry.bind("<Return>", lambda _event: self._entry_search(key, direction=1))
         entry.bind("<Shift-Return>", lambda _event: self._entry_search(key, direction=-1))
-        query.trace_add("write", lambda *_args: self._refresh_search_after_text_change(key))
+        query.trace_add("write", lambda *_args: self._mark_search_query_dirty(key))
 
     def _entry_search(self, key: str, *, direction: int) -> str:
         self._run_search(key, direction=direction)
@@ -567,15 +572,20 @@ class DesktopApp(tk.Tk):
         state = self.search_state.get(key)
         if not state:
             return
-        state["matches"] = []
-        state["current"] = -1
-        state["last_query"] = ""
+        self._reset_search_state(key)
         if state["query"].get().strip():
-            self._run_search(key, direction=1)
+            state["status"].set("Press Enter")
         else:
-            self._clear_search_highlights(key, clear_query=False)
+            state["status"].set("Search")
 
-    def _clear_search_highlights(self, key: str, *, clear_query: bool = True) -> None:
+    def _mark_search_query_dirty(self, key: str) -> None:
+        state = self.search_state.get(key)
+        if not state:
+            return
+        self._reset_search_state(key)
+        state["status"].set("Press Enter" if state["query"].get().strip() else "Search")
+
+    def _reset_search_state(self, key: str) -> None:
         state = self.search_state.get(key)
         if not state:
             return
@@ -586,6 +596,13 @@ class DesktopApp(tk.Tk):
         state["matches"] = []
         state["current"] = -1
         state["last_query"] = ""
+        state["truncated"] = False
+
+    def _clear_search_highlights(self, key: str, *, clear_query: bool = True) -> None:
+        state = self.search_state.get(key)
+        if not state:
+            return
+        self._reset_search_state(key)
         if clear_query and state["query"].get():
             state["query"].set("")
         state["status"].set("Search")
@@ -620,6 +637,7 @@ class DesktopApp(tk.Tk):
         widget.tag_remove("search_current", "1.0", "end")
         matches: list[tuple[str, str]] = []
         start = "1.0"
+        truncated = False
         while True:
             index = widget.search(query, start, nocase=True, stopindex="end")
             if not index:
@@ -628,12 +646,17 @@ class DesktopApp(tk.Tk):
             matches.append((index, end))
             widget.tag_add("search_match", index, end)
             start = end
+            if len(matches) >= SEARCH_MATCH_LIMIT:
+                truncated = True
+                break
         widget.tag_raise("search_match")
         widget.tag_raise("search_current")
         state["matches"] = matches
         state["current"] = -1
         state["last_query"] = query
-        state["status"].set(f"0/{len(matches)}" if matches else "0 matches")
+        state["truncated"] = truncated
+        suffix = "+" if truncated else ""
+        state["status"].set(f"0/{len(matches)}{suffix}" if matches else "0 matches")
 
     def _select_search_match(self, key: str, match_index: int) -> None:
         state = self.search_state.get(key)
@@ -649,7 +672,8 @@ class DesktopApp(tk.Tk):
         widget.tag_raise("search_current")
         widget.see(start)
         state["current"] = match_index
-        state["status"].set(f"{match_index + 1}/{len(matches)}")
+        suffix = "+" if state.get("truncated") else ""
+        state["status"].set(f"{match_index + 1}/{len(matches)}{suffix}")
 
     def _configure_markdown_tags(self, widget: tk.Text) -> None:
         base_font = tkfont.Font(family="Helvetica", size=13)

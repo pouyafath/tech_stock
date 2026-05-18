@@ -47,11 +47,21 @@
 
 ---
 
+## ✨ What's New in v1.13.4 (May 18, 2026)
+
+**Desktop search crash fix.**
+
+- **Safer report search** — typing in the Desktop App search field no longer triggers an immediate whole-report highlight pass on every keypress.
+- **Explicit find action** — type a word, then press `Enter` or click **Find**, **Next**, or **Previous** to search.
+- **Common-letter guardrail** — very broad searches are capped in the viewer so one-letter terms cannot overload the packaged app.
+
+Current local suite: `pytest -q` passes with 176 tests.
+
 ## ✨ What's New in v1.13.3 (May 18, 2026)
 
 **Searchable embedded reports.**
 
-- **Report Viewer search** — the Desktop App now has a native search box with highlighted matches, current-match focus, match counts, Next/Previous navigation, and Clear.
+- **Report Viewer search** — the Desktop App now has a native search box with highlighted matches, current-match focus, match counts, Find, Next/Previous navigation, and Clear.
 - **History search** — selected historical reports use the same searchable markdown viewer.
 - **Keyboard shortcut** — press `Cmd+F` on macOS or `Ctrl+F` on Windows/Linux to jump to the report search field.
 
