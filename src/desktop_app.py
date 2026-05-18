@@ -51,6 +51,28 @@ from src.ui_support import (
 SEARCH_MATCH_LIMIT = 500
 
 
+def find_search_offsets(text: str, query: str, limit: int = SEARCH_MATCH_LIMIT) -> tuple[list[tuple[int, int]], bool]:
+    """Return non-overlapping case-insensitive match offsets without using Tk's text search."""
+    if not query:
+        return [], False
+    haystack = text.lower()
+    needle = query.lower()
+    matches: list[tuple[int, int]] = []
+    start = 0
+    truncated = False
+    while True:
+        index = haystack.find(needle, start)
+        if index == -1:
+            break
+        end = index + len(query)
+        matches.append((index, end))
+        start = end
+        if len(matches) >= limit:
+            truncated = haystack.find(needle, start) != -1
+            break
+    return matches, truncated
+
+
 class DesktopApp(tk.Tk):
     """Native desktop dashboard for users who do not want a browser UI."""
 
@@ -635,20 +657,14 @@ class DesktopApp(tk.Tk):
             return
         widget.tag_remove("search_match", "1.0", "end")
         widget.tag_remove("search_current", "1.0", "end")
+        text = widget.get("1.0", "end-1c")
+        offsets, truncated = find_search_offsets(text, query)
         matches: list[tuple[str, str]] = []
-        start = "1.0"
-        truncated = False
-        while True:
-            index = widget.search(query, start, nocase=True, stopindex="end")
-            if not index:
-                break
-            end = f"{index}+{len(query)}c"
+        for start_offset, end_offset in offsets:
+            index = f"1.0+{start_offset}c"
+            end = f"1.0+{end_offset}c"
             matches.append((index, end))
             widget.tag_add("search_match", index, end)
-            start = end
-            if len(matches) >= SEARCH_MATCH_LIMIT:
-                truncated = True
-                break
         widget.tag_raise("search_match")
         widget.tag_raise("search_current")
         state["matches"] = matches

@@ -47,6 +47,16 @@
 
 ---
 
+## ✨ What's New in v1.13.5 (May 18, 2026)
+
+**Native Tk search crash fixed.**
+
+- **Python-backed report search** — Desktop App search no longer uses Tk's native `Text.search`, which could crash packaged macOS builds.
+- **Stable Find flow** — searching for normal ticker text such as `amd` now uses Python offsets and then highlights the rendered report.
+- **Focused regression tests** — added tests for case-insensitive search, no-match search, and broad-match caps.
+
+Current local suite: `pytest -q` passes with 179 tests.
+
 ## ✨ What's New in v1.13.4 (May 18, 2026)
 
 **Desktop search crash fix.**

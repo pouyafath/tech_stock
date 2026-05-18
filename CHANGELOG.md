@@ -4,6 +4,18 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.13.5] — 2026-05-18
+
+### Fixed — Native Tk search crash
+- **Desktop report search no longer calls Tk `Text.search`**, avoiding the macOS packaged-app crash path seen in `Tcl_UtfToLower` / `TextSearchAddNextLine`.
+- **Search now computes match offsets in Python** and uses Tk only to highlight the resulting ranges.
+
+### Tests
+- Added focused desktop search offset tests.
+- Full local suite: 179 tests passing.
+
+---
+
 ## [1.13.4] — 2026-05-18
 
 ### Fixed — Desktop report search crash
