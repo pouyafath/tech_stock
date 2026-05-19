@@ -2,6 +2,7 @@ from pathlib import Path
 import json
 
 from src import ui_support
+from src.report_pipeline import ReportPipeline
 
 
 def test_run_report_from_ui_calls_canonical_runner(monkeypatch, tmp_path, capsys):
@@ -19,7 +20,7 @@ def test_run_report_from_ui_calls_canonical_runner(monkeypatch, tmp_path, capsys
         print("runner output")
         return {"report_path": report, "csv_path": csv, "log_path": log}
 
-    monkeypatch.setattr(ui_support, "run_cli_report", fake_run)
+    monkeypatch.setattr(ui_support, "ReportPipeline", lambda: ReportPipeline(runner=fake_run))
 
     result = ui_support.run_report_from_ui(
         session_type="morning",
@@ -44,7 +45,7 @@ def test_run_report_from_ui_streams_progress(monkeypatch, tmp_path):
         print("phase two")
         return {"report_path": report, "csv_path": csv, "log_path": log}
 
-    monkeypatch.setattr(ui_support, "run_cli_report", fake_run)
+    monkeypatch.setattr(ui_support, "ReportPipeline", lambda: ReportPipeline(runner=fake_run))
 
     result = ui_support.run_report_from_ui(
         session_type="morning",

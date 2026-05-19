@@ -27,12 +27,12 @@ if str(ROOT) not in sys.path:
 from src.ui_support import (
     EDITABLE_JSON_FILES,
     API_KEY_FIELDS,
+    api_health_view,
     api_key_locations,
     api_key_inventory,
     app_data_locations,
     apply_available_update,
-    buy_signal_insights,
-    check_connectivity,
+    buy_signal_view,
     check_update_available,
     current_app_version,
     default_run_settings,
@@ -309,6 +309,22 @@ class DesktopApp(tk.Tk):
         top.pack(fill="x", padx=16, pady=16)
         self.buy_signal_button = ttk.Button(top, text="Refresh Buy Signals", command=self.start_buy_signal_refresh)
         self.buy_signal_button.pack(side="left")
+        self.buy_action_filter = tk.StringVar(value="All actions")
+        self.buy_readiness_filter = tk.StringVar(value="All readiness")
+        ttk.Combobox(
+            top,
+            textvariable=self.buy_action_filter,
+            values=["All actions", "BUY/ADD", "add_on_dip"],
+            state="readonly",
+            width=13,
+        ).pack(side="left", padx=(10, 0))
+        ttk.Combobox(
+            top,
+            textvariable=self.buy_readiness_filter,
+            values=["All readiness", "Trade Ready", "Review First", "Blocked"],
+            state="readonly",
+            width=15,
+        ).pack(side="left", padx=(8, 0))
         self.buy_signal_status = tk.StringVar(value="Uses latest report plus refreshed source data.")
         ttk.Label(top, textvariable=self.buy_signal_status, style="Muted.TLabel").pack(side="left", padx=12)
 
@@ -326,15 +342,15 @@ class DesktopApp(tk.Tk):
 
         self.buy_overview_tree = self._make_tree(
             overview,
-            ["ticker", "action", "conviction", "amount", "price", "consensus", "mean_upside", "warnings"],
-            [90, 90, 90, 120, 110, 150, 120, 360],
+            ["readiness", "ticker", "action", "conviction", "amount", "price", "consensus", "mean_upside", "catalyst", "warnings"],
+            [120, 80, 90, 90, 120, 110, 140, 120, 260, 260],
         )
         self.buy_overview_tree.pack(fill="both", expand=True)
 
         self.buy_consensus_tree = self._make_tree(
             consensus,
-            ["ticker", "buy", "hold", "sell", "analysts", "low", "mean", "high", "mean_upside", "source"],
-            [80, 80, 80, 80, 90, 100, 100, 100, 120, 280],
+            ["ticker", "readiness", "buy", "hold", "sell", "analysts", "low", "mean", "high", "mean_upside", "source"],
+            [80, 120, 70, 70, 70, 90, 100, 100, 100, 120, 260],
         )
         self.buy_consensus_tree.pack(fill="both", expand=True)
 
@@ -966,6 +982,9 @@ class DesktopApp(tk.Tk):
         tree.tag_configure("HIGH", foreground=self.danger)
         tree.tag_configure("MEDIUM", foreground=self.warning)
         tree.tag_configure("LOW", foreground=self.muted)
+        tree.tag_configure("TRADE READY", foreground=self.good)
+        tree.tag_configure("REVIEW FIRST", foreground=self.warning)
+        tree.tag_configure("BLOCKED", foreground=self.danger)
         tree.pack(fill="both", expand=True)
         return tree
 
@@ -1107,11 +1126,31 @@ class DesktopApp(tk.Tk):
             return
         self.buy_signal_button.configure(state="disabled")
         self.buy_signal_status.set("Refreshing buy signals from source data...")
+        action_filter = self._buy_action_filter_value()
+        readiness_filter = self._buy_readiness_filter_value()
 
         def worker() -> None:
-            self.progress_queue.put(("buy_signals_done", buy_signal_insights()))
+            self.progress_queue.put((
+                "buy_signals_done",
+                buy_signal_view(action_filter=action_filter, readiness_filter=readiness_filter),
+            ))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _buy_action_filter_value(self) -> str:
+        value = getattr(self, "buy_action_filter", tk.StringVar(value="All actions")).get()
+        return {
+            "BUY/ADD": "buy_add",
+            "add_on_dip": "add_on_dip",
+        }.get(value, "all")
+
+    def _buy_readiness_filter_value(self) -> str:
+        value = getattr(self, "buy_readiness_filter", tk.StringVar(value="All readiness")).get()
+        return {
+            "Trade Ready": "TRADE_READY",
+            "Review First": "REVIEW_FIRST",
+            "Blocked": "BLOCKED",
+        }.get(value, "all")
 
     def _buy_signals_done(self, payload: dict[str, Any]) -> None:
         self.buy_signal_button.configure(state="normal")
@@ -1122,9 +1161,12 @@ class DesktopApp(tk.Tk):
             self._set_readonly_text(self.buy_catalyst_text, payload["error"])
             self._set_readonly_text(self.buy_sources_text, payload["error"])
             return
-        candidates = payload.get("candidates") or []
+        candidates = payload.get("cards") or payload.get("candidates") or []
+        counts = payload.get("counts") or {}
         self.buy_signal_status.set(
-            f"{len(candidates)} candidates from {payload.get('session_file', 'latest log')} | fetched {payload.get('fetched_at', '')}"
+            f"{len(candidates)} shown / {counts.get('total', len(candidates))} total "
+            f"({counts.get('TRADE_READY', 0)} ready, {counts.get('REVIEW_FIRST', 0)} review, {counts.get('BLOCKED', 0)} blocked) "
+            f"from {payload.get('session_file', 'latest log')}"
         )
         overview_rows = []
         consensus_rows = []
@@ -1141,11 +1183,13 @@ class DesktopApp(tk.Tk):
             ticker = item.get("ticker") or ""
             targets = item.get("price_targets") or {}
             analyst = item.get("analyst_consensus") or {}
+            readiness = item.get("readiness") or {}
             warnings = item.get("quality_warnings") or []
             amount = item.get("action_amount")
             amount_currency = item.get("action_amount_currency") or "USD"
             amount_text = f"{self._fmt_money(amount)} {amount_currency}" if amount else ""
             overview_rows.append([
+                readiness.get("label") or "N/A",
                 ticker,
                 item.get("action") or item.get("hold_tier") or "",
                 item.get("conviction"),
@@ -1153,10 +1197,12 @@ class DesktopApp(tk.Tk):
                 self._fmt_price(item.get("current_price")),
                 analyst.get("consensus_label") or "N/A",
                 self._fmt_pct(targets.get("mean_upside_pct"), signed=True),
+                self._trim_text(item.get("catalyst_source") or "N/A", 80),
                 "; ".join(w.get("code", "") for w in warnings[:3]) or "none",
             ])
             consensus_rows.append([
                 ticker,
+                readiness.get("label") or "N/A",
                 analyst.get("buy", "N/A"),
                 analyst.get("hold", "N/A"),
                 analyst.get("sell", "N/A"),
@@ -1178,7 +1224,7 @@ class DesktopApp(tk.Tk):
                 ticker = f"{row.get('ticker')}: " if row.get("ticker") else ""
                 source_lines.append(f"  - {ticker}{row.get('source')}.{row.get('operation')} unavailable ({row.get('error')})")
 
-        self._replace_tree_rows(self.buy_overview_tree, overview_rows, tag_index=1)
+        self._replace_tree_rows(self.buy_overview_tree, overview_rows, tag_index=0)
         self._replace_tree_rows(self.buy_consensus_tree, consensus_rows)
         self._set_readonly_text(self.buy_catalyst_text, "\n".join(catalyst_lines) or "No buy signal candidates found.")
         self._set_readonly_text(self.buy_sources_text, "\n".join(source_lines))
@@ -1186,9 +1232,13 @@ class DesktopApp(tk.Tk):
     def _format_buy_signal_detail(self, item: dict[str, Any]) -> list[str]:
         ticker = item.get("ticker") or ""
         lines = [f"{ticker} — {item.get('action') or item.get('hold_tier') or ''} | conviction {item.get('conviction')}", "-" * 78]
+        readiness = item.get("readiness") or {}
+        if readiness:
+            lines.append(f"Readiness: {readiness.get('label')} — {'; '.join(readiness.get('reasons') or [])}")
         catalyst = item.get("catalyst_source") or "No catalyst source recorded in latest report."
         lines.append(f"Catalyst: {catalyst}")
         lines.append(f"Verified: {item.get('catalyst_verified')} | Manual review: {item.get('manual_review_required')}")
+        lines.append(f"Quote: {self._fmt_price(item.get('current_price'))} | {item.get('quote_source') or 'unavailable'} | {item.get('quote_timestamp_utc') or 'missing timestamp'}")
         technical = item.get("technical") or {}
         lines.append(
             "Technical: "
@@ -1616,12 +1666,19 @@ class DesktopApp(tk.Tk):
         self._replace_tree_rows(self.health_tree, [])
 
         def worker() -> None:
-            self.progress_queue.put(("health_done", check_connectivity()))
+            self.progress_queue.put(("health_done", api_health_view()))
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _connectivity_done(self, rows: list[dict[str, Any]]) -> None:
-        self.health_status.set("Connectivity check complete.")
+    def _connectivity_done(self, payload: Any) -> None:
+        rows = payload.get("checks", []) if isinstance(payload, dict) else payload
+        if isinstance(payload, dict):
+            self.health_status.set(
+                f"Connectivity check complete. {payload.get('ok_count', 0)} OK / {payload.get('fail_count', 0)} unavailable. "
+                f"Storage: {payload.get('storage_mode', 'API_KEYS.txt / .env files')}"
+            )
+        else:
+            self.health_status.set("Connectivity check complete.")
         self._replace_tree_rows(
             self.health_tree,
             [[row.get("source"), row.get("ok"), row.get("latency_ms"), row.get("detail")] for row in rows],

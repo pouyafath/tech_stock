@@ -18,13 +18,13 @@ sys.path.insert(0, str(ROOT))
 
 from src.ui_support import (  # noqa: E402
     EDITABLE_JSON_FILES,
+    api_health_view,
     apply_available_update,
-    buy_signal_insights,
-    check_connectivity,
+    buy_signal_view,
     check_update_available,
     current_app_version,
     default_run_settings,
-    decision_journal_snapshot,
+    decision_journal_view,
     decision_scorecard_summary,
     discover_csv_files,
     find_default_csvs,
@@ -166,7 +166,18 @@ class TechStockTUI(App):
                 yield RichLog(id="dashboard_log", wrap=True, highlight=True)
                 yield RichLog(id="connectivity_log", wrap=True, highlight=True)
             with TabPane("Buy Signals", id="buy_signals"):
-                yield Button("Refresh buy signals", id="refresh_buy_signals")
+                with Horizontal(classes="form-row"):
+                    yield Button("Refresh buy signals", id="refresh_buy_signals")
+                    yield Select(
+                        [("All actions", "all"), ("BUY/ADD", "buy_add"), ("add_on_dip", "add_on_dip")],
+                        value="all",
+                        id="buy_action_filter",
+                    )
+                    yield Select(
+                        [("All readiness", "all"), ("Trade Ready", "TRADE_READY"), ("Review First", "REVIEW_FIRST"), ("Blocked", "BLOCKED")],
+                        value="all",
+                        id="buy_readiness_filter",
+                    )
                 yield RichLog(id="buy_signals_log", wrap=True, highlight=True)
             with TabPane("Run Report", id="run"):
                 with Horizontal(classes="form-row"):
@@ -407,7 +418,7 @@ class TechStockTUI(App):
         self._write_rows_table(log, "Quality Warnings", summary.get("quality_warnings") or [], ["severity", "code", "ticker", "message", "action_required"])
         self._write_rows_table(log, "Hedge Suggestions", summary.get("hedge_suggestions") or [], ["type", "instrument", "action", "risk_note"])
         self._write_rows_table(log, "Drift Vs Previous", self._flatten_drift(summary.get("drift") or []), ["ticker", "drift_type", "was", "now"])
-        journal = (decision_journal_snapshot().get("status") or {})
+        journal = (decision_journal_view().get("status") or {})
         journal_table = Table(title="Decision Journal")
         journal_table.add_column("Metric")
         journal_table.add_column("Value", justify="right")
@@ -420,9 +431,13 @@ class TechStockTUI(App):
         log = self.query_one("#connectivity_log", RichLog)
         log.clear()
         log.write("Checking connectivity...")
-        checks = await asyncio.to_thread(check_connectivity)
+        health = await asyncio.to_thread(api_health_view)
         log.clear()
-        self._write_rows_table(log, "Connectivity", checks, ["source", "ok", "latency_ms", "detail"])
+        log.write(
+            f"{health.get('ok_count', 0)} OK / {health.get('fail_count', 0)} unavailable | "
+            f"storage: {health.get('storage_mode')}"
+        )
+        self._write_rows_table(log, "Connectivity", health.get("checks") or [], ["source", "ok", "latency_ms", "detail"])
 
     def _show_buy_signals_placeholder(self) -> None:
         log = self.query_one("#buy_signals_log", RichLog)
@@ -433,28 +448,33 @@ class TechStockTUI(App):
         log = self.query_one("#buy_signals_log", RichLog)
         log.clear()
         log.write("Refreshing buy signals...")
-        data = await asyncio.to_thread(buy_signal_insights)
+        action_filter = self.query_one("#buy_action_filter", Select).value
+        readiness_filter = self.query_one("#buy_readiness_filter", Select).value
+        data = await asyncio.to_thread(
+            buy_signal_view,
+            action_filter=str(action_filter or "all"),
+            readiness_filter=str(readiness_filter or "all"),
+        )
         log.clear()
         if data.get("error"):
             log.write(data["error"])
             return
-        log.write(f"Latest log: {data.get('session_file')} | fetched {data.get('fetched_at')}")
-        rows = []
-        for item in data.get("candidates") or []:
-            targets = item.get("price_targets") or {}
-            analyst = item.get("analyst_consensus") or {}
-            rows.append({
-                "ticker": item.get("ticker"),
-                "action": item.get("action") or item.get("hold_tier"),
-                "conviction": item.get("conviction"),
-                "current_price": item.get("current_price"),
-                "consensus": analyst.get("consensus_label"),
-                "mean_upside_pct": targets.get("mean_upside_pct"),
-                "warnings": ", ".join(w.get("code", "") for w in item.get("quality_warnings") or []),
-            })
-        self._write_rows_table(log, "Buy Signal Overview", rows, ["ticker", "action", "conviction", "current_price", "consensus", "mean_upside_pct", "warnings"])
-        for item in data.get("candidates") or []:
-            log.write(f"\n{item.get('ticker')} — catalyst: {item.get('catalyst_source') or 'N/A'}")
+        counts = data.get("counts") or {}
+        log.write(
+            f"Latest log: {data.get('session_file')} | fetched {data.get('fetched_at')} | "
+            f"{counts.get('TRADE_READY', 0)} ready / {counts.get('REVIEW_FIRST', 0)} review / {counts.get('BLOCKED', 0)} blocked"
+        )
+        self._write_rows_table(
+            log,
+            "Buy Signal Overview",
+            data.get("overview_rows") or [],
+            ["readiness", "ticker", "action", "conviction", "price", "consensus", "mean_upside_pct", "warnings"],
+        )
+        for item in data.get("cards") or []:
+            readiness = item.get("readiness") or {}
+            log.write(f"\n{item.get('ticker')} — {readiness.get('label')} — catalyst: {item.get('catalyst_source') or 'N/A'}")
+            log.write(f"Readiness reasons: {'; '.join(readiness.get('reasons') or [])}")
+            log.write(f"Quote: {item.get('current_price')} | {item.get('quote_source') or 'unavailable'} | {item.get('quote_timestamp_utc') or 'missing timestamp'}")
             log.write(f"Risk/invalidation: {item.get('risk_or_invalidation') or 'N/A'}")
             for note in item.get("source_notes") or []:
                 log.write(f"  source: {note}")

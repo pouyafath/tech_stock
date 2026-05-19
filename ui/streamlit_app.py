@@ -18,14 +18,14 @@ sys.path.insert(0, str(ROOT))
 from src.ui_support import (  # noqa: E402
     EDITABLE_JSON_FILES,
     API_KEY_FIELDS,
+    api_health_view,
     api_key_inventory,
     apply_available_update,
-    buy_signal_insights,
-    check_connectivity,
+    buy_signal_view,
     check_update_available,
     current_app_version,
     default_run_settings,
-    decision_journal_snapshot,
+    decision_journal_view,
     decision_scorecard_summary,
     find_default_csvs,
     latest_log_summary,
@@ -238,8 +238,12 @@ with tab_dashboard:
     with st.expander("Connectivity Check"):
         if st.button("Check APIs and data sources"):
             with st.spinner("Checking connectivity..."):
-                checks = check_connectivity()
-            st.dataframe(pd.DataFrame(checks), hide_index=True, width="stretch")
+                health = api_health_view()
+            st.caption(
+                f"{health.get('ok_count', 0)} OK / {health.get('fail_count', 0)} unavailable | "
+                f"storage: {health.get('storage_mode')}"
+            )
+            st.dataframe(pd.DataFrame(health.get("checks") or []), hide_index=True, width="stretch")
 
     with st.expander("API Key Manager"):
         inventory = api_key_inventory()
@@ -276,9 +280,20 @@ with tab_dashboard:
 with tab_buy:
     st.subheader("Buy Signals")
     st.caption("Data-backed snapshots from the latest recommendation log plus refreshed yfinance/Yahoo, Finnhub, and quality-gate data.")
+    filter_col1, filter_col2 = st.columns(2)
+    with filter_col1:
+        action_filter_label = st.selectbox("Action filter", ["All actions", "BUY/ADD", "add_on_dip"])
+    with filter_col2:
+        readiness_filter_label = st.selectbox("Readiness filter", ["All readiness", "Trade Ready", "Review First", "Blocked"])
+    action_filter = {"BUY/ADD": "buy_add", "add_on_dip": "add_on_dip"}.get(action_filter_label, "all")
+    readiness_filter = {
+        "Trade Ready": "TRADE_READY",
+        "Review First": "REVIEW_FIRST",
+        "Blocked": "BLOCKED",
+    }.get(readiness_filter_label, "all")
     if st.button("Refresh Buy Signal Insights"):
         with st.spinner("Refreshing buy signals from source data..."):
-            st.session_state["buy_signal_insights"] = buy_signal_insights()
+            st.session_state["buy_signal_insights"] = buy_signal_view(action_filter=action_filter, readiness_filter=readiness_filter)
     buy_data = st.session_state.get("buy_signal_insights")
     if not buy_data:
         st.info("Click Refresh Buy Signal Insights to load the latest BUY/ADD and add-on-dip candidates.")
@@ -286,43 +301,33 @@ with tab_buy:
         st.error(buy_data["error"])
     else:
         st.caption(f"{buy_data.get('session_file')} | fetched {buy_data.get('fetched_at')}")
-        candidates = buy_data.get("candidates") or []
+        candidates = buy_data.get("cards") or buy_data.get("candidates") or []
         if not candidates:
             st.info("No buy signal candidates found in the latest recommendation log.")
         else:
-            overview_rows = []
-            consensus_rows = []
-            for item in candidates:
-                targets = item.get("price_targets") or {}
-                analyst = item.get("analyst_consensus") or {}
-                overview_rows.append({
-                    "Ticker": item.get("ticker"),
-                    "Action": item.get("action") or item.get("hold_tier"),
-                    "Conviction": item.get("conviction"),
-                    "Current": item.get("current_price"),
-                    "Consensus": analyst.get("consensus_label"),
-                    "Mean target upside %": targets.get("mean_upside_pct"),
-                    "Warnings": ", ".join(w.get("code", "") for w in item.get("quality_warnings") or []),
-                })
-                consensus_rows.append({
-                    "Ticker": item.get("ticker"),
-                    "Buy": analyst.get("buy"),
-                    "Hold": analyst.get("hold"),
-                    "Sell": analyst.get("sell"),
-                    "Analysts": targets.get("analyst_count") or analyst.get("total_analysts"),
-                    "Low target": targets.get("low"),
-                    "Mean target": targets.get("mean"),
-                    "High target": targets.get("high"),
-                    "Source": targets.get("source") or "N/A",
-                })
+            counts = buy_data.get("counts") or {}
+            c_ready, c_review, c_blocked, c_total = st.columns(4)
+            c_ready.metric("Trade Ready", counts.get("TRADE_READY", 0))
+            c_review.metric("Review First", counts.get("REVIEW_FIRST", 0))
+            c_blocked.metric("Blocked", counts.get("BLOCKED", 0))
+            c_total.metric("Total", counts.get("total", len(candidates)))
             sub_overview, sub_consensus, sub_catalysts, sub_sources = st.tabs(["Overview", "Consensus & Targets", "Catalysts & Risk", "Sources"])
             with sub_overview:
-                st.dataframe(pd.DataFrame(overview_rows), hide_index=True, width="stretch")
+                st.dataframe(pd.DataFrame(buy_data.get("overview_rows") or []), hide_index=True, width="stretch")
+                for item in candidates:
+                    readiness = item.get("readiness") or {}
+                    with st.container(border=True):
+                        st.markdown(f"### {item.get('ticker')} — {readiness.get('label', 'N/A')}")
+                        st.write(item.get("thesis") or "")
+                        st.caption("; ".join(readiness.get("reasons") or []))
             with sub_consensus:
-                st.dataframe(pd.DataFrame(consensus_rows), hide_index=True, width="stretch")
+                st.dataframe(pd.DataFrame(buy_data.get("consensus_rows") or []), hide_index=True, width="stretch")
             with sub_catalysts:
                 for item in candidates:
                     with st.expander(f"{item.get('ticker')} — {item.get('action') or item.get('hold_tier')}"):
+                        readiness = item.get("readiness") or {}
+                        st.write(f"**Readiness:** {readiness.get('label')} — {'; '.join(readiness.get('reasons') or [])}")
+                        st.write(f"**Quote:** {item.get('current_price')} | {item.get('quote_source') or 'unavailable'} | {item.get('quote_timestamp_utc') or 'missing timestamp'}")
                         st.write(f"**Catalyst:** {item.get('catalyst_source') or 'N/A'}")
                         st.write(f"**Verified:** {item.get('catalyst_verified')} | **Manual review:** {item.get('manual_review_required')}")
                         st.write(f"**Risk/invalidation:** {item.get('risk_or_invalidation') or 'N/A'}")
@@ -542,8 +547,8 @@ with tab_backtest:
 with tab_journal:
     st.subheader("Decision Journal")
     if st.button("Refresh journal"):
-        st.session_state["decision_journal_snapshot"] = decision_journal_snapshot()
-    journal_snapshot = st.session_state.get("decision_journal_snapshot") or decision_journal_snapshot()
+        st.session_state["decision_journal_snapshot"] = decision_journal_view()
+    journal_snapshot = st.session_state.get("decision_journal_snapshot") or decision_journal_view()
     status = journal_snapshot.get("status") or {}
     entries = journal_snapshot.get("entries") or []
     c1, c2, c3 = st.columns(3)
@@ -611,7 +616,7 @@ with tab_journal:
                 except Exception as exc:
                     st.error(str(exc))
                 else:
-                    st.session_state["decision_journal_snapshot"] = decision_journal_snapshot()
+                    st.session_state["decision_journal_snapshot"] = decision_journal_view()
                     st.success("Decision saved.")
 
     st.markdown("#### Outcome Scorecard")

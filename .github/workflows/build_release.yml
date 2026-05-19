@@ -67,6 +67,9 @@ jobs:
         run: pyinstaller tech_stock.spec --noconfirm --clean
 
       - name: Ad-hoc code-sign
+        # Future notarization path, when an Apple Developer ID is available:
+        # replace this with Developer ID signing, submit with notarytool using
+        # GitHub Secrets, staple the notarization ticket, then package the DMG.
         run: codesign --force --deep --sign - dist/tech_stock.app || true
 
       - name: Package into .dmg
@@ -161,10 +164,14 @@ jobs:
       - name: Zip Windows build
         run: cd release && zip -r tech_stock-windows.zip windows/
 
+      - name: Generate checksums
+        run: cd release && sha256sum tech_stock.dmg tech_stock-windows.zip > SHA256SUMS.txt
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             release/tech_stock.dmg
             release/tech_stock-windows.zip
+            release/SHA256SUMS.txt
           generate_release_notes: true

@@ -1,4 +1,5 @@
 from pathlib import Path
+from io import BytesIO
 
 from src import updater
 
@@ -28,6 +29,7 @@ def test_check_for_update_selects_platform_asset(monkeypatch):
         "body": "release notes",
         "assets": [
             {"name": "tech_stock-windows.zip", "browser_download_url": "https://example.test/windows.zip"},
+            {"name": "SHA256SUMS.txt", "browser_download_url": "https://example.test/SHA256SUMS.txt"},
             {"name": "tech_stock.dmg", "browser_download_url": "https://example.test/app.dmg"},
         ],
     }
@@ -40,6 +42,7 @@ def test_check_for_update_selects_platform_asset(monkeypatch):
     assert info.latest_version == "9.9.9"
     assert info.asset_name == "tech_stock.dmg"
     assert info.asset_url == "https://example.test/app.dmg"
+    assert info.checksum_url == "https://example.test/SHA256SUMS.txt"
 
 
 def test_apply_update_preserves_workspace_for_no_update(tmp_path, monkeypatch):
@@ -66,3 +69,59 @@ def test_check_for_update_explains_certificate_failures(tmp_path, monkeypatch):
     assert info.available is False
     assert "Could not verify GitHub's HTTPS certificate" in str(info.error)
     assert "CERTIFICATE_VERIFY_FAILED" in str(info.error)
+
+
+def test_verify_asset_checksum_passes_when_release_checksum_matches(tmp_path, monkeypatch):
+    asset = tmp_path / "tech_stock.dmg"
+    asset.write_bytes(b"asset")
+    digest = updater.hashlib.sha256(b"asset").hexdigest()
+    info = updater.UpdateInfo(
+        current_version="1.0.0",
+        asset_name="tech_stock.dmg",
+        checksum_url="https://example.test/SHA256SUMS.txt",
+    )
+
+    class Response(BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(
+        updater.urllib.request,
+        "urlopen",
+        lambda request, timeout=30.0, context=None: Response(f"{digest}  tech_stock.dmg\n".encode()),
+    )
+
+    assert updater.verify_asset_checksum(asset, info) is True
+
+
+def test_verify_asset_checksum_raises_on_mismatch(tmp_path, monkeypatch):
+    asset = tmp_path / "tech_stock.dmg"
+    asset.write_bytes(b"asset")
+    info = updater.UpdateInfo(
+        current_version="1.0.0",
+        asset_name="tech_stock.dmg",
+        checksum_url="https://example.test/SHA256SUMS.txt",
+    )
+
+    class Response(BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(
+        updater.urllib.request,
+        "urlopen",
+        lambda request, timeout=30.0, context=None: Response(b"deadbeef  tech_stock.dmg\n"),
+    )
+
+    try:
+        updater.verify_asset_checksum(asset, info)
+    except RuntimeError as exc:
+        assert "Checksum verification failed" in str(exc)
+    else:
+        raise AssertionError("Expected checksum mismatch to raise")

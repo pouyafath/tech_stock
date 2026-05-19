@@ -33,6 +33,8 @@
 - ✅ **Exit Planning** — Target exit dates and Bear Case / Bull Case ranges for every trade
 - ✅ **Portfolio Risk Dashboard** — Beta, volatility, drawdown estimate, company exposure rollups, and hedge suggestions
 - ✅ **Buy Signals View** — Source-backed BUY/ADD and add-on-dip snapshots with analyst consensus, targets, catalysts, quality warnings, and data-source notes
+- ✅ **Trade Readiness Badges** — Buy Signals are classified as Trade Ready / Review First / Blocked using deterministic quote, catalyst, quality-gate, and source checks
+- ✅ **Verified Updates** — Release downloads are checked against published SHA256 checksums when available
 - ✅ **8 Time Horizons** — Intraday / next session / 1-3 trading days / 1-2 weeks / 1-3 months / 3-6 months / 6-12 months / 12-36 months
 - ✅ **6 Enrichment APIs** — Parallel data from Finnhub, Polygon, Twelve Data, FRED, CoinGecko (+ optional Alpha Vantage)
 - ✅ **Fee-Aware** — Refuses to recommend trades below the fee hurdle (default 0.5% net expected return)
@@ -47,6 +49,19 @@
 - ✅ **Fast Parallel Fetching** — Concurrent API requests with caching and graceful degradation
 
 ---
+
+## ✨ What's New in v1.14.0 (May 18, 2026)
+
+**Roadmap hardening: readiness, shared view models, CI, and safer updates.**
+
+- **Trade readiness badges** — Buy Signals now show Trade Ready, Review First, or Blocked based on quote freshness, catalyst gates, quality warnings, manual-review flags, and source coverage.
+- **Buy Signal filters** — Desktop, Streamlit, and Textual can filter BUY/ADD, add-on-dip, and readiness status while keeping source notes visible.
+- **Shared UI view models** — dashboard, buy-signal, API health, and decision-journal payloads now have reusable builders so UIs stay consistent.
+- **ReportPipeline facade** — UI callers receive structured report artifacts while the original CLI command style remains unchanged.
+- **Release integrity checks** — GitHub releases publish `SHA256SUMS.txt`; the updater verifies downloads when a checksum file is present.
+- **CI hardening** — test workflow now includes pytest, ruff, pip-audit, and a PyInstaller smoke check.
+
+Current local suite: `pytest -q` passes with 195 tests.
 
 ## ✨ What's New in v1.13.7 (May 18, 2026)
 
@@ -577,7 +592,7 @@ python src/main.py morning --holdings ~/Holdings.csv --model opus
 | `python ui\textual_app.py` | Textual terminal dashboard |
 | `python src\desktop_app.py` | Embedded desktop dashboard |
 
-All four interface options call the **same report engine** (`src/main.run()`). UI runs disable automatic file opening and return the generated markdown/CSV/JSON paths inside the interface.
+All four interface options call the **same report engine** through the shared `ReportPipeline` facade. UI runs disable automatic file opening and return the generated markdown/CSV/JSON paths inside the interface.
 
 ### Embedded Desktop App
 
@@ -591,13 +606,13 @@ The Desktop App is a native Tkinter dashboard that runs inside the application w
 
 Tabs:
 - **Dashboard** — Shows the next action, portfolio/risk metric cards, priority action queue, quality gates, stop breaches, drift, hedge ideas, market context, watchlist signals, and Claude cost
-- **Buy Signals** — Shows source-backed BUY/ADD and add-on-dip snapshots with overview, consensus/targets, catalysts/risks, and source notes
+- **Buy Signals** — Shows source-backed BUY/ADD and add-on-dip snapshots with readiness badges, filters, overview cards, consensus/targets, catalysts/risks, and source notes
 - **Run Report** — Select session/model/budgets, confirm auto-detected Wealthsimple CSV paths, preview holdings, and run the same report pipeline as CLI mode with live progress
 - **Report Viewer** — Opens the latest generated markdown report with styled headings, readable paragraph spacing, aligned table blocks, native word search, highlighted matches, Next/Previous controls, and search paths behind **Show Search Paths**
 - **History** — Browse previous markdown reports from all configured report search folders and view/search them with the same styled markdown renderer
 - **Config Editor** — Edit `config/settings.json`, `config/watchlist.json`, or fallback `config/portfolio.json` with JSON validation
-- **API Checks** — Check Anthropic, yfinance, Finnhub, Polygon, Twelve Data, FRED, CoinGecko, and Alpha Vantage connectivity; show every API-key file path; add/update/delete API keys from the app
-- **Updates** — Check GitHub Releases, download/apply newer versions, and view update logs
+- **API Checks** — Check Anthropic, yfinance, Finnhub, Polygon, Twelve Data, FRED, CoinGecko, and Alpha Vantage connectivity; show every API-key file path and active storage mode; add/update/delete API keys from the app
+- **Updates** — Check GitHub Releases, download/apply newer versions, verify release checksums when present, and view update logs
 
 The embedded viewer is a native styled markdown reader. Use Streamlit if you specifically want browser-rendered markdown, side-by-side history comparison, and download buttons.
 
@@ -633,7 +648,7 @@ All interactive interfaces check GitHub Releases on startup and ask before apply
 
 Data is stored separately from the app binary, so updating does not remove your `reports/`, `data/recommendations_log/`, `temporary_upload/`, `config/`, `decision_journal.json`, `API_KEYS.txt`, or `.env` files. Update logs are written under the app workspace in `logs/update.log`.
 
-Packaged macOS and Windows builds download the correct asset from the latest GitHub Release. Source checkouts update with `git pull --ff-only`.
+Packaged macOS and Windows builds download the correct asset from the latest GitHub Release and verify it against `SHA256SUMS.txt` when the release provides checksums. Source checkouts update with `git pull --ff-only`.
 
 API key search order:
 1. `~/Documents/tech_stock/API_KEYS.txt` or `.env` in packaged app mode
@@ -641,6 +656,8 @@ API key search order:
 3. `~/Desktop/tech_stock/API_KEYS.txt` or `.env`
 4. `~/Downloads/tech_stock/API_KEYS.txt` or `.env`
 5. The source checkout folder
+
+Current API-key storage mode is file-based: `API_KEYS.txt` and `.env`. The API Checks tab shows this active storage mode plus the exact discovered key paths. OS credential stores such as macOS Keychain, Windows Credential Manager, and Linux Secret Service are planned as an optional future storage mode; the file-based mode remains the simple default.
 
 ### Streamlit Dashboard
 
@@ -1129,7 +1146,10 @@ Wealthsimple CSVs
 | `build_windows.bat` | One-command Windows build: installs deps → PyInstaller → `.exe` |
 | `installer_windows.iss` | Optional Inno Setup script for a polished Windows installer |
 | `pyinstaller_hooks/` | Custom hooks to ensure Streamlit static assets are bundled |
-| `.github/workflows/build_release.yml` | CI release workflow: tags trigger `.dmg` + `.exe` builds |
+| `.github/workflows/build_release.yml` | CI release workflow: tags trigger `.dmg` + `.exe` builds plus `SHA256SUMS.txt` |
+| `.github/workflows/tests.yml` | CI quality workflow: pytest, ruff, pip-audit, and PyInstaller smoke checks |
+
+Release downloads are verified by checksum when the GitHub release contains `SHA256SUMS.txt`. Older releases without checksums still download, but the updater records that checksum verification was skipped in the update log.
 
 ### Claude System Prompt (40 Rules)
 

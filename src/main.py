@@ -1005,6 +1005,8 @@ def run(
         "log_path": log_path,
         "session_type": session_type,
         "model_name": display_model,
+        "quality_warnings": recommendation.get("quality_warnings") or [],
+        "source_degradation": enriched.get("degradation") or [],
     }
 
 

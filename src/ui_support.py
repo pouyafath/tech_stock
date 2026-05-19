@@ -38,13 +38,19 @@ from src.main import (
     _load_api_keys_from_file,
     report_search_paths,
     runtime_locations,
-    run as run_cli_report,
 )
 from src.market_data import get_market_data
 from src.news_fetcher import aggregate_sentiment, get_news_for_tickers
 from src.portfolio_loader import parse_holdings_csv
+from src.report_pipeline import ReportPipeline
 from src.updater import UpdateInfo, UpdateResult, apply_update, check_for_update
 from src.version import APP_VERSION
+from src.view_models import (
+    build_api_health_view,
+    build_buy_signals_view,
+    build_dashboard_view,
+    build_decision_journal_view,
+)
 
 MODEL_OPTIONS = {
     "sonnet": ("claude-sonnet-4-6", "Sonnet 4.6"),
@@ -249,7 +255,7 @@ def run_report_from_ui(
     stream = TeeProgressIO(console, on_progress)
     try:
         with contextlib.redirect_stdout(stream), contextlib.redirect_stderr(stream):
-            artifacts = run_cli_report(
+            artifacts = ReportPipeline().run(
                 session_type=session_type,
                 holdings_csv=normalize_optional_path(holdings_csv),
                 activities_csv=normalize_optional_path(activities_csv),
@@ -271,13 +277,12 @@ def run_report_from_ui(
         stream.flush()
         return UiRunResult(ok=False, console=console.getvalue(), error=str(exc))
 
-    artifacts = artifacts or {}
     return UiRunResult(
         ok=True,
         console=console.getvalue(),
-        report_path=artifacts.get("report_path"),
-        csv_path=artifacts.get("csv_path"),
-        log_path=artifacts.get("log_path"),
+        report_path=artifacts.report_path,
+        csv_path=artifacts.csv_path,
+        log_path=artifacts.log_path,
     )
 
 
@@ -348,6 +353,10 @@ def latest_log_summary() -> dict[str, Any]:
         "recommendations": data.get("recommendations") or [],
         "portfolio_health": portfolio_health,
     }
+
+
+def dashboard_view() -> dict[str, Any]:
+    return build_dashboard_view(latest_log_summary())
 
 
 BUY_SIGNAL_ACTIONS = {"BUY", "ADD"}
@@ -458,7 +467,10 @@ def buy_signal_insights(limit: int = 8) -> dict[str, Any]:
             "current_price": price,
             "currency": md.get("currency") or "USD",
             "change_pct_1d": md.get("change_pct_1d"),
+            "quote_source": md.get("quote_source"),
             "quote_timestamp_utc": md.get("quote_timestamp_utc"),
+            "price_basis": md.get("price_basis"),
+            "market_data_error": md.get("error"),
             "analyst_consensus": analyst,
             "price_targets": price_targets,
             "latest_rating_changes": (per_ticker.get("upgrade_downgrade") or [])[:4],
@@ -496,6 +508,19 @@ def buy_signal_insights(limit: int = 8) -> dict[str, Any]:
     }
 
 
+def buy_signal_view(
+    limit: int = 8,
+    *,
+    action_filter: str = "all",
+    readiness_filter: str = "all",
+) -> dict[str, Any]:
+    return build_buy_signals_view(
+        buy_signal_insights(limit=limit),
+        action_filter=action_filter,
+        readiness_filter=readiness_filter,
+    )
+
+
 def read_text_file(path: str | Path | None) -> str:
     resolved = normalize_optional_path(path)
     if not resolved or not resolved.exists():
@@ -520,6 +545,10 @@ def decision_journal_snapshot(limit: int = 200) -> dict[str, Any]:
         "status": status,
         "entries": entries,
     }
+
+
+def decision_journal_view(limit: int = 200) -> dict[str, Any]:
+    return build_decision_journal_view(decision_journal_snapshot(limit=limit))
 
 
 def decision_scorecard_summary() -> dict[str, Any]:
@@ -835,6 +864,10 @@ def check_connectivity(timeout: float = 12.0) -> list[dict[str, Any]]:
         record("Alpha Vantage", False, str(exc), started if "started" in locals() else time.perf_counter())
 
     return checks
+
+
+def api_health_view(timeout: float = 12.0) -> dict[str, Any]:
+    return build_api_health_view(check_connectivity(timeout=timeout), api_key_inventory())
 
 
 def api_key_locations() -> list[dict[str, Any]]:

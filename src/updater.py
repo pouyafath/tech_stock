@@ -12,6 +12,7 @@ import ssl
 import urllib.error
 import urllib.request
 import zipfile
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -41,6 +42,7 @@ class UpdateInfo:
     release_url: str = RELEASES_PAGE_URL
     asset_name: str | None = None
     asset_url: str | None = None
+    checksum_url: str | None = None
     published_at: str | None = None
     body: str = ""
     error: str | None = None
@@ -53,6 +55,7 @@ class UpdateResult:
     log_path: Path
     downloaded_path: Path | None = None
     restart_started: bool = False
+    checksum_verified: bool | None = None
     error: str | None = None
 
 
@@ -164,12 +167,14 @@ def check_for_update(current_version: str | None = None, timeout: float = 6.0) -
     wanted_asset = current_platform_asset_name()
     asset_name = None
     asset_url = None
+    checksum_url = None
     for asset in release.get("assets") or []:
         name = str(asset.get("name") or "")
+        if name == "SHA256SUMS.txt":
+            checksum_url = str(asset.get("browser_download_url") or "")
         if wanted_asset and name == wanted_asset:
             asset_name = name
             asset_url = str(asset.get("browser_download_url") or "")
-            break
 
     available = is_newer_version(latest_tag, current)
     return UpdateInfo(
@@ -179,6 +184,7 @@ def check_for_update(current_version: str | None = None, timeout: float = 6.0) -
         release_url=release_url,
         asset_name=asset_name,
         asset_url=asset_url,
+        checksum_url=checksum_url,
         published_at=release.get("published_at"),
         body=str(release.get("body") or ""),
     )
@@ -195,7 +201,41 @@ def download_asset(info: UpdateInfo, timeout: float = 60.0) -> Path:
         shutil.copyfileobj(response, handle)
     tmp_destination.replace(destination)
     _log(f"download complete: {destination}")
+    verify_asset_checksum(destination, info, timeout=timeout)
     return destination
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify_asset_checksum(path: Path, info: UpdateInfo, timeout: float = 30.0) -> bool | None:
+    """Verify a downloaded release asset against SHA256SUMS.txt when present."""
+    if not info.checksum_url or not info.asset_name:
+        _log("checksum skipped: SHA256SUMS.txt not available for this release")
+        return None
+    request = urllib.request.Request(info.checksum_url, headers={"User-Agent": f"tech_stock/{APP_VERSION}"})
+    with urllib.request.urlopen(request, timeout=timeout, context=ssl_context()) as response:
+        checksum_text = response.read().decode("utf-8")
+    expected = None
+    for line in checksum_text.splitlines():
+        parts = line.strip().split()
+        if len(parts) >= 2 and parts[-1].lstrip("*") == info.asset_name:
+            expected = parts[0].lower()
+            break
+    if not expected:
+        _log(f"checksum skipped: no entry for {info.asset_name}")
+        return None
+    actual = _sha256(path)
+    if actual != expected:
+        _log(f"checksum mismatch for {info.asset_name}: expected {expected}, got {actual}")
+        raise RuntimeError(f"Checksum verification failed for {info.asset_name}.")
+    _log(f"checksum verified for {info.asset_name}: {actual}")
+    return True
 
 
 def _app_bundle_path() -> Path | None:

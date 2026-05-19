@@ -4,6 +4,21 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.14.0] — 2026-05-18
+
+### Added — Roadmap hardening
+- **Trade readiness view models** classify Buy Signals as Trade Ready, Review First, or Blocked from quote freshness, quality warnings, catalyst gates, and source coverage.
+- **Buy Signal filters** added across Desktop, Streamlit, and Textual for BUY/ADD, add-on-dip, and readiness status.
+- **ReportPipeline facade** returns structured report artifacts for UI callers while preserving the existing CLI workflow.
+- **Release checksums** are published as `SHA256SUMS.txt`, and the updater verifies downloaded assets when checksums are available.
+- **CI hardening** adds ruff, pip-audit, and PyInstaller smoke jobs alongside pytest.
+
+### Tests
+- Added shared view-model, pipeline facade, checksum, and mocked end-to-end pipeline coverage.
+- Full local suite: 195 tests passing.
+
+---
+
 ## [1.13.7] — 2026-05-18
 
 ### Added — Source-backed Buy Signals
