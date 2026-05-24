@@ -11,19 +11,27 @@ The program follows a multi-stage analysis flow:
 ```
 User Portfolio (Wealthsimple CSV)
     ↓
-[Normalization & Deduplication]
+[Normalization, CDR/share-class rollups, CASH handling]
     ↓
-Market Data Fetching (live prices, history, fundamentals)
+Market Data Fetching (quotes, history, fundamentals, volatility, beta)
     ↓
-News & Sentiment Analysis (recent headlines)
+News, enrichment APIs, macro context, and source degradation records
     ↓
 Fee Modeling (realistic trading costs)
     ↓
-Claude AI Analysis (context-aware recommendations)
+Portfolio Risk Analytics (concentration, drawdown, correlated pairs, hedge ideas)
     ↓
-Backtest Against History (self-calibration)
+Claude Pass 1 (recommendation JSON)
     ↓
-Trade Signals + Conviction Scores
+Deterministic Quality Gates + Drift/Previous-Session Review
+    ↓
+Claude Pass 2 (critique and revised recommendation JSON)
+    ↓
+ReportPipeline artifacts (markdown, CSV, JSON log, usage/cost)
+    ↓
+Shared UI View Models (Dashboard, Buy Signals, API Health, History)
+    ↓
+Trade Signals + Readiness Badges + Conviction Scores
 ```
 
 ---
@@ -43,12 +51,15 @@ Trade Signals + Conviction Scores
 | **Reliability** | 99%+ uptime; widely used in production |
 
 **Data Points Retrieved:**
-- Current price, bid-ask spread
+- Current price, quote timestamp/source, price basis, bid-ask spread
 - 1-day, 5-day, 1-month % change
 - 52-week high/low
-- Market cap, PE ratio (trailing + forward)
+- Market cap, PE ratio (trailing + forward), FCF yield, margins, dividend fields
 - Sector, industry classification
-- Historical closes (last 90 days)
+- Historical closes (roughly 10 months)
+- SMA cross, ATR(14), ATR as % of price, 5-day and 20-day volatility
+- Beta to SPY/QQQ/SMH where enough history exists
+- Analyst target fields from yfinance where available
 - Volume (daily + 30-day average)
 - News headlines (last 7 days per ticker)
 
@@ -91,7 +102,7 @@ news = ticker.news  # headlines with sentiment scores
 | Aspect | Details |
 |--------|---------|
 | **What** | Large language model for multi-step reasoning |
-| **Data** | Analyzes market data, portfolio context, news, fees, conviction scoring |
+| **Data** | Analyzes market data, portfolio context, news, fees, quality gates, drift, and conviction scoring |
 | **Cost** | 💰 **PAID** — varies by portfolio size, model, and output length |
 | | Sonnet 4.6: typically ~$0.30–$0.70 for the current two-pass report |
 | | Opus 4.7: materially higher; use for deeper one-off reviews |
@@ -105,11 +116,12 @@ news = ticker.news  # headlines with sentiment scores
 3. **Conviction Scoring** — 1-10 scale based on strength of thesis + expected move
 4. **Risk Assessment** — identifies concentration risk, leverage decay, whipsawing
 5. **Thesis Generation** — writes specific, testable reasoning for each trade
+6. **Second-Pass Revision** — receives quality warnings, drift, and the first JSON, then returns a complete revised JSON before reports are rendered
 
 **Code Location:** `src/claude_analyst.py`
 
 ```python
-# Simplified flow: we send Claude this structured prompt
+# Simplified flow: pass 1 sends Claude the structured portfolio prompt.
 prompt = f"""
 Portfolio Summary:
 {portfolio_snapshot}
@@ -130,15 +142,14 @@ Your task: Recommend BUY/ADD/HOLD/TRIM/SELL for each ticker with:
 - Conviction (1-10)
 - Net expected return after fees
 - Thesis (why this move makes sense)
-- Time horizon (intraday, 1-2w, 1-3m, 3-12m)
+- Time horizon (next session, 1-3 trading days, 1-2 weeks, 1-3 months, ...)
+- Risk controls (entry zone, stop loss, take profit)
+- Catalyst verification fields
 """
 
-response = client.messages.create(
-    model="claude-opus-4-7",
-    max_tokens=8192,
-    system=SYSTEM_PROMPT,
-    messages=[{"role": "user", "content": prompt}]
-)
+first_json = call_claude(prompt)
+quality_warnings = report_quality.evaluate(first_json, market_data, portfolio=portfolio)
+second_json = critique_and_revise(first_json, quality_warnings, drift_summary)
 ```
 
 ---
@@ -167,6 +178,12 @@ response = client.messages.create(
    
 6. Price vs 52-week High/Low
    → Context for mean-reversion probability
+
+7. ATR(14), ATR % of price, 5-day and 20-day volatility
+   → Turns stops, expected ranges, and position risk into measurable numbers
+
+8. Beta/correlation to SPY, QQQ, and SMH where possible
+   → Flags whether a position is mostly market/sector exposure or ticker-specific risk
 ```
 
 ### Phase 2: Fee-Aware Hurdle
@@ -239,7 +256,35 @@ Claude receives **all** data in a structured prompt and performs:
    - Net expected: +4.6%
    - Hurdle rate: 0.5% → ✅ PASS → Recommend BUY
 
-### Phase 5: Self-Calibration via Backtesting
+### Phase 5: Deterministic Quality Gates
+
+Claude is not the only control surface. After the first Claude pass, the app runs deterministic checks in `src/report_quality.py`.
+
+The quality layer can warn or block on:
+- stale or unstamped quotes
+- quote-vs-holdings mismatches
+- missing catalyst verification for large movers or near-earnings names
+- missing analyst/insider/enrichment citations when those claims are used
+- invalid time horizons
+- missing risk controls
+- oversized ticker or company-level exposure
+- inconsistent Bear Case / Bull Case ranges
+
+The second Claude pass receives these warnings, the first JSON, drift, and previous-session comparison, then must return a complete revised JSON. The final report still renders unresolved warnings near the top so a stale quote or missing catalyst cannot be hidden inside prose.
+
+### Phase 6: Trade Readiness View Models
+
+All UIs consume shared view models from `src/view_models.py`. Buy Signals are classified before display:
+
+| Readiness | Meaning |
+|-----------|---------|
+| `Trade Ready` | Fresh timestamped quote, required catalysts satisfied, no blocking quality warnings |
+| `Review First` | Usable idea, but medium/low warnings, missing optional source coverage, or manual review flag |
+| `Blocked` | Stale/unstamped quote, market-data error, missing required catalyst, over-position cap, or high blocking warning |
+
+The Buy Signals tabs in Desktop, Streamlit, and Textual show only source-backed fields: current price, quote time/source, consensus, target upside, catalyst/source, warnings, and risk controls. The app does not invent analyst-poster numbers when the source is unavailable.
+
+### Phase 7: Self-Calibration via Backtesting
 
 ```python
 # src/backtester.py: run_backtest()
@@ -330,31 +375,45 @@ Claude **uses this feedback** in the next session to adjust conviction scores.
      "settings": {...}
    }
    
-2. Program sends HTTP request:
+2. Program sends the first Claude request:
    POST https://api.anthropic.com/v1/messages
    Authorization: Bearer sk-ant-api03-...
    Body: structured prompt + data
    
-3. Anthropic servers process via Claude Opus 4.7:
-   - Input tokens counted (~4000-6000 for typical session)
+3. Anthropic servers process via the selected model:
+   - Sonnet 4.6 is the normal daily model
+   - Opus 4.7 is available for deeper, higher-cost reviews
+   - Input/output/cache tokens are counted for each pass
    - Model reasons through multi-step analysis
    - Generates JSON response with recommendations
    
-4. Response is cached via prompt caching:
+4. Program validates and critiques the first JSON:
+   - Normalize schema fields
+   - Run deterministic quality gates
+   - Compare against previous-session drift
+   - Build a critique payload for the second pass
+
+5. Program sends the second Claude request:
+   - Includes first-pass JSON, quality warnings, drift summary, and previous-session comparison
+   - Requires a complete revised JSON, not a patch
+   - Aggregates token/cost usage across both calls
+
+6. Stable prompt parts are cached via prompt caching:
    - Same portfolio structure = cache HIT
    - Saves ~3000 input tokens on next request (~$0.015 savings)
    - Cache TTL: 5 minutes
    
-5. Program parses JSON response:
+7. Program parses the revised JSON response:
    - Extract each ticker's recommendation
    - Validate conviction scores (1-10)
    - Validate expected returns are realistic
-   - Extract thesis text
+   - Extract thesis, risk controls, catalyst fields, and hedge suggestions
    
-6. Save to data/recommendations_log/YYYYMMDD_HHMM_morning.json
+8. Save to data/recommendations_log/YYYYMMDD_HHMM_morning.json
    - Used for backtesting
    - Used for drift tracking
    - Used for self-calibration
+   - Used by the shared Dashboard and Buy Signals view models
 ```
 
 **Code:** `src/claude_analyst.py:call_claude()`
@@ -368,6 +427,12 @@ Claude **uses this feedback** in the next session to adjust conviction scores.
 | yfinance (Yahoo Finance) | ✅ YES | ❌ NO | Public data, all users | No API key |
 | Wealthsimple CSV | ✅ YES | ✅ YES (login) | Premium account holders only | Account login |
 | Anthropic Claude | ❌ PAID | ✅ YES | All users with API key | API key from console |
+| Finnhub | ✅ YES tier | ✅ YES | Analyst consensus, earnings, insider, sentiment | `FINNHUB_API_KEY` |
+| Polygon | ✅ YES tier | ✅ YES | Previous-session OHLCV/VWAP and optional snapshot fields | `POLYGON_API_KEY` |
+| Twelve Data | ✅ YES tier | ✅ YES | Quote and earnings fallback coverage | `TWELVE_DATA_API_KEY` |
+| FRED | ✅ YES | ✅ YES | Macro rates, inflation, VIX, USD/CAD context | `FRED_API_KEY` |
+| CoinGecko | ✅ YES tier | Optional | Crypto/macro risk context | `COINGECKO_API_KEY` |
+| Alpha Vantage | ✅ YES tier | ✅ YES | Optional news sentiment fallback | `ALPHA_VANTAGE_API_KEY` |
 
 ### Cost Breakdown
 
@@ -663,17 +728,20 @@ Gain: AI-powered analysis, backtesting, self-calibration
 
 **Good for:** Active traders who run 2x daily, want AI insights
 
-### Tier 3: Professional Setup ($0.45 per run)
+### Tier 3: Professional Setup (higher-cost runs + optional enrichment)
 
 ```
 yfinance (primary)
 + Finnhub (sentiment overlay)
 + Anthropic Claude Opus 4.7 (deeper analysis)
-  └─ ~$0.45 per run
+  └─ roughly $1.50-$3.00+ per current two-pass run, depending on portfolio size
 
 Optional upgrades:
-  + Alpha Vantage ($200/month) for redundancy
-  + IEX Cloud ($50/month) for real-time data
+  + Polygon / Twelve Data for quote redundancy
+  + FRED for macro context and USD/CAD support
+  + CoinGecko for crypto risk context
+  + Alpha Vantage for optional sentiment redundancy
+  + Paid market-data plans only if free tiers are insufficient
 
 Cost: $25-300/month depending on frequency
 Gain: Redundancy, professional-grade analysis, higher accuracy
@@ -705,20 +773,21 @@ Gain: Redundancy, professional-grade analysis, higher accuracy
    - No sensitive user data (tickers are public)
 
 4. **Recommendations**
-   - Stored in `data/recommendations_log/` (local, encrypted?)
+   - Stored locally in `data/recommendations_log/`
    - Reported back to Claude for self-calibration (for accuracy)
    - Can be deleted manually
 
 ### API Key Security
 
 - **Anthropic API Key**
-  - Store in `.env` file (git-ignored)
+  - Store in `API_KEYS.txt` or `.env` (both git-ignored)
   - Never commit to version control
   - Treat like password; rotate periodically
   
 - **Other APIs**
   - Same best practices
-  - Consider using environment variables
+  - The Desktop and Streamlit API key managers mask configured values and can add/update/delete keys without printing full secrets
+  - Current storage mode is file-based; OS credential stores are planned as an optional future mode
   - Audit API key usage regularly
 
 ---
@@ -777,6 +846,6 @@ Gain: Redundancy, professional-grade analysis, higher accuracy
 
 ---
 
-**Last Updated:** May 10, 2026
-**Document Version:** 1.1.0
+**Last Updated:** May 24, 2026
+**Document Version:** 1.14.1
 **Author:** Tech Stock Team + Claude Opus 4.7

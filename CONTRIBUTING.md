@@ -26,7 +26,7 @@ cd tech_stock
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-pip install pytest black flake8 pyinstaller>=6.0  # dev dependencies
+pip install -r requirements-dev.txt
 ```
 
 ### 3. Create a Feature Branch
@@ -47,14 +47,15 @@ git checkout -b fix/your-bug-fix
 2. **Test locally** with your own Wealthsimple CSV exports
 3. **Run basic checks:**
    ```bash
-   # Format code
-   black src/
-   
-   # Check style
-   flake8 src/ --max-line-length=120
-   
-   # Run tests (if available)
-   pytest tests/
+   # Run tests
+   PYTHONPATH="$(pwd)" python -m pytest -q
+
+   # Check style and formatting
+   ruff check .
+   ruff format --check src tests
+
+   # Audit runtime dependencies
+   pip-audit --requirement requirements.txt
    ```
 
 ### Building the Native App (optional)
@@ -123,8 +124,8 @@ Verify:
 
 - **Python version:** 3.11+
 - **Line length:** Max 100 characters
-- **Formatting:** Black (auto-format with `black src/`)
-- **Linting:** Flake8 with `--max-line-length=100`
+- **Formatting:** Ruff (`ruff format`)
+- **Linting:** Ruff (`ruff check`)
 
 ### Code Structure
 
@@ -200,7 +201,9 @@ Fixes #42
 ## Pull Request Process
 
 1. **Before submitting:**
-   - Run `black src/` and `flake8 src/`
+   - Run `PYTHONPATH="$(pwd)" python -m pytest -q`
+   - Run `ruff check .` and `ruff format --check src tests`
+   - Run `pip-audit --requirement requirements.txt` when dependencies changed
    - Test with your own portfolio data
    - Update README if adding features
    - Add your name to CONTRIBUTORS (optional)
@@ -279,7 +282,7 @@ def generate_excel(
 
 ### Adding Tests
 
-Current baseline: run `PYTHONPATH="$(pwd)" python -m pytest -q` from the repo root. The May 2026 suite covers 160+ tests across parsers, report quality gates, Claude schema/retry behavior, UI helpers, market data, and report rendering.
+Current baseline: run `PYTHONPATH="$(pwd)" python -m pytest -q` from the repo root. The May 2026 suite currently passes with 196 tests across parsers, report quality gates, Claude schema/retry behavior, market data, report rendering, shared view models, the `ReportPipeline` facade, updater checksum reporting, and a mocked end-to-end pipeline.
 
 Do not commit generated reports, API caches, local recommendation logs, `data/paper_portfolio.json`, `data/thesis_log.json`, uploaded CSVs, or `.claude/worktrees/`.
 

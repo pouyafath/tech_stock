@@ -71,7 +71,7 @@ Current local suite: `pytest -q` passes with 196 tests.
 - **Release integrity checks** — GitHub releases publish `SHA256SUMS.txt`; the updater verifies downloads when a checksum file is present.
 - **CI hardening** — test workflow now includes pytest, ruff, pip-audit, and a PyInstaller smoke check.
 
-Current local suite: `pytest -q` passes with 195 tests.
+v1.14.0 local suite: `pytest -q` passed with 195 tests.
 
 ## ✨ What's New in v1.13.7 (May 18, 2026)
 
@@ -1089,7 +1089,9 @@ Wealthsimple CSVs
     ↓
 [Report Generator] → markdown + CSV + JSON log
     ↓
-[Optional UIs] → Streamlit browser dashboard / Textual terminal dashboard
+[View Models] → dashboard, Buy Signals, API health, journal summaries
+    ↓
+[Optional UIs] → embedded Desktop / Streamlit browser dashboard / Textual terminal dashboard
 ```
 
 **Performance:** Market data, news, and enrichment calls run in parallel where possible. Runtime depends on portfolio size, API coverage, cache state, and the two Claude passes. Slow optional sources such as options implied-move lookup are disabled by default.
@@ -1135,16 +1137,21 @@ Wealthsimple CSVs
 | `report_quality.py` | Deterministic quality warnings and hard gates for stale quotes, missing catalysts, risk controls, and sizing issues |
 | `backtester.py` | Evaluate mature recommendations by action, conviction, ticker, and recent realized examples for calibration |
 | `report_generator.py` | Format markdown + CSV with priority actions, quality warnings, risk dashboard, hold tiers, earnings badges, risk controls, and Bear/Bull ranges |
+| `report_pipeline.py` | `ReportPipeline` facade returning structured artifacts for UI callers while preserving the original CLI behavior |
 | `main.py` | CLI entry point, interactive setup, API key loading (API_KEYS.txt first, then .env), enrichment orchestration, risk analytics, and CSV export |
-| `ui_launcher.py` | Shell menu for choosing the original CLI, Streamlit, or Textual; called by `run.sh` |
+| `view_models.py` | Shared Dashboard, Buy Signals, API health, and Decision Journal view models, including Trade Ready / Review First / Blocked classification |
 | `ui_support.py` | Shared helpers for UI progress streaming, report/log discovery, latest-log dashboards, holdings preview, JSON validation, connectivity checks, and canonical report runs |
+| `updater.py` | GitHub Releases update checks, asset selection, SHA256 verification reporting, and update logs |
+| `version.py` | Application version used by CLI, UIs, update checks, and packaging |
+| `ui_launcher.py` | Shell menu for choosing CLI, Streamlit, Textual, Desktop App, or Check Updates; called by `run.sh` |
 | `app_gui.py` | Native tkinter launcher window used by the PyInstaller `.app`/`.exe` bundle |
 
 **Optional UI Entry Points**:
 
 | File | Purpose |
 |------|---------|
-| `ui/streamlit_app.py` | Browser dashboard for CSV upload, report generation, markdown viewing, history, backtest, and JSON config editing |
+| `src/desktop_app.py` | Embedded no-browser desktop dashboard with Dashboard, Buy Signals, Run Report, Report Viewer/Search, History, Config Editor, API Checks, and Updates tabs |
+| `ui/streamlit_app.py` | Browser dashboard for CSV upload, Buy Signals/readiness filters, report generation, markdown viewing, history, backtest, Decision Journal, API key editing, and updates |
 | `ui/textual_app.py` | Terminal dashboard for the same workflow using Textual widgets and scrollable panes |
 
 **Packaging**:
@@ -1388,6 +1395,7 @@ tech_stock/
 ├── src/
 │   ├── __init__.py
 │   ├── main.py                  ← Entry point (CLI + interactive, API key loading)
+│   ├── report_pipeline.py       ← ReportPipeline facade for shared UI runs
 │   ├── config.py                ← Load settings (single source of truth)
 │   ├── constants.py             ← Shared constants, company aliases, leveraged ETF leverage
 │   ├── _utils.py                ← Helper functions (safe_float, clean_csv_row, etc.)
@@ -1408,14 +1416,13 @@ tech_stock/
 │   ├── report_quality.py        ← Deterministic quality gates and warnings
 │   ├── claude_analyst.py        ← 40-rule prompt, two-pass Claude review, JSON retry/parsing
 │   ├── report_generator.py      ← Priority actions table, hold tiers, earnings badges, markdown + CSV
+│   ├── view_models.py           ← Shared dashboard, Buy Signals, API health, journal view models
 │   ├── ui_support.py            ← Shared helpers for UI progress, dashboards, previews, validation, and connectivity
-│   └── ui_launcher.py           ← Interface chooser for CLI, Streamlit, and Textual
-├── ui/
-│   ├── streamlit_app.py         ← Optional browser dashboard
-│   └── textual_app.py           ← Optional terminal dashboard
-├── src/
+│   ├── updater.py               ← GitHub Releases checks, downloads, checksums, update logs
+│   ├── version.py               ← App version for CLI, UIs, packaging, updater
+│   ├── desktop_app.py           ← Embedded no-browser dashboard
 │   ├── app_gui.py               ← Native tkinter launcher (used by .app/.exe bundle)
-│   └── ui_launcher.py           ← Shell menu wrapper (used by run.sh)
+│   └── ui_launcher.py           ← Shell menu wrapper (CLI / Streamlit / Textual / Desktop / Update)
 ├── ui/
 │   ├── streamlit_app.py         ← Optional browser dashboard
 │   └── textual_app.py           ← Optional terminal dashboard

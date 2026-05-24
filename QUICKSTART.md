@@ -86,8 +86,9 @@ A menu appears — pick your interface:
   [2]  Streamlit UI    — Web dashboard (opens browser)
   [3]  Textual TUI     — Terminal dashboard
   [4]  Desktop App     — Embedded dashboard (no browser)
+  [5]  Check Updates   — Check GitHub Releases and verify update metadata
 
-  Choose [1/2/3/4, Enter = 1]:
+  Choose [1/2/3/4/5, Enter = 1]:
 ```
 
 > **No terminal?** Download `tech_stock.dmg` from the [Releases page](https://github.com/pouyafath/tech_stock/releases), double-click for the native launcher, then choose **Desktop App** for the embedded no-browser interface.
@@ -133,6 +134,7 @@ Latest paid validation: May 10, 2026 full Sonnet run, 31 tracked tickers, two Cl
 ./run.sh 2    # → Streamlit (opens browser automatically)
 ./run.sh 3    # → Textual TUI (keyboard-driven terminal dashboard)
 ./run.sh 4    # → Desktop App (embedded dashboard, no browser)
+./run.sh 5    # → Check updates
 ```
 
 Or launch directly:
@@ -149,18 +151,20 @@ Or launch directly:
 
 | UI | Best for |
 |----|----------|
-| **Desktop App** | Embedded no-browser dashboard with report runs, latest metrics, report viewer, history, config editing, and API checks |
-| **Streamlit** | CSV upload & preview, live run progress, dashboard metrics, Decision Journal, history compare, download buttons, JSON config editing |
-| **Textual** | Same features, no browser, journal summaries, keyboard shortcuts (`Ctrl+R` = run, `Ctrl+S` = save, `r` = refresh) |
+| **Desktop App** | Embedded no-browser dashboard with action cards, Buy Signals readiness filters, report runs, report viewer/search, history, config/API key editing, API checks, and updates |
+| **Streamlit** | CSV upload & preview, Buy Signals readiness filters, live run progress, dashboard metrics, Decision Journal, history compare, download buttons, JSON/API key editing |
+| **Textual** | Same workflow in the terminal, including Buy Signals/readiness summaries, journal summaries, update checks, and keyboard shortcuts (`Ctrl+R` = run, `Ctrl+S` = save, `r` = refresh) |
 
 ---
 
 ## 🎯 What You Got
 
-✅ **Markdown report** with full recommendations and analysis  
-✅ **CSV table** with ticker, action, conviction, net expected return  
+✅ **Markdown report** with full recommendations and analysis
+✅ **CSV table** with ticker, action, conviction, net expected return
 ✅ **JSON log** for backtesting (in `data/recommendations_log/`)
+✅ **Buy Signals view** with Trade Ready / Review First / Blocked readiness
 ✅ **Decision journal** for recording what you actually did and scoring model-vs-user outcomes
+✅ **API health/key manager** and checksum-verified update flow
 
 ---
 
@@ -221,6 +225,11 @@ date,ticker,action,shares,price_cad,followed_recommendation,notes
 
 ### "ModuleNotFoundError: No module named 'anthropic'"
 → Run `source .venv/bin/activate` first, then `pip install -r requirements.txt`
+
+### "How do I check for updates?"
+→ From the launcher, choose option **5**
+→ From terminal, run `python src/main.py check-update` or `./run.sh 5`
+→ Release downloads include `SHA256SUMS.txt`; packaged updates verify the checksum when the file is available
 
 ### Need more help?
 → See [README.md](README.md#-troubleshooting) for detailed troubleshooting
