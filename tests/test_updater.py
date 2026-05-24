@@ -125,3 +125,30 @@ def test_verify_asset_checksum_raises_on_mismatch(tmp_path, monkeypatch):
         assert "Checksum verification failed" in str(exc)
     else:
         raise AssertionError("Expected checksum mismatch to raise")
+
+
+def test_apply_update_reports_checksum_result(tmp_path, monkeypatch):
+    asset = tmp_path / "tech_stock.dmg"
+    asset.write_bytes(b"asset")
+    opened = []
+    info = updater.UpdateInfo(
+        current_version="1.0.0",
+        latest_version="9.9.9",
+        available=True,
+        asset_name="tech_stock.dmg",
+        asset_url="https://example.test/tech_stock.dmg",
+        checksum_url="https://example.test/SHA256SUMS.txt",
+    )
+
+    monkeypatch.setattr(updater, "is_source_checkout", lambda: False)
+    monkeypatch.setattr(updater, "download_asset", lambda update_info: asset)
+    monkeypatch.setattr(updater, "verify_asset_checksum", lambda path, update_info: True)
+    monkeypatch.setattr(updater.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(updater.subprocess, "Popen", lambda args, **kwargs: opened.append(args))
+
+    result = updater.apply_update(info, restart=False)
+
+    assert result.ok is True
+    assert result.checksum_verified is True
+    assert result.downloaded_path == asset
+    assert opened == [["open", str(asset)]]

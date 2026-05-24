@@ -4,6 +4,18 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.14.1] — 2026-05-24
+
+### Fixed — Security and updater hardening
+- Raised `pyarrow` to the fixed `23.0.1+` range after `pip-audit` flagged `PYSEC-2026-113` in the previous pinned range.
+- The updater now records whether checksum verification succeeded, was skipped, or failed in the `UpdateResult` path instead of discarding that result.
+
+### Tests
+- Added updater coverage for checksum reporting during update application.
+- Full local suite: 196 tests passing.
+
+---
+
 ## [1.14.0] — 2026-05-18
 
 ### Added — Roadmap hardening

@@ -201,7 +201,6 @@ def download_asset(info: UpdateInfo, timeout: float = 60.0) -> Path:
         shutil.copyfileobj(response, handle)
     tmp_destination.replace(destination)
     _log(f"download complete: {destination}")
-    verify_asset_checksum(destination, info, timeout=timeout)
     return destination
 
 
@@ -381,11 +380,13 @@ def apply_update(info: UpdateInfo, *, restart: bool = True) -> UpdateResult:
             error="missing asset",
         )
 
+    checksum_verified = None
     try:
         downloaded = download_asset(info)
+        checksum_verified = verify_asset_checksum(downloaded, info)
     except Exception as exc:
-        _log(f"download failed: {exc}")
-        return UpdateResult(ok=False, message="Update download failed.", log_path=log_path, error=str(exc))
+        _log(f"download or verification failed: {exc}")
+        return UpdateResult(ok=False, message="Update download or verification failed.", log_path=log_path, error=str(exc), checksum_verified=checksum_verified)
 
     system = platform.system().lower()
     restart_started = False
@@ -416,6 +417,7 @@ def apply_update(info: UpdateInfo, *, restart: bool = True) -> UpdateResult:
         log_path=log_path,
         downloaded_path=downloaded,
         restart_started=restart_started,
+        checksum_verified=checksum_verified,
     )
 
 

@@ -50,6 +50,16 @@
 
 ---
 
+## ✨ What's New in v1.14.1 (May 24, 2026)
+
+**Security and updater hardening.**
+
+- **Dependency security fix** — `pyarrow` now requires the fixed `23.0.1+` range after `pip-audit` flagged `PYSEC-2026-113` in the older range.
+- **Clearer update integrity result** — the updater now carries the checksum verification result through `UpdateResult`, so UI/CLI callers can report whether verification passed, failed, or was skipped.
+- **Regression coverage** — added updater tests for checksum reporting during update application.
+
+Current local suite: `pytest -q` passes with 196 tests.
+
 ## ✨ What's New in v1.14.0 (May 18, 2026)
 
 **Roadmap hardening: readiness, shared view models, CI, and safer updates.**
