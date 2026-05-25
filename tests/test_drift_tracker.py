@@ -4,16 +4,20 @@ from src.drift_tracker import compute_drift, get_previous_session
 
 
 def _write_log(path, ticker, action, conviction):
-    path.write_text(json.dumps({
-        "recommendations": [
+    path.write_text(
+        json.dumps(
             {
-                "ticker": ticker,
-                "action": action,
-                "conviction": conviction,
-                "net_expected_pct": 1.0,
+                "recommendations": [
+                    {
+                        "ticker": ticker,
+                        "action": action,
+                        "conviction": conviction,
+                        "net_expected_pct": 1.0,
+                    }
+                ]
             }
-        ]
-    }))
+        )
+    )
 
 
 def test_get_previous_session_latest_and_skip_newest(tmp_path):

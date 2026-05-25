@@ -74,6 +74,7 @@ def _request(endpoint: str, params: dict) -> dict | None:
 
 # ── Real-time quote ───────────────────────────────────────────────────────────
 
+
 def _fetch_quote(ticker: str) -> dict | None:
     # Twelve Data uses "/" instead of "." for Canadian tickers (e.g. SHOP/TSX)
     symbol = ticker.replace(".TO", "/TSX").replace(".V", "/TSXV")
@@ -117,6 +118,7 @@ def quote(ticker: str) -> dict | None:
 
 
 # ── Earnings dates ────────────────────────────────────────────────────────────
+
 
 def _fetch_earnings(ticker: str) -> dict | None:
     symbol = ticker.replace(".TO", "/TSX").replace(".V", "/TSXV")
@@ -169,6 +171,7 @@ def earnings(ticker: str) -> dict | None:
 
 if __name__ == "__main__":
     import json
+
     if not _api_key():
         print("TWELVE_DATA_API_KEY not set — skipping live test")
     else:

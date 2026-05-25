@@ -96,10 +96,12 @@ def test_schema_accepts_new_fields():
 
 
 def test_response_text_ignores_non_text_blocks():
-    response = SimpleNamespace(content=[
-        SimpleNamespace(type="thinking", thinking="hidden"),
-        SimpleNamespace(type="text", text='{"ok": true}'),
-    ])
+    response = SimpleNamespace(
+        content=[
+            SimpleNamespace(type="thinking", thinking="hidden"),
+            SimpleNamespace(type="text", text='{"ok": true}'),
+        ]
+    )
 
     assert _response_text(response) == '{"ok": true}'
 

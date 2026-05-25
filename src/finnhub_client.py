@@ -65,6 +65,7 @@ def _request(endpoint: str, params: dict) -> dict | list | None:
 
 # ── Earnings calendar ─────────────────────────────────────────────────────────
 
+
 def _fetch_earnings_calendar(ticker: str, days_ahead: int) -> dict | None:
     today = datetime.now().date()
     end = today + timedelta(days=days_ahead)
@@ -108,6 +109,7 @@ def earnings_calendar(ticker: str, days_ahead: int = 30) -> dict | None:
 
 # ── Analyst recommendation trends ─────────────────────────────────────────────
 
+
 def _fetch_recommendation_trends(ticker: str) -> dict | None:
     data = _request("/stock/recommendation", {"symbol": ticker})
     if not data or not isinstance(data, list) or not data:
@@ -131,11 +133,7 @@ def _fetch_recommendation_trends(ticker: str) -> dict | None:
         "total_analysts": total,
         "consensus_score": round(net, 2),
         "consensus_label": (
-            "STRONG BUY" if net > 0.5 else
-            "BUY" if net > 0.15 else
-            "HOLD" if net > -0.15 else
-            "SELL" if net > -0.5 else
-            "STRONG SELL"
+            "STRONG BUY" if net > 0.5 else "BUY" if net > 0.15 else "HOLD" if net > -0.15 else "SELL" if net > -0.5 else "STRONG SELL"
         ),
     }
 
@@ -157,6 +155,7 @@ def recommendation_trends(ticker: str) -> dict | None:
 
 # ── Analyst upgrade / downgrade events ───────────────────────────────────────
 
+
 def _fetch_upgrade_downgrade(ticker: str, days_back: int = 90) -> list | None:
     end = datetime.now().date()
     start = end - timedelta(days=days_back)
@@ -168,14 +167,16 @@ def _fetch_upgrade_downgrade(ticker: str, days_back: int = 90) -> list | None:
         return None
     rows = []
     for row in data[:8]:
-        rows.append({
-            "ticker": ticker,
-            "date": row.get("gradeTime") or row.get("date"),
-            "firm": row.get("company"),
-            "from_grade": row.get("fromGrade"),
-            "to_grade": row.get("toGrade"),
-            "action": row.get("action"),
-        })
+        rows.append(
+            {
+                "ticker": ticker,
+                "date": row.get("gradeTime") or row.get("date"),
+                "firm": row.get("company"),
+                "from_grade": row.get("fromGrade"),
+                "to_grade": row.get("toGrade"),
+                "action": row.get("action"),
+            }
+        )
     return rows or None
 
 
@@ -195,6 +196,7 @@ def upgrade_downgrade(ticker: str, days_back: int = 90) -> list | None:
 
 
 # ── News sentiment ────────────────────────────────────────────────────────────
+
 
 def _fetch_news_sentiment(ticker: str) -> dict | None:
     data = _request("/news-sentiment", {"symbol": ticker})
@@ -233,6 +235,7 @@ def news_sentiment(ticker: str) -> dict | None:
 
 # ── Earnings surprises (historical) ──────────────────────────────────────────
 
+
 def _fetch_earnings_surprises(ticker: str, limit: int = 4) -> list | None:
     data = _request("/stock/earnings", {"symbol": ticker, "limit": limit})
     if not data or not isinstance(data, list):
@@ -244,14 +247,16 @@ def _fetch_earnings_surprises(ticker: str, limit: int = 4) -> list | None:
         if actual is None or estimate is None or estimate == 0:
             continue
         surprise_pct = (actual - estimate) / abs(estimate) * 100
-        out.append({
-            "period": q.get("period"),
-            "year": q.get("year"),
-            "quarter": q.get("quarter"),
-            "eps_actual": actual,
-            "eps_estimate": estimate,
-            "surprise_pct": round(surprise_pct, 2),
-        })
+        out.append(
+            {
+                "period": q.get("period"),
+                "year": q.get("year"),
+                "quarter": q.get("quarter"),
+                "eps_actual": actual,
+                "eps_estimate": estimate,
+                "surprise_pct": round(surprise_pct, 2),
+            }
+        )
     return out or None
 
 
@@ -271,6 +276,7 @@ def earnings_surprises(ticker: str, limit: int = 4) -> list | None:
 
 
 # ── Insider transactions ──────────────────────────────────────────────────────
+
 
 def _fetch_insider_summary(ticker: str, days: int = 90) -> dict | None:
     end = datetime.now().date()
@@ -316,6 +322,7 @@ def insider_summary(ticker: str, days: int = 90) -> dict | None:
 
 if __name__ == "__main__":
     import json
+
     if not _api_key():
         print("FINNHUB_API_KEY not set — skipping live test")
     else:

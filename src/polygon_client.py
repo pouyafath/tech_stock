@@ -64,6 +64,7 @@ def _request(endpoint: str, params: dict | None = None) -> dict | None:
 
 # ── Stock snapshot ────────────────────────────────────────────────────────────
 
+
 def _fetch_stock_snapshot(ticker: str) -> dict | None:
     # /v2/aggs/ticker/{ticker}/prev — previous day OHLCV + VWAP (free tier)
     data = _request(f"/v2/aggs/ticker/{ticker}/prev", {"adjusted": "true"})
@@ -75,18 +76,18 @@ def _fetch_stock_snapshot(ticker: str) -> dict | None:
     r = results[0]
 
     prev_close = r.get("c")
-    prev_open  = r.get("o")
-    prev_high  = r.get("h")
-    prev_low   = r.get("l")
-    prev_vol   = r.get("v")
-    prev_vwap  = r.get("vw")
+    prev_open = r.get("o")
+    prev_high = r.get("h")
+    prev_low = r.get("l")
+    prev_vol = r.get("v")
+    prev_vwap = r.get("vw")
 
     if prev_close is None:
         return None
 
     # VWAP signal: close vs VWAP on prior session
     vwap_signal = None
-    vwap_pct    = None
+    vwap_pct = None
     if prev_vwap and prev_close:
         vwap_pct = round((prev_close - prev_vwap) / prev_vwap * 100, 2)
         if vwap_pct > 0.5:
@@ -162,6 +163,7 @@ def stock_snapshot(ticker: str) -> dict | None:
 
 if __name__ == "__main__":
     import json
+
     if not _api_key():
         print("POLYGON_API_KEY not set — skipping live test")
     else:

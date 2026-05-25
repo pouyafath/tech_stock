@@ -1,4 +1,5 @@
 """Tests for the new strategy-gate report sections."""
+
 from src.report_sections import (
     render_entry_or_exit_plan,
     render_market_state_banner,
@@ -10,13 +11,16 @@ from src.report_sections import (
 
 # ── Position aging ──────────────────────────────────────────────────────
 
+
 def test_position_aging_shows_actionable_tiers():
     holdings = [
-        {"ticker": "FRESH"}, {"ticker": "MATU"}, {"ticker": "STALE"},
+        {"ticker": "FRESH"},
+        {"ticker": "MATU"},
+        {"ticker": "STALE"},
     ]
     days = {
         "FRESH": {"days_held": 30},
-        "MATU":  {"days_held": 250},
+        "MATU": {"days_held": 250},
         "STALE": {"days_held": 800},
     }
     out = "\n".join(render_position_aging(holdings, days))
@@ -54,14 +58,31 @@ def test_position_aging_empty_when_no_data():
 
 # ── Trailing stops ──────────────────────────────────────────────────────
 
+
 def test_trailing_stops_renders_breached_first():
     alerts = [
-        {"ticker": "OK", "trail_kind": "trail_pct", "stop_price": 95.0,
-         "current_price": 110.0, "peak_price": 115.0, "avg_cost": 100.0,
-         "current_gain_pct": 10.0, "peak_gain_pct": 15.0, "breached": False},
-        {"ticker": "BREACH", "trail_kind": "trail_pct", "stop_price": 100.0,
-         "current_price": 99.0, "peak_price": 120.0, "avg_cost": 90.0,
-         "current_gain_pct": 10.0, "peak_gain_pct": 33.0, "breached": True},
+        {
+            "ticker": "OK",
+            "trail_kind": "trail_pct",
+            "stop_price": 95.0,
+            "current_price": 110.0,
+            "peak_price": 115.0,
+            "avg_cost": 100.0,
+            "current_gain_pct": 10.0,
+            "peak_gain_pct": 15.0,
+            "breached": False,
+        },
+        {
+            "ticker": "BREACH",
+            "trail_kind": "trail_pct",
+            "stop_price": 100.0,
+            "current_price": 99.0,
+            "peak_price": 120.0,
+            "avg_cost": 90.0,
+            "current_gain_pct": 10.0,
+            "peak_gain_pct": 33.0,
+            "breached": True,
+        },
     ]
     out = "\n".join(render_trailing_stops(alerts))
     assert "Trailing Stops" in out
@@ -77,14 +98,14 @@ def test_trailing_stops_empty_when_no_alerts():
 
 # ── Sector rotation ─────────────────────────────────────────────────────
 
+
 def test_sector_rotation_shows_leaders_laggards():
     market_context = {
         "XLK": {"change_pct_21d": 5.0},
         "XLE": {"change_pct_21d": -3.0},
         "XLF": {"change_pct_21d": 1.0},
     }
-    out = "\n".join(render_sector_rotation(market_context, None,
-                                            settings={"sector_rotation_tickers": ["XLK", "XLE", "XLF"]}))
+    out = "\n".join(render_sector_rotation(market_context, None, settings={"sector_rotation_tickers": ["XLK", "XLE", "XLF"]}))
     assert "Sector Rotation" in out
     assert "XLK" in out
     assert "Leaders" in out
@@ -98,12 +119,12 @@ def test_sector_rotation_empty_when_no_data():
 def test_sector_rotation_includes_rotating_arrows():
     prev = {"XLK": {"change_pct_21d": 5.0}, "XLE": {"change_pct_21d": -5.0}}
     curr = {"XLE": {"change_pct_21d": 5.0}, "XLK": {"change_pct_21d": -5.0}}
-    out = "\n".join(render_sector_rotation(curr, prev,
-                                            settings={"sector_rotation_tickers": ["XLK", "XLE"]}))
+    out = "\n".join(render_sector_rotation(curr, prev, settings={"sector_rotation_tickers": ["XLK", "XLE"]}))
     assert "Rotating IN" in out or "Rotating OUT" in out
 
 
 # ── Risk modifier banner ────────────────────────────────────────────────
+
 
 def test_banner_shows_drawdown():
     drawdown = {"triggered": True, "drawdown_pct": -7.5, "peak_label": "30d peak", "threshold_pct": -6}
@@ -125,12 +146,15 @@ def test_banner_empty_when_no_modifiers():
 
 # ── Tranched plan rendering ─────────────────────────────────────────────
 
+
 def test_render_entry_plan_full_table():
-    rec = {"entry_plan": [
-        {"trigger": "now", "fraction": 0.4, "price_pct": 0, "note": "immediate"},
-        {"trigger": "pullback", "fraction": 0.3, "price_pct": -3, "note": "on pullback"},
-        {"trigger": "confirmation", "fraction": 0.3, "price_pct": 2, "note": "on upside"},
-    ]}
+    rec = {
+        "entry_plan": [
+            {"trigger": "now", "fraction": 0.4, "price_pct": 0, "note": "immediate"},
+            {"trigger": "pullback", "fraction": 0.3, "price_pct": -3, "note": "on pullback"},
+            {"trigger": "confirmation", "fraction": 0.3, "price_pct": 2, "note": "on upside"},
+        ]
+    }
     out = "\n".join(render_entry_or_exit_plan(rec))
     assert "Entry Plan" in out
     assert "now" in out and "pullback" in out and "confirmation" in out
@@ -138,16 +162,17 @@ def test_render_entry_plan_full_table():
 
 
 def test_render_exit_plan_uses_exit_label():
-    rec = {"exit_plan": [
-        {"trigger": "now", "fraction": 1.0, "price_pct": 0, "note": "full exit"},
-    ]}
+    rec = {
+        "exit_plan": [
+            {"trigger": "now", "fraction": 1.0, "price_pct": 0, "note": "full exit"},
+        ]
+    }
     out = "\n".join(render_entry_or_exit_plan(rec))
     assert "Exit Plan" in out
 
 
 def test_render_plan_marks_auto_generated():
-    rec = {"entry_plan": [{"trigger": "now", "fraction": 1.0, "price_pct": 0}],
-           "entry_plan_auto_generated": True}
+    rec = {"entry_plan": [{"trigger": "now", "fraction": 1.0, "price_pct": 0}], "entry_plan_auto_generated": True}
     out = "\n".join(render_entry_or_exit_plan(rec))
     assert "auto-generated" in out
 

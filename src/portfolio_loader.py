@@ -96,9 +96,7 @@ def parse_holdings_csv(csv_path: str | Path) -> dict:
                 f"Update REQUIRED_HOLDINGS_COLUMNS in portfolio_loader.py if this is intentional."
             )
     else:
-        raise ValueError(
-            f"Holdings CSV has no header row. Expected columns: {sorted(REQUIRED_HOLDINGS_COLUMNS)}"
-        )
+        raise ValueError(f"Holdings CSV has no header row. Expected columns: {sorted(REQUIRED_HOLDINGS_COLUMNS)}")
 
     # Normalize column names (strip quotes and spaces)
     for row in reader:
@@ -150,25 +148,27 @@ def parse_holdings_csv(csv_path: str | Path) -> dict:
         if unrealized and book_value_market and book_value_market != 0:
             unrealized_pct = round(unrealized / book_value_market * 100, 2)
 
-        holdings.append({
-            "ticker": ticker,
-            "raw_symbol": symbol,
-            "exchange": exchange,
-            "name": name,
-            "security_type": security_type,
-            "is_cdr": is_cdr,
-            "quantity": round(quantity, 6) if quantity else 0,
-            "market_price": round(market_price, 4) if market_price else None,
-            "market_currency": market_currency,
-            "avg_cost_market": round(avg_cost_market, 4) if avg_cost_market else None,
-            "avg_cost_cad": round(avg_cost_cad, 4) if avg_cost_cad else None,
-            "market_value": round(market_value, 2) if market_value else None,
-            "market_value_currency": market_value_currency,
-            "book_value_cad": round(book_value_cad, 2) if book_value_cad else None,
-            "unrealized_pnl": round(unrealized, 4) if unrealized else None,
-            "unrealized_pnl_currency": unrealized_currency,
-            "unrealized_pnl_pct": unrealized_pct,
-        })
+        holdings.append(
+            {
+                "ticker": ticker,
+                "raw_symbol": symbol,
+                "exchange": exchange,
+                "name": name,
+                "security_type": security_type,
+                "is_cdr": is_cdr,
+                "quantity": round(quantity, 6) if quantity else 0,
+                "market_price": round(market_price, 4) if market_price else None,
+                "market_currency": market_currency,
+                "avg_cost_market": round(avg_cost_market, 4) if avg_cost_market else None,
+                "avg_cost_cad": round(avg_cost_cad, 4) if avg_cost_cad else None,
+                "market_value": round(market_value, 2) if market_value else None,
+                "market_value_currency": market_value_currency,
+                "book_value_cad": round(book_value_cad, 2) if book_value_cad else None,
+                "unrealized_pnl": round(unrealized, 4) if unrealized else None,
+                "unrealized_pnl_currency": unrealized_currency,
+                "unrealized_pnl_pct": unrealized_pct,
+            }
+        )
 
     # Estimate cash from CASH ETF (Global X High Interest Savings)
     cash_cad = 0.0
@@ -256,16 +256,14 @@ def compute_sector_exposure(holdings: list, market_data: dict) -> dict:
 
 if __name__ == "__main__":
     import sys
+
     path = sys.argv[1] if len(sys.argv) > 1 else "holdings-report.csv"
     portfolio = parse_holdings_csv(path)
     print(f"Loaded {len(portfolio['holdings'])} positions | {portfolio['exported_at']}")
-    total_cad = sum(
-        h["book_value_cad"] or 0 for h in portfolio["holdings"]
-    )
+    total_cad = sum(h["book_value_cad"] or 0 for h in portfolio["holdings"])
     print(f"Total book value (CAD): ${total_cad:,.2f}")
     for h in portfolio["holdings"]:
         cdr_flag = " [CDR]" if h["is_cdr"] else ""
         pnl = h.get("unrealized_pnl_pct")
         pnl_str = f" | P&L {pnl:+.1f}%" if pnl is not None else ""
-        print(f"  {h['ticker']:8s}{cdr_flag:6s} {h['quantity']:8.4f} × "
-              f"${h['market_price'] or 0:.2f} {h['market_currency']}{pnl_str}")
+        print(f"  {h['ticker']:8s}{cdr_flag:6s} {h['quantity']:8.4f} × ${h['market_price'] or 0:.2f} {h['market_currency']}{pnl_str}")

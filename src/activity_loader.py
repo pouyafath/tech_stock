@@ -81,9 +81,7 @@ def parse_activities_csv(
                 f"Update REQUIRED_ACTIVITIES_COLUMNS in activity_loader.py if intentional."
             )
     else:
-        raise ValueError(
-            f"Activities CSV has no header row. Expected columns: {sorted(REQUIRED_ACTIVITIES_COLUMNS)}"
-        )
+        raise ValueError(f"Activities CSV has no header row. Expected columns: {sorted(REQUIRED_ACTIVITIES_COLUMNS)}")
 
     for row in reader:
         row = clean_csv_row(row)
@@ -109,18 +107,20 @@ def parse_activities_csv(
         unit_price = safe_float(row.get("unit_price", ""))
         net_cash = safe_float(row.get("net_cash_amount", ""))
 
-        activities.append({
-            "date": date_str,
-            "type": activity_type,
-            "sub_type": row.get("activity_sub_type", "").strip(),
-            "direction": row.get("direction", "").strip(),
-            "ticker": ticker,
-            "name": row.get("name", "").strip(),
-            "currency": row.get("currency", "").strip(),
-            "quantity": abs(quantity) if quantity else None,
-            "unit_price": unit_price,
-            "net_cash": net_cash,
-        })
+        activities.append(
+            {
+                "date": date_str,
+                "type": activity_type,
+                "sub_type": row.get("activity_sub_type", "").strip(),
+                "direction": row.get("direction", "").strip(),
+                "ticker": ticker,
+                "name": row.get("name", "").strip(),
+                "currency": row.get("currency", "").strip(),
+                "quantity": abs(quantity) if quantity else None,
+                "unit_price": unit_price,
+                "net_cash": net_cash,
+            }
+        )
 
     # Newest first
     activities.sort(key=lambda x: x["date"], reverse=True)
@@ -204,11 +204,7 @@ def holding_days_by_ticker(activities: list[dict], holdings: list[dict] = None) 
                 continue
             earliest = lot_date if earliest is None or lot_date < earliest else earliest
         duration_unknown = earliest is None and ticker in held_tickers
-        lower_bound_days = (
-            (today - oldest_activity_date).days
-            if duration_unknown and oldest_activity_date is not None
-            else None
-        )
+        lower_bound_days = (today - oldest_activity_date).days if duration_unknown and oldest_activity_date is not None else None
         out[ticker] = {
             "ticker": ticker,
             "days_held": (today - earliest).days if earliest else None,
@@ -249,6 +245,7 @@ def format_activities_for_prompt(activities: list[dict], days: int | None = 90) 
 
 if __name__ == "__main__":
     import sys
+
     path = sys.argv[1] if len(sys.argv) > 1 else "activities-export.csv"
     days = int(sys.argv[2]) if len(sys.argv) > 2 else 90
     activities = parse_activities_csv(path, days=days)

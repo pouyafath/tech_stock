@@ -31,6 +31,7 @@ def _get_vader():
     global _vader_analyzer
     if _vader_analyzer is None:
         from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+
         _vader_analyzer = SentimentIntensityAnalyzer()
     return _vader_analyzer
 
@@ -83,12 +84,7 @@ def aggregate_sentiment(articles: list[dict]) -> dict:
 def _parse_publish_time(item: dict) -> datetime:
     """Parse both legacy and current yfinance news timestamp shapes."""
     content = item.get("content") or {}
-    value = (
-        item.get("providerPublishTime")
-        or item.get("published")
-        or content.get("pubDate")
-        or content.get("displayTime")
-    )
+    value = item.get("providerPublishTime") or item.get("published") or content.get("pubDate") or content.get("displayTime")
     if isinstance(value, (int, float)):
         return datetime.fromtimestamp(value)
     if isinstance(value, str) and value.strip():
@@ -167,6 +163,7 @@ def get_news(ticker: str, lookback_days: int = 7, max_articles: int = 5) -> list
     # cache hits only happen within the same calendar day — typically only for
     # the morning/afternoon split, which is the desired behavior.
     from datetime import datetime as _dt
+
     today_key = _dt.now().strftime("%Y%m%d")
 
     try:
@@ -179,13 +176,15 @@ def get_news(ticker: str, lookback_days: int = 7, max_articles: int = 5) -> list
             should_cache=lambda articles: bool(articles),
         )
     except Exception as e:
-        return [{
-            "title": f"Error fetching news: {e}",
-            "publisher": "",
-            "published_at": "",
-            "summary": "",
-            "link": "",
-        }]
+        return [
+            {
+                "title": f"Error fetching news: {e}",
+                "publisher": "",
+                "published_at": "",
+                "summary": "",
+                "link": "",
+            }
+        ]
 
 
 def get_news_for_tickers(tickers: list, lookback_days: int = None) -> dict:
@@ -206,13 +205,15 @@ def get_news_for_tickers(tickers: list, lookback_days: int = None) -> dict:
             try:
                 result[ticker] = future.result()
             except Exception:
-                result[ticker] = [{
-                    "title": "Error fetching news",
-                    "publisher": "",
-                    "published_at": "",
-                    "summary": "",
-                    "link": "",
-                }]
+                result[ticker] = [
+                    {
+                        "title": "Error fetching news",
+                        "publisher": "",
+                        "published_at": "",
+                        "summary": "",
+                        "link": "",
+                    }
+                ]
 
     return result
 

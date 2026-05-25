@@ -6,6 +6,7 @@ the user's follow-through helped or hurt versus the model's recommendation.
 The journal is intentionally local/private:
     data/decision_journal.json
 """
+
 from __future__ import annotations
 
 import json
@@ -191,9 +192,9 @@ def score_decisions(
     """Score recorded decisions over fixed windows from the report date."""
     as_of = as_of or datetime.now()
     recorded = [
-        row for row in journal.get("decisions", []) or []
-        if row.get("user_decision") in RECORDED_DECISIONS
-        and (row.get("recommended_action") or "").upper() in ACTIONABLE_ACTIONS
+        row
+        for row in journal.get("decisions", []) or []
+        if row.get("user_decision") in RECORDED_DECISIONS and (row.get("recommended_action") or "").upper() in ACTIONABLE_ACTIONS
     ]
     recorded = sorted(recorded, key=lambda row: row.get("session_date") or "", reverse=True)[:max_decisions]
 
@@ -227,22 +228,24 @@ def score_decisions(
             model_return = _model_action_return_pct(recommended_action, model_raw)
             user_return = _user_action_return_pct(actual_action, recommended_action, user_raw)
 
-            rows.append({
-                "id": row.get("id"),
-                "ticker": ticker,
-                "session_date": row.get("session_date"),
-                "horizon_days": int(horizon),
-                "recommended_action": recommended_action,
-                "user_decision": row.get("user_decision"),
-                "actual_action": actual_action,
-                "conviction": row.get("conviction"),
-                "raw_move_pct": round(model_raw, 2),
-                "model_action_return_pct": round(model_return, 2),
-                "user_action_return_pct": round(user_return, 2),
-                "decision_delta_pct": round(user_return - model_return, 2),
-                "model_hit": model_return > 0,
-                "user_hit": user_return > 0,
-            })
+            rows.append(
+                {
+                    "id": row.get("id"),
+                    "ticker": ticker,
+                    "session_date": row.get("session_date"),
+                    "horizon_days": int(horizon),
+                    "recommended_action": recommended_action,
+                    "user_decision": row.get("user_decision"),
+                    "actual_action": actual_action,
+                    "conviction": row.get("conviction"),
+                    "raw_move_pct": round(model_raw, 2),
+                    "model_action_return_pct": round(model_return, 2),
+                    "user_action_return_pct": round(user_return, 2),
+                    "decision_delta_pct": round(user_return - model_return, 2),
+                    "model_hit": model_return > 0,
+                    "user_hit": user_return > 0,
+                }
+            )
     return rows
 
 
@@ -289,9 +292,7 @@ def summarize_outcomes(outcomes: list[dict], status: dict) -> dict:
 
     override_rows = [row for row in outcomes if row.get("user_decision") not in {"accepted", "executed"}]
     missed_winners = [
-        row for row in override_rows
-        if row.get("recommended_action") in {"BUY", "ADD"}
-        and row.get("model_action_return_pct", 0) > 3
+        row for row in override_rows if row.get("recommended_action") in {"BUY", "ADD"} and row.get("model_action_return_pct", 0) > 3
     ]
 
     return {
@@ -481,10 +482,7 @@ if __name__ == "__main__":
         card = run_scorecard(args.journal)
         status = card.get("journal") or {}
         overall = card.get("overall") or {}
-        print(
-            f"Journal: {status.get('total', 0)} entries, "
-            f"{status.get('pending', 0)} pending, {status.get('recorded', 0)} recorded"
-        )
+        print(f"Journal: {status.get('total', 0)} entries, {status.get('pending', 0)} pending, {status.get('recorded', 0)} recorded")
         print(
             f"Scored windows: {card.get('n_scored_windows', 0)} | "
             f"model avg {overall.get('model_avg_return_pct', 0):+.2f}% | "

@@ -36,6 +36,7 @@ The Claude prompt sees a "THESIS DECAY" block listing positions due for
 review and any forced exits.  apply_quality_gates enforces forced exits
 similarly to the 2-year stale rule.
 """
+
 from __future__ import annotations
 
 import json
@@ -43,8 +44,8 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Iterable
 
-DEFAULT_REVIEW_INTERVAL_DAYS = 90    # ~quarterly
-DEFAULT_FORCE_EXIT_AFTER = 4          # 4 quarters of "not yet" → force exit
+DEFAULT_REVIEW_INTERVAL_DAYS = 90  # ~quarterly
+DEFAULT_FORCE_EXIT_AFTER = 4  # 4 quarters of "not yet" → force exit
 
 
 def _load(path: Path) -> dict:
@@ -114,14 +115,14 @@ def record_new_entries(
         if ticker in existing_tickers or ticker in held_tickers:
             continue
         entry = {
-            "ticker":              ticker,
-            "entry_date":          today_iso,
-            "entry_session":       session_file,
-            "original_thesis":     rec.get("thesis", ""),
+            "ticker": ticker,
+            "entry_date": today_iso,
+            "entry_session": session_file,
+            "original_thesis": rec.get("thesis", ""),
             "original_conviction": rec.get("conviction", 0),
-            "original_action":     action,
-            "review_log":          [],
-            "force_exit_after":    DEFAULT_FORCE_EXIT_AFTER,
+            "original_action": action,
+            "review_log": [],
+            "force_exit_after": DEFAULT_FORCE_EXIT_AFTER,
             "force_exit_after_days": DEFAULT_REVIEW_INTERVAL_DAYS,
         }
         state[_thesis_key(ticker, today_iso)] = entry
@@ -236,13 +237,15 @@ def append_review(
     state = _load(log_path)
     if key not in state:
         return
-    state[key].setdefault("review_log", []).append({
-        "review_date":        today.isoformat(),
-        "verdict":            verdict,
-        "current_conviction": current_conviction,
-        "current_action":     current_action,
-        "notes":              notes,
-    })
+    state[key].setdefault("review_log", []).append(
+        {
+            "review_date": today.isoformat(),
+            "verdict": verdict,
+            "current_conviction": current_conviction,
+            "current_action": current_action,
+            "notes": notes,
+        }
+    )
     _save(log_path, state)
 
 
@@ -274,8 +277,7 @@ def format_for_prompt(
         lines.append("  Due for review (assess thesis progress, output verdict in your thesis text):")
         for entry in due_for_review[:8]:
             lines.append(
-                f"    - {entry['ticker']}: entered {entry['entry_date']}, "
-                f"original thesis: \"{entry.get('original_thesis', '')[:140]}\""
+                f'    - {entry["ticker"]}: entered {entry["entry_date"]}, original thesis: "{entry.get("original_thesis", "")[:140]}"'
             )
     return "\n".join(lines)
 
@@ -295,10 +297,7 @@ def update_reviews_from_recommendation(
     due = quarterly_reviews_due(log_path, today=today)
     if not due:
         return
-    recs_by_ticker = {
-        (r.get("ticker") or "").upper(): r
-        for r in recommendation.get("recommendations") or []
-    }
+    recs_by_ticker = {(r.get("ticker") or "").upper(): r for r in recommendation.get("recommendations") or []}
     for entry in due:
         ticker = entry["ticker"]
         rec = recs_by_ticker.get(ticker)

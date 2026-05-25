@@ -43,11 +43,13 @@ def _write_holdings(path):
         "Market Unrealized Returns Currency": "USD",
     }
     path.write_text(
-        "\n".join([
-            ",".join(HEADER),
-            ",".join(str(row.get(col, "")) for col in HEADER),
-            '"As of 2026-05-18 16:00"',
-        ])
+        "\n".join(
+            [
+                ",".join(HEADER),
+                ",".join(str(row.get(col, "")) for col in HEADER),
+                '"As of 2026-05-18 16:00"',
+            ]
+        )
     )
 
 
@@ -60,13 +62,17 @@ def test_mocked_report_pipeline_creates_artifacts_and_view_model(tmp_path, monke
     data_dir.mkdir()
     reports_dir.mkdir()
     log_dir.mkdir()
-    (config_dir / "settings.json").write_text(json.dumps({
-        "budget_usd": 500,
-        "budget_cad": 0,
-        "enable_decision_journal": False,
-        "cad_per_usd_assumption": 1.37,
-        "risk_benchmark_tickers": ["SPY", "QQQ", "SMH"],
-    }))
+    (config_dir / "settings.json").write_text(
+        json.dumps(
+            {
+                "budget_usd": 500,
+                "budget_cad": 0,
+                "enable_decision_journal": False,
+                "cad_per_usd_assumption": 1.37,
+                "risk_benchmark_tickers": ["SPY", "QQQ", "SMH"],
+            }
+        )
+    )
     (config_dir / "watchlist.json").write_text('{"entries": []}')
     holdings = tmp_path / "holdings-report-2026-05-18.csv"
     _write_holdings(holdings)
@@ -91,22 +97,24 @@ def test_mocked_report_pipeline_creates_artifacts_and_view_model(tmp_path, monke
     recommendation = {
         "session_summary": "mocked report",
         "portfolio_health": {"total_value_usd_equivalent": 200, "overall_pnl_pct": 10, "concentration_risk": "low"},
-        "recommendations": [{
-            "ticker": "AAPL",
-            "action": "BUY",
-            "invest_amount_usd": 100,
-            "conviction": 8,
-            "thesis": "If quote stays fresh, buy; if catalyst fails, wait.",
-            "technical_basis": "mock",
-            "net_expected_pct": 5,
-            "fee_hurdle_pct": 0.5,
-            "time_horizon": "1-3 months",
-            "risk_controls": {"entry_zone_low_pct": -2, "entry_zone_high_pct": 1, "stop_loss_pct": -6, "take_profit_pct": 12},
-            "catalyst_verified": True,
-            "catalyst_source": "Mock source",
-            "manual_review_required": False,
-            "hold_tier": None,
-        }],
+        "recommendations": [
+            {
+                "ticker": "AAPL",
+                "action": "BUY",
+                "invest_amount_usd": 100,
+                "conviction": 8,
+                "thesis": "If quote stays fresh, buy; if catalyst fails, wait.",
+                "technical_basis": "mock",
+                "net_expected_pct": 5,
+                "fee_hurdle_pct": 0.5,
+                "time_horizon": "1-3 months",
+                "risk_controls": {"entry_zone_low_pct": -2, "entry_zone_high_pct": 1, "stop_loss_pct": -6, "take_profit_pct": 12},
+                "catalyst_verified": True,
+                "catalyst_source": "Mock source",
+                "manual_review_required": False,
+                "hold_tier": None,
+            }
+        ],
         "warnings": [],
         "quality_warnings": [],
     }
@@ -118,7 +126,9 @@ def test_mocked_report_pipeline_creates_artifacts_and_view_model(tmp_path, monke
     monkeypatch.setattr(main, "THESIS_LOG_PATH", data_dir / "thesis_log.json")
     monkeypatch.setattr(main, "DECISION_JOURNAL_PATH", data_dir / "decision_journal.json")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    monkeypatch.setattr(main, "get_market_data", lambda tickers: {ticker: md.get(ticker, {"current_price": 1, "currency": "USD"}) for ticker in tickers})
+    monkeypatch.setattr(
+        main, "get_market_data", lambda tickers: {ticker: md.get(ticker, {"current_price": 1, "currency": "USD"}) for ticker in tickers}
+    )
     monkeypatch.setattr(main, "get_news_for_tickers", lambda tickers: {"AAPL": [{"title": "Mock catalyst", "published_at": "2026-05-18"}]})
     monkeypatch.setattr(main, "enrich", lambda tickers: {"sources_active": ["mock"], "degradation": [], "per_ticker": {}})
     monkeypatch.setattr(main, "build_fee_snapshot", lambda tickers: {})

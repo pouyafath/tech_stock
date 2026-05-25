@@ -20,12 +20,13 @@ This module produces deterministic tags from `get_context_moves()` output:
 The "rotating_*" tags require a previous session's snapshot for comparison;
 without it, only static leader/laggard tags are emitted.
 """
+
 from __future__ import annotations
 
 from typing import Iterable
 
-DEFAULT_QUINTILE_TOP = 0.4    # top 40% = leaders (handles small N: with 8 ETFs, 3 leaders)
-DEFAULT_QUINTILE_BOT = 0.4    # bottom 40% = laggards
+DEFAULT_QUINTILE_TOP = 0.4  # top 40% = leaders (handles small N: with 8 ETFs, 3 leaders)
+DEFAULT_QUINTILE_BOT = 0.4  # bottom 40% = laggards
 
 
 def _safe_float(value, default: float | None = None) -> float | None:
@@ -94,22 +95,22 @@ def classify(
         prev_n = len(prev_rank)
         if prev_n:
             half = prev_n // 2
-            prev_top_half = {r["ticker"] for r in prev_rank[:max(1, half)]}
-            prev_bot_half = {r["ticker"] for r in prev_rank[-max(1, half):]}
+            prev_top_half = {r["ticker"] for r in prev_rank[: max(1, half)]}
+            prev_bot_half = {r["ticker"] for r in prev_rank[-max(1, half) :]}
             curr_n = n
             curr_half = curr_n // 2
-            curr_top_half = {r["ticker"] for r in full_rank[:max(1, curr_half)]}
-            curr_bot_half = {r["ticker"] for r in full_rank[-max(1, curr_half):]}
+            curr_top_half = {r["ticker"] for r in full_rank[: max(1, curr_half)]}
+            curr_bot_half = {r["ticker"] for r in full_rank[-max(1, curr_half) :]}
 
             rotating_in = sorted((curr_top_half & prev_bot_half) - prev_top_half)
             rotating_out = sorted((curr_bot_half & prev_top_half) - prev_bot_half)
 
     return {
-        "leaders":      leaders,
-        "laggards":     laggards,
-        "rotating_in":  rotating_in,
+        "leaders": leaders,
+        "laggards": laggards,
+        "rotating_in": rotating_in,
         "rotating_out": rotating_out,
-        "snapshot":     full_rank,
+        "snapshot": full_rank,
     }
 
 

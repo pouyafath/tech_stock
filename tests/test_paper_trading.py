@@ -1,4 +1,5 @@
 """Tests for the --paper trading simulator."""
+
 from datetime import date
 
 from src.paper_trading import (
@@ -21,9 +22,11 @@ def test_initialize_defaults_to_25k(tmp_path):
 def test_buy_deducts_cash_credits_shares(tmp_path):
     p = tmp_path / "p.json"
     initialize(p, starting_cash_usd=10_000)
-    rec = {"recommendations": [
-        {"ticker": "NVDA", "action": "BUY", "invest_amount_usd": 1000},
-    ]}
+    rec = {
+        "recommendations": [
+            {"ticker": "NVDA", "action": "BUY", "invest_amount_usd": 1000},
+        ]
+    }
     md = {"NVDA": {"current_price": 500.0}}
     state = apply_session(p, rec, md, session_file="s.json", today=date(2026, 5, 6))
     assert state["current_cash_usd"] < 10_000
@@ -55,11 +58,17 @@ def test_sell_closes_position(tmp_path):
     p = tmp_path / "p.json"
     initialize(p, starting_cash_usd=10_000)
     md_buy = {"NVDA": {"current_price": 500.0}}
-    apply_session(p, {"recommendations": [{"ticker": "NVDA", "action": "BUY", "invest_amount_usd": 1000}]},
-                  md_buy, session_file="b.json", today=date(2026, 5, 6))
+    apply_session(
+        p,
+        {"recommendations": [{"ticker": "NVDA", "action": "BUY", "invest_amount_usd": 1000}]},
+        md_buy,
+        session_file="b.json",
+        today=date(2026, 5, 6),
+    )
     md_sell = {"NVDA": {"current_price": 600.0}}  # +20%
-    state = apply_session(p, {"recommendations": [{"ticker": "NVDA", "action": "SELL"}]},
-                          md_sell, session_file="s.json", today=date(2026, 6, 6))
+    state = apply_session(
+        p, {"recommendations": [{"ticker": "NVDA", "action": "SELL"}]}, md_sell, session_file="s.json", today=date(2026, 6, 6)
+    )
     assert "NVDA" not in state["positions"]
     # Cash recovered + profit (less fees)
     assert state["current_cash_usd"] > 10_000
@@ -69,10 +78,10 @@ def test_trim_partial_exit(tmp_path):
     p = tmp_path / "p.json"
     initialize(p, starting_cash_usd=10_000)
     md = {"NVDA": {"current_price": 500}}
-    apply_session(p, {"recommendations": [{"ticker": "NVDA", "action": "BUY", "invest_amount_usd": 5000}]},
-                  md, session_file="b.json")
-    state_before = apply_session(p, {"recommendations": [{"ticker": "NVDA", "action": "TRIM"}]},
-                                  md, session_file="t.json", trim_fraction=0.30)
+    apply_session(p, {"recommendations": [{"ticker": "NVDA", "action": "BUY", "invest_amount_usd": 5000}]}, md, session_file="b.json")
+    state_before = apply_session(
+        p, {"recommendations": [{"ticker": "NVDA", "action": "TRIM"}]}, md, session_file="t.json", trim_fraction=0.30
+    )
     # After 30% trim, ~70% of original shares remain
     remaining = state_before["positions"]["NVDA"]["shares"]
     assert remaining > 0
@@ -96,10 +105,10 @@ def test_performance_summary_returns_metrics(tmp_path):
     p = tmp_path / "p.json"
     initialize(p, starting_cash_usd=10_000)
     md = {"NVDA": {"current_price": 500}}
-    apply_session(p, {"recommendations": [{"ticker": "NVDA", "action": "BUY", "invest_amount_usd": 1000}]},
-                  md, session_file="x.json")
+    apply_session(p, {"recommendations": [{"ticker": "NVDA", "action": "BUY", "invest_amount_usd": 1000}]}, md, session_file="x.json")
     md["NVDA"]["current_price"] = 600  # +20% on $1000 invested ≈ $200 gain (less fees)
     import json
+
     state = json.loads(p.read_text())
     summary = performance_summary(state, md)
     assert summary["starting_value_usd"] == 10_000
@@ -108,9 +117,14 @@ def test_performance_summary_returns_metrics(tmp_path):
 
 
 def test_format_for_report_renders_when_trades_present():
-    summary = {"starting_value_usd": 10000, "current_value_usd": 11000,
-               "current_cash_usd": 5000, "total_return_pct": 10.0,
-               "n_trades": 5, "n_open_positions": 2}
+    summary = {
+        "starting_value_usd": 10000,
+        "current_value_usd": 11000,
+        "current_cash_usd": 5000,
+        "total_return_pct": 10.0,
+        "n_trades": 5,
+        "n_open_positions": 2,
+    }
     out = "\n".join(format_for_report(summary))
     assert "Paper Portfolio" in out
     assert "10,000" in out  # starting capital

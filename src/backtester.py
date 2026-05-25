@@ -93,15 +93,17 @@ def load_trade_history(csv_path: str | Path) -> list[dict]:
             for row in reader:
                 if not row.get("date") or not row.get("ticker"):
                     continue
-                trades.append({
-                    "date": row["date"].strip(),
-                    "ticker": row["ticker"].strip(),
-                    "action": row.get("action", "").strip().upper(),
-                    "shares": safe_float(row.get("shares", "")),
-                    "price_cad": safe_float(row.get("price_cad", "")),
-                    "followed_recommendation": row.get("followed_recommendation", "").strip().lower() in ("y", "yes", "true", "1"),
-                    "notes": row.get("notes", "").strip(),
-                })
+                trades.append(
+                    {
+                        "date": row["date"].strip(),
+                        "ticker": row["ticker"].strip(),
+                        "action": row.get("action", "").strip().upper(),
+                        "shares": safe_float(row.get("shares", "")),
+                        "price_cad": safe_float(row.get("price_cad", "")),
+                        "followed_recommendation": row.get("followed_recommendation", "").strip().lower() in ("y", "yes", "true", "1"),
+                        "notes": row.get("notes", "").strip(),
+                    }
+                )
     except (OSError, csv.Error):
         return []
 
@@ -202,22 +204,24 @@ def evaluate_recommendations(recs: list[dict], as_of: datetime = None) -> list[d
         # that lose money after slippage.
         hit = net_actual_for_action > 0
 
-        results.append({
-            "ticker": ticker,
-            "session_date": session_date,
-            "action": action,
-            "conviction": rec.get("conviction"),
-            "time_horizon": rec.get("time_horizon", ""),
-            "expected_pct": round(float(expected_for_action), 2),
-            # actual_pct is now the NET return (after fees + slippage) for honesty
-            "actual_pct": round(float(net_actual_for_action), 2),
-            # gross_pct preserves the pre-fee number for calibration / debugging
-            "gross_pct": round(float(actual_for_action), 2),
-            "fee_drag_pct": round(float(round_trip_cost_pct + slippage_pct), 4),
-            "start_price": start_price,
-            "end_price": end_price,
-            "hit": hit,
-        })
+        results.append(
+            {
+                "ticker": ticker,
+                "session_date": session_date,
+                "action": action,
+                "conviction": rec.get("conviction"),
+                "time_horizon": rec.get("time_horizon", ""),
+                "expected_pct": round(float(expected_for_action), 2),
+                # actual_pct is now the NET return (after fees + slippage) for honesty
+                "actual_pct": round(float(net_actual_for_action), 2),
+                # gross_pct preserves the pre-fee number for calibration / debugging
+                "gross_pct": round(float(actual_for_action), 2),
+                "fee_drag_pct": round(float(round_trip_cost_pct + slippage_pct), 4),
+                "start_price": start_price,
+                "end_price": end_price,
+                "hit": hit,
+            }
+        )
 
     return results
 
@@ -322,6 +326,7 @@ def run_backtest(log_dir: str | Path, as_of: datetime = None) -> dict:
 
 if __name__ == "__main__":
     import sys
+
     log_dir = sys.argv[1] if len(sys.argv) > 1 else "data/recommendations_log"
     summary = run_backtest(log_dir)
     print(f"Evaluated {summary['n_samples']} mature recommendations")

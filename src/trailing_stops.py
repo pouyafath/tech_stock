@@ -31,6 +31,7 @@ This is approximate: it doesn't see intraday highs, and history may not reach
 back to the entry date. But it's deterministic, free, and good enough to flag
 "this position was up 30% last week and is now back to +12%, tighten the stop."
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -85,9 +86,9 @@ def compute_trailing_stop(
     else:  # "trail_pct"
         stop = peak * (1.0 - value / 100.0)
     return {
-        "stop_price":       round(stop, 2),
+        "stop_price": round(stop, 2),
         "gain_pct_at_peak": round(gain_at_peak_pct, 2),
-        "trail_kind":       kind,
+        "trail_kind": kind,
     }
 
 
@@ -130,18 +131,20 @@ def evaluate(
         gain_pct_now = (current_price / avg_cost - 1.0) * 100.0 if avg_cost else 0.0
         breached = current_price is not None and stop_price is not None and current_price <= stop_price
 
-        out.append({
-            "ticker":              ticker,
-            "trail_kind":          result["trail_kind"],
-            "avg_cost":            round(float(avg_cost), 2),
-            "current_price":       round(float(current_price), 2),
-            "peak_price":          round(float(peak), 2) if peak else None,
-            "stop_price":          stop_price,
-            "current_gain_pct":    round(gain_pct_now, 2),
-            "peak_gain_pct":       result["gain_pct_at_peak"],
-            "breached":            bool(breached),
-            "recommended_action":  "TRIM" if breached else "HOLD",
-        })
+        out.append(
+            {
+                "ticker": ticker,
+                "trail_kind": result["trail_kind"],
+                "avg_cost": round(float(avg_cost), 2),
+                "current_price": round(float(current_price), 2),
+                "peak_price": round(float(peak), 2) if peak else None,
+                "stop_price": stop_price,
+                "current_gain_pct": round(gain_pct_now, 2),
+                "peak_gain_pct": result["gain_pct_at_peak"],
+                "breached": bool(breached),
+                "recommended_action": "TRIM" if breached else "HOLD",
+            }
+        )
 
     # Sort breached first, then by largest peak gain
     out.sort(key=lambda r: (not r["breached"], -(r["peak_gain_pct"] or 0)))

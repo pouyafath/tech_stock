@@ -181,8 +181,8 @@ def enrich(tickers: list[str]) -> dict:
 
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
         ticker_futures = {ex.submit(_enrich_ticker_fast, t): t for t in tickers}
-        macro_future   = ex.submit(_safe(macro_context, "fred"))
-        crypto_future  = ex.submit(_safe(crypto_context, "coingecko"))
+        macro_future = ex.submit(_safe(macro_context, "fred"))
+        crypto_future = ex.submit(_safe(crypto_context, "coingecko"))
 
         for future in as_completed(list(ticker_futures) + [macro_future, crypto_future]):
             if future is macro_future:
@@ -243,21 +243,25 @@ def enrich(tickers: list[str]) -> dict:
 
 def _safe(fn, source: str = None):
     """Wrap a zero-arg callable to never raise."""
+
     def wrapper():
         try:
             return fn()
         except Exception as e:
             return {"_degradation": _degradation(source or fn.__name__, fn.__name__, e)}
+
     return wrapper
 
 
 def format_enrichment_for_prompt(enriched: dict) -> str:
     """Convert enriched data to a concise text block for the Claude prompt."""
-    if not enriched or not any([
-        enriched.get("per_ticker"),
-        enriched.get("macro"),
-        enriched.get("crypto"),
-    ]):
+    if not enriched or not any(
+        [
+            enriched.get("per_ticker"),
+            enriched.get("macro"),
+            enriched.get("crypto"),
+        ]
+    ):
         return ""
 
     lines = ["\n## ENRICHED MARKET INTELLIGENCE\n"]
@@ -269,10 +273,7 @@ def format_enrichment_for_prompt(enriched: dict) -> str:
         lines.append("### Data Coverage / Degradation")
         for item in degradation[:12]:
             ticker = f"{item.get('ticker')}: " if item.get("ticker") else ""
-            lines.append(
-                f"  - {ticker}{item.get('source')}.{item.get('operation')} "
-                f"unavailable ({item.get('error')})"
-            )
+            lines.append(f"  - {ticker}{item.get('source')}.{item.get('operation')} unavailable ({item.get('error')})")
         lines.append("")
 
     # ── Macro context ─────────────────────────────────────────────────────
@@ -312,9 +313,7 @@ def format_enrichment_for_prompt(enriched: dict) -> str:
                 f"7d: {(crypto.get('btc_change_7d') or 0):+.1f}%)"
             )
         if crypto.get("fear_greed_index") is not None:
-            lines.append(
-                f"  - Fear & Greed: {crypto['fear_greed_index']} ({crypto.get('fear_greed_label', '')})"
-            )
+            lines.append(f"  - Fear & Greed: {crypto['fear_greed_index']} ({crypto.get('fear_greed_label', '')})")
         lines.append(f"  - Risk signal: **{crypto.get('risk_signal', 'NEUTRAL')}**")
         lines.append(f"  - {crypto.get('risk_note', '')}")
         lines.append("")
@@ -356,10 +355,7 @@ def format_enrichment_for_prompt(enriched: dict) -> str:
             surp = recent.get("surprise_pct")
             if surp is not None:
                 icon = "✅" if surp > 0 else "❌"
-                t_lines.append(
-                    f"  - Last EPS surprise: {icon} {surp:+.1f}% "
-                    f"({recent.get('period', '')})"
-                )
+                t_lines.append(f"  - Last EPS surprise: {icon} {surp:+.1f}% ({recent.get('period', '')})")
             # Streak: number of consecutive beats
             beats = sum(1 for q in eh if (q.get("surprise_pct") or 0) > 0)
             if beats == len(eh) and len(eh) >= 3:
@@ -383,20 +379,14 @@ def format_enrichment_for_prompt(enriched: dict) -> str:
             after_str = f", after-hours {after:+.1f}%" if after is not None else ""
             snapshot_change = snap.get("snapshot_change_pct")
             snapshot_str = f", snapshot change {snapshot_change:+.1f}%" if snapshot_change is not None else ""
-            t_lines.append(
-                f"  - Previous session (Polygon): VWAP {snap.get('vwap_pct', 0):+.1f}% -> {vwap_sig}"
-                f"{after_str}{snapshot_str}"
-            )
+            t_lines.append(f"  - Previous session (Polygon): VWAP {snap.get('vwap_pct', 0):+.1f}% -> {vwap_sig}{after_str}{snapshot_str}")
 
         fh_sent = data.get("finnhub_sentiment")
         if fh_sent:
             bull = fh_sent.get("bullish_pct")
             bear = fh_sent.get("bearish_pct")
             if bull is not None:
-                t_lines.append(
-                    f"  - News buzz (Finnhub): {bull*100:.0f}% bullish / "
-                    f"{bear*100:.0f}% bearish"
-                )
+                t_lines.append(f"  - News buzz (Finnhub): {bull * 100:.0f}% bullish / {bear * 100:.0f}% bearish")
 
         av_sent = data.get("av_sentiment")
         if av_sent:
@@ -421,6 +411,7 @@ def format_enrichment_for_prompt(enriched: dict) -> str:
 if __name__ == "__main__":
     from dotenv import load_dotenv
     from pathlib import Path
+
     load_dotenv(Path(__file__).parent.parent / ".env")
 
     tickers = ["NVDA", "MSFT", "PLTR", "SHOP.TO"]

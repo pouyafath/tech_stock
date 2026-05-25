@@ -1,4 +1,5 @@
 """Trailing stops auto-tighten as positions appreciate."""
+
 from src.report_quality import apply_quality_gates
 from src.trailing_stops import (
     DEFAULT_SCHEDULE,
@@ -40,11 +41,11 @@ def test_returns_none_for_invalid_avg_cost():
 
 def test_evaluate_only_returns_active_or_breached():
     holdings = [
-        {"ticker": "WIN",  "avg_cost_market": 100},   # +20%, active
-        {"ticker": "FLAT", "avg_cost_market": 100},   # +5%, no trail
+        {"ticker": "WIN", "avg_cost_market": 100},  # +20%, active
+        {"ticker": "FLAT", "avg_cost_market": 100},  # +5%, no trail
     ]
     market_data = {
-        "WIN":  {"current_price": 120, "history": [{"date": "2026-04-01", "close": 130}]},
+        "WIN": {"current_price": 120, "history": [{"date": "2026-04-01", "close": 130}]},
         "FLAT": {"current_price": 105, "history": [{"date": "2026-04-01", "close": 106}]},
     }
     out = evaluate(holdings, market_data, holding_days_map={})
@@ -75,14 +76,30 @@ def test_evaluate_marks_breached():
 
 def test_format_for_prompt_groups_breached_first():
     alerts = [
-        {"ticker": "OK", "trail_kind": "trail_pct", "stop_price": 95.0,
-         "current_price": 110.0, "peak_price": 115.0, "avg_cost": 100.0,
-         "current_gain_pct": 10.0, "peak_gain_pct": 15.0, "breached": False,
-         "recommended_action": "HOLD"},
-        {"ticker": "OUT", "trail_kind": "trail_pct", "stop_price": 100.0,
-         "current_price": 99.0, "peak_price": 120.0, "avg_cost": 90.0,
-         "current_gain_pct": 10.0, "peak_gain_pct": 33.0, "breached": True,
-         "recommended_action": "TRIM"},
+        {
+            "ticker": "OK",
+            "trail_kind": "trail_pct",
+            "stop_price": 95.0,
+            "current_price": 110.0,
+            "peak_price": 115.0,
+            "avg_cost": 100.0,
+            "current_gain_pct": 10.0,
+            "peak_gain_pct": 15.0,
+            "breached": False,
+            "recommended_action": "HOLD",
+        },
+        {
+            "ticker": "OUT",
+            "trail_kind": "trail_pct",
+            "stop_price": 100.0,
+            "current_price": 99.0,
+            "peak_price": 120.0,
+            "avg_cost": 90.0,
+            "current_gain_pct": 10.0,
+            "peak_gain_pct": 33.0,
+            "breached": True,
+            "recommended_action": "TRIM",
+        },
     ]
     block = format_for_prompt(alerts)
     assert "BREACHED" in block
@@ -97,16 +114,26 @@ def test_default_schedule_matches_strategy_doc():
 
 
 def test_apply_quality_gates_auto_trims_breached():
-    rec = {"recommendations": [
-        {"ticker": "WINNER", "action": "HOLD", "conviction": 7,
-         "thesis": "long term hold"},
-    ], "priority_actions": []}
-    alerts = [{
-        "ticker": "WINNER", "trail_kind": "trail_pct", "stop_price": 119.6,
-        "current_price": 115.0, "peak_price": 130.0, "avg_cost": 100.0,
-        "current_gain_pct": 15.0, "peak_gain_pct": 30.0, "breached": True,
-        "recommended_action": "TRIM",
-    }]
+    rec = {
+        "recommendations": [
+            {"ticker": "WINNER", "action": "HOLD", "conviction": 7, "thesis": "long term hold"},
+        ],
+        "priority_actions": [],
+    }
+    alerts = [
+        {
+            "ticker": "WINNER",
+            "trail_kind": "trail_pct",
+            "stop_price": 119.6,
+            "current_price": 115.0,
+            "peak_price": 130.0,
+            "avg_cost": 100.0,
+            "current_gain_pct": 15.0,
+            "peak_gain_pct": 30.0,
+            "breached": True,
+            "recommended_action": "TRIM",
+        }
+    ]
     out = apply_quality_gates(rec, [], trailing_alerts=alerts)
     target = out["recommendations"][0]
     assert target["action"] == "TRIM"
@@ -114,15 +141,26 @@ def test_apply_quality_gates_auto_trims_breached():
 
 
 def test_apply_quality_gates_appends_breach_for_unrec_ticker():
-    rec = {"recommendations": [
-        {"ticker": "OTHER", "action": "BUY", "conviction": 7, "invest_amount_usd": 200},
-    ], "priority_actions": []}
-    alerts = [{
-        "ticker": "ORPHAN", "trail_kind": "trail_pct", "stop_price": 95.0,
-        "current_price": 90.0, "peak_price": 110.0, "avg_cost": 80.0,
-        "current_gain_pct": 12.5, "peak_gain_pct": 37.5, "breached": True,
-        "recommended_action": "TRIM",
-    }]
+    rec = {
+        "recommendations": [
+            {"ticker": "OTHER", "action": "BUY", "conviction": 7, "invest_amount_usd": 200},
+        ],
+        "priority_actions": [],
+    }
+    alerts = [
+        {
+            "ticker": "ORPHAN",
+            "trail_kind": "trail_pct",
+            "stop_price": 95.0,
+            "current_price": 90.0,
+            "peak_price": 110.0,
+            "avg_cost": 80.0,
+            "current_gain_pct": 12.5,
+            "peak_gain_pct": 37.5,
+            "breached": True,
+            "recommended_action": "TRIM",
+        }
+    ]
     out = apply_quality_gates(rec, [], trailing_alerts=alerts)
     auto = [r for r in out["recommendations"] if r.get("auto_generated")]
     assert any(r["ticker"] == "ORPHAN" and r["action"] == "TRIM" for r in auto)

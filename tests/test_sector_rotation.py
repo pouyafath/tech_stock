@@ -1,4 +1,5 @@
 """Sector rotation 1-month relative-strength tracker."""
+
 from src.sector_rotation import classify, format_for_prompt, rank_sectors
 
 
@@ -23,11 +24,18 @@ def test_rank_filters_errors_and_missing():
 
 
 def test_classify_identifies_leaders_and_laggards():
-    ctx = _ctx({
-        "XLK": 6.0, "XLY": 4.5, "XLV": 3.0,
-        "XLF": 1.0, "XLI": 0.5,
-        "XLU": -1.0, "XLP": -2.0, "XLE": -3.5,
-    })
+    ctx = _ctx(
+        {
+            "XLK": 6.0,
+            "XLY": 4.5,
+            "XLV": 3.0,
+            "XLF": 1.0,
+            "XLI": 0.5,
+            "XLU": -1.0,
+            "XLP": -2.0,
+            "XLE": -3.5,
+        }
+    )
     result = classify(ctx)
     leader_tickers = [r["ticker"] for r in result["leaders"]]
     laggard_tickers = [r["ticker"] for r in result["laggards"]]
@@ -36,29 +44,61 @@ def test_classify_identifies_leaders_and_laggards():
 
 
 def test_rotating_in_detected_when_bottom_moves_to_top():
-    prev = _ctx({
-        "XLK": 5.0, "XLY": 4.0, "XLV": 3.0, "XLF": 1.0,
-        "XLI": -1.0, "XLU": -2.0, "XLP": -3.0, "XLE": -4.0,
-    })
+    prev = _ctx(
+        {
+            "XLK": 5.0,
+            "XLY": 4.0,
+            "XLV": 3.0,
+            "XLF": 1.0,
+            "XLI": -1.0,
+            "XLU": -2.0,
+            "XLP": -3.0,
+            "XLE": -4.0,
+        }
+    )
     # XLE moves from worst to top half
-    curr = _ctx({
-        "XLE": 5.0, "XLK": 4.0, "XLY": 3.0, "XLV": 2.0,
-        "XLF": 0.0, "XLI": -1.0, "XLU": -2.0, "XLP": -3.0,
-    })
+    curr = _ctx(
+        {
+            "XLE": 5.0,
+            "XLK": 4.0,
+            "XLY": 3.0,
+            "XLV": 2.0,
+            "XLF": 0.0,
+            "XLI": -1.0,
+            "XLU": -2.0,
+            "XLP": -3.0,
+        }
+    )
     result = classify(curr, previous_market_context=prev)
     assert "XLE" in result["rotating_in"]
 
 
 def test_rotating_out_detected_when_top_moves_to_bottom():
-    prev = _ctx({
-        "XLK": 5.0, "XLY": 4.0, "XLV": 3.0, "XLF": 1.0,
-        "XLI": -1.0, "XLU": -2.0, "XLP": -3.0, "XLE": -4.0,
-    })
+    prev = _ctx(
+        {
+            "XLK": 5.0,
+            "XLY": 4.0,
+            "XLV": 3.0,
+            "XLF": 1.0,
+            "XLI": -1.0,
+            "XLU": -2.0,
+            "XLP": -3.0,
+            "XLE": -4.0,
+        }
+    )
     # XLK falls from top to bottom
-    curr = _ctx({
-        "XLF": 5.0, "XLY": 4.0, "XLV": 3.0, "XLI": 1.0,
-        "XLU": 0.0, "XLP": -1.0, "XLE": -2.0, "XLK": -5.0,
-    })
+    curr = _ctx(
+        {
+            "XLF": 5.0,
+            "XLY": 4.0,
+            "XLV": 3.0,
+            "XLI": 1.0,
+            "XLU": 0.0,
+            "XLP": -1.0,
+            "XLE": -2.0,
+            "XLK": -5.0,
+        }
+    )
     result = classify(curr, previous_market_context=prev)
     assert "XLK" in result["rotating_out"]
 

@@ -61,6 +61,7 @@ def get_previous_session(
 
     # Filenames look like 20260506_0930_morning.json — extract date+time directly.
     import re as _re
+
     _filename_pattern = _re.compile(r"^(\d{8})_(\d{4})_(morning|afternoon)\.json$")
 
     def _file_dt(path: Path) -> datetime | None:
@@ -142,12 +143,14 @@ def compute_drift(
     # Tickers in both sessions — check action/conviction/sign flips
     for ticker, now_rec in current_by.items():
         if ticker not in prev_by:
-            drift.append({
-                "ticker": ticker,
-                "drift_type": "new_ticker",
-                "was": None,
-                "now": _summary(now_rec),
-            })
+            drift.append(
+                {
+                    "ticker": ticker,
+                    "drift_type": "new_ticker",
+                    "was": None,
+                    "now": _summary(now_rec),
+                }
+            )
             continue
 
         was_rec = prev_by[ticker]
@@ -163,42 +166,50 @@ def compute_drift(
 
         # Action flip: HOLD ↔ trade is interesting; trade ↔ trade is more so
         if was_action != now_action and was_action and now_action:
-            drift.append({
-                "ticker": ticker,
-                "drift_type": "action_flip",
-                "was": was_summary,
-                "now": now_summary,
-            })
+            drift.append(
+                {
+                    "ticker": ticker,
+                    "drift_type": "action_flip",
+                    "was": was_summary,
+                    "now": now_summary,
+                }
+            )
             continue  # action flip is the dominant signal — skip lesser checks
 
         # Conviction jump (only when action stayed the same)
         if abs(now_conv - was_conv) >= conviction_delta_threshold:
-            drift.append({
-                "ticker": ticker,
-                "drift_type": "conviction_jump",
-                "was": was_summary,
-                "now": now_summary,
-            })
+            drift.append(
+                {
+                    "ticker": ticker,
+                    "drift_type": "conviction_jump",
+                    "was": was_summary,
+                    "now": now_summary,
+                }
+            )
             continue
 
         # Sign flip on net_expected_pct (e.g. +5% → -3%)
         if was_net and now_net and (was_net > 0) != (now_net > 0):
-            drift.append({
-                "ticker": ticker,
-                "drift_type": "sign_flip",
-                "was": was_summary,
-                "now": now_summary,
-            })
+            drift.append(
+                {
+                    "ticker": ticker,
+                    "drift_type": "sign_flip",
+                    "was": was_summary,
+                    "now": now_summary,
+                }
+            )
 
     # Tickers dropped from prior session
     for ticker, was_rec in prev_by.items():
         if ticker not in current_by:
-            drift.append({
-                "ticker": ticker,
-                "drift_type": "dropped_ticker",
-                "was": _summary(was_rec),
-                "now": None,
-            })
+            drift.append(
+                {
+                    "ticker": ticker,
+                    "drift_type": "dropped_ticker",
+                    "was": _summary(was_rec),
+                    "now": None,
+                }
+            )
 
     return drift
 
@@ -213,6 +224,7 @@ def _summary(rec: dict) -> dict:
 
 if __name__ == "__main__":
     import sys
+
     log_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("data/recommendations_log")
     files = sorted(
         [p for p in log_dir.glob("*.json") if parse_session_filename(p.name) is not None],

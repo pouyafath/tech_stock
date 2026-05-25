@@ -280,9 +280,7 @@ class DesktopApp(tk.Tk):
             hint = tk.StringVar(value="")
             self.metric_vars[label] = var
             self.metric_hint_vars[label] = hint
-            tk.Label(box, textvariable=var, bg=self.card, fg=self.text, font=("Helvetica", 20, "bold")).pack(
-                anchor="w", pady=(4, 0)
-            )
+            tk.Label(box, textvariable=var, bg=self.card, fg=self.text, font=("Helvetica", 20, "bold")).pack(anchor="w", pady=(4, 0))
             tk.Label(box, textvariable=hint, bg=self.card, fg=self.muted, font=("Helvetica", 10)).pack(anchor="w", pady=(4, 0))
 
         action_panel, self.action_cards = self._dashboard_panel(content, "Action Queue")
@@ -405,7 +403,9 @@ class DesktopApp(tk.Tk):
         toolbar = ttk.Frame(self.report_tab)
         toolbar.pack(fill="x", padx=16, pady=16)
         ttk.Button(toolbar, text="Load Latest", command=lambda: self.load_report(latest_report(), select_tab=True)).pack(side="left")
-        ttk.Button(toolbar, text="Refresh", command=lambda: self.load_report(self.latest_report_path, select_tab=True)).pack(side="left", padx=8)
+        ttk.Button(toolbar, text="Refresh", command=lambda: self.load_report(self.latest_report_path, select_tab=True)).pack(
+            side="left", padx=8
+        )
         self.report_paths_button = ttk.Button(toolbar, text="Show Search Paths", command=self.toggle_report_paths)
         self.report_paths_button.pack(side="left", padx=8)
         self.report_path_label = ttk.Label(toolbar, text="", style="Muted.TLabel")
@@ -514,7 +514,9 @@ class DesktopApp(tk.Tk):
         ttk.Entry(row, textvariable=self.api_key_value, show="*", width=44).pack(side="left", padx=(8, 12))
         ttk.Button(row, text="Save / Update", command=self.save_selected_api_key).pack(side="left")
         ttk.Button(row, text="Delete", command=self.delete_selected_api_key).pack(side="left", padx=(8, 0))
-        ttk.Label(manager, textvariable=self.api_key_manager_status, background=self.panel, foreground=self.muted).pack(anchor="w", pady=(8, 0))
+        ttk.Label(manager, textvariable=self.api_key_manager_status, background=self.panel, foreground=self.muted).pack(
+            anchor="w", pady=(8, 0)
+        )
 
         self.api_key_tree = self._make_tree(
             manager,
@@ -588,9 +590,7 @@ class DesktopApp(tk.Tk):
             rows.append([row["label"], "YES" if row["configured"] else "NO", row.get("masked") or "", source_text])
             if row["env"] == selected_env:
                 selected_status = (
-                    f"Current {row['label']}: "
-                    f"{row.get('masked') or 'not configured'}"
-                    f"{' from ' + source_text if source_text else ''}"
+                    f"Current {row['label']}: {row.get('masked') or 'not configured'}{' from ' + source_text if source_text else ''}"
                 )
         self._replace_tree_rows(self.api_key_tree, rows)
         self.api_key_value.set("")
@@ -654,12 +654,14 @@ class DesktopApp(tk.Tk):
         ]
         if info.asset_name:
             lines.append(f"Platform asset: {info.asset_name}")
-        lines.extend([
-            "",
-            "Data preservation:",
-            "- Reports, CSV outputs, JSON logs, API keys, config, uploads, and decision journals are stored in the app workspace.",
-            "- Updating replaces only the application files, not the workspace.",
-        ])
+        lines.extend(
+            [
+                "",
+                "Data preservation:",
+                "- Reports, CSV outputs, JSON logs, API keys, config, uploads, and decision journals are stored in the app workspace.",
+                "- Updating replaces only the application files, not the workspace.",
+            ]
+        )
         if info.body:
             lines.extend(["", "Release notes:", self._trim_text(info.body, 1800)])
         if info.error:
@@ -847,8 +849,12 @@ class DesktopApp(tk.Tk):
         widget.tag_configure("body", font=base_font, foreground="#111827", spacing1=2, spacing3=8)
         widget.tag_configure("bold", font=("Helvetica", 13, "bold"), foreground="#111827")
         widget.tag_configure("bullet", lmargin1=20, lmargin2=38, spacing3=4)
-        widget.tag_configure("table", font=mono_font, background="#e5e7eb", foreground="#111827", lmargin1=10, lmargin2=10, spacing1=1, spacing3=1)
-        widget.tag_configure("table_header", font=("Menlo", 12, "bold"), background="#d1d5db", foreground="#111827", lmargin1=10, lmargin2=10)
+        widget.tag_configure(
+            "table", font=mono_font, background="#e5e7eb", foreground="#111827", lmargin1=10, lmargin2=10, spacing1=1, spacing3=1
+        )
+        widget.tag_configure(
+            "table_header", font=("Menlo", 12, "bold"), background="#d1d5db", foreground="#111827", lmargin1=10, lmargin2=10
+        )
         widget.tag_configure("rule", foreground="#94a3b8", spacing1=6, spacing3=6)
         widget.tag_configure("search_match", background="#fde68a", foreground="#111827")
         widget.tag_configure("search_current", background="#fb923c", foreground="#111827")
@@ -1007,8 +1013,7 @@ class DesktopApp(tk.Tk):
             return
         rows = preview.get("rows", [])
         sample = "\n".join(
-            f"{row.get('ticker')}: {row.get('quantity')} @ {row.get('market_price')} {row.get('currency')}"
-            for row in rows[:12]
+            f"{row.get('ticker')}: {row.get('quantity')} @ {row.get('market_price')} {row.get('currency')}" for row in rows[:12]
         )
         messagebox.showinfo(
             "Holdings preview",
@@ -1022,9 +1027,7 @@ class DesktopApp(tk.Tk):
         if holdings:
             keep = messagebox.askyesno(
                 "Confirm Holdings CSV",
-                "The app found this Holdings CSV:\n\n"
-                f"{holdings}\n\n"
-                "Is this the correct file?",
+                f"The app found this Holdings CSV:\n\n{holdings}\n\nIs this the correct file?",
             )
             if not keep:
                 self.browse_csv(self.holdings_var)
@@ -1033,15 +1036,12 @@ class DesktopApp(tk.Tk):
         if activities:
             keep = messagebox.askyesno(
                 "Confirm Activities CSV",
-                "The app found this Activities CSV:\n\n"
-                f"{activities}\n\n"
-                "Is this the correct file?",
+                f"The app found this Activities CSV:\n\n{activities}\n\nIs this the correct file?",
             )
             if not keep:
                 replace = messagebox.askyesno(
                     "Activities CSV",
-                    "Do you want to choose a different Activities CSV?\n\n"
-                    "Choose No to run without activities.",
+                    "Do you want to choose a different Activities CSV?\n\nChoose No to run without activities.",
                 )
                 if replace:
                     self.browse_csv(self.activities_var)
@@ -1130,10 +1130,12 @@ class DesktopApp(tk.Tk):
         readiness_filter = self._buy_readiness_filter_value()
 
         def worker() -> None:
-            self.progress_queue.put((
-                "buy_signals_done",
-                buy_signal_view(action_filter=action_filter, readiness_filter=readiness_filter),
-            ))
+            self.progress_queue.put(
+                (
+                    "buy_signals_done",
+                    buy_signal_view(action_filter=action_filter, readiness_filter=readiness_filter),
+                )
+            )
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -1188,31 +1190,35 @@ class DesktopApp(tk.Tk):
             amount = item.get("action_amount")
             amount_currency = item.get("action_amount_currency") or "USD"
             amount_text = f"{self._fmt_money(amount)} {amount_currency}" if amount else ""
-            overview_rows.append([
-                readiness.get("label") or "N/A",
-                ticker,
-                item.get("action") or item.get("hold_tier") or "",
-                item.get("conviction"),
-                amount_text,
-                self._fmt_price(item.get("current_price")),
-                analyst.get("consensus_label") or "N/A",
-                self._fmt_pct(targets.get("mean_upside_pct"), signed=True),
-                self._trim_text(item.get("catalyst_source") or "N/A", 80),
-                "; ".join(w.get("code", "") for w in warnings[:3]) or "none",
-            ])
-            consensus_rows.append([
-                ticker,
-                readiness.get("label") or "N/A",
-                analyst.get("buy", "N/A"),
-                analyst.get("hold", "N/A"),
-                analyst.get("sell", "N/A"),
-                targets.get("analyst_count") or analyst.get("total_analysts") or "N/A",
-                self._fmt_price(targets.get("low")),
-                self._fmt_price(targets.get("mean")),
-                self._fmt_price(targets.get("high")),
-                self._fmt_pct(targets.get("mean_upside_pct"), signed=True),
-                targets.get("source") or "N/A",
-            ])
+            overview_rows.append(
+                [
+                    readiness.get("label") or "N/A",
+                    ticker,
+                    item.get("action") or item.get("hold_tier") or "",
+                    item.get("conviction"),
+                    amount_text,
+                    self._fmt_price(item.get("current_price")),
+                    analyst.get("consensus_label") or "N/A",
+                    self._fmt_pct(targets.get("mean_upside_pct"), signed=True),
+                    self._trim_text(item.get("catalyst_source") or "N/A", 80),
+                    "; ".join(w.get("code", "") for w in warnings[:3]) or "none",
+                ]
+            )
+            consensus_rows.append(
+                [
+                    ticker,
+                    readiness.get("label") or "N/A",
+                    analyst.get("buy", "N/A"),
+                    analyst.get("hold", "N/A"),
+                    analyst.get("sell", "N/A"),
+                    targets.get("analyst_count") or analyst.get("total_analysts") or "N/A",
+                    self._fmt_price(targets.get("low")),
+                    self._fmt_price(targets.get("mean")),
+                    self._fmt_price(targets.get("high")),
+                    self._fmt_pct(targets.get("mean_upside_pct"), signed=True),
+                    targets.get("source") or "N/A",
+                ]
+            )
             catalyst_lines.extend(self._format_buy_signal_detail(item))
             source_lines.append(f"{ticker}:")
             for note in item.get("source_notes") or []:
@@ -1238,7 +1244,9 @@ class DesktopApp(tk.Tk):
         catalyst = item.get("catalyst_source") or "No catalyst source recorded in latest report."
         lines.append(f"Catalyst: {catalyst}")
         lines.append(f"Verified: {item.get('catalyst_verified')} | Manual review: {item.get('manual_review_required')}")
-        lines.append(f"Quote: {self._fmt_price(item.get('current_price'))} | {item.get('quote_source') or 'unavailable'} | {item.get('quote_timestamp_utc') or 'missing timestamp'}")
+        lines.append(
+            f"Quote: {self._fmt_price(item.get('current_price'))} | {item.get('quote_source') or 'unavailable'} | {item.get('quote_timestamp_utc') or 'missing timestamp'}"
+        )
         technical = item.get("technical") or {}
         lines.append(
             "Technical: "
@@ -1279,7 +1287,9 @@ class DesktopApp(tk.Tk):
         if warnings:
             lines.append("Quality warnings:")
             for warning in warnings[:4]:
-                lines.append(f"  - {warning.get('severity', '').upper()} {warning.get('code')}: {warning.get('action_required') or warning.get('message')}")
+                lines.append(
+                    f"  - {warning.get('severity', '').upper()} {warning.get('code')}: {warning.get('action_required') or warning.get('message')}"
+                )
         lines.append(f"Risk/invalidation: {item.get('risk_or_invalidation') or 'N/A'}")
         lines.append("")
         return lines
@@ -1366,7 +1376,9 @@ class DesktopApp(tk.Tk):
             for row in drift[:5]:
                 now = row.get("now") or {}
                 was = row.get("was") or {}
-                lines.append(f"- {row.get('ticker')}: {row.get('drift_type')} ({was.get('action', 'new')} -> {now.get('action', 'dropped')})")
+                lines.append(
+                    f"- {row.get('ticker')}: {row.get('drift_type')} ({was.get('action', 'new')} -> {now.get('action', 'dropped')})"
+                )
         if hedges:
             lines.append("")
             lines.append("Hedge / rebalance ideas:")
@@ -1381,7 +1393,9 @@ class DesktopApp(tk.Tk):
             lines.append("")
             lines.append("Market context leaders:")
             for ticker, row in ranked[:5]:
-                lines.append(f"- {ticker}: {row.get('current_price', 'N/A')} | 5d {self._fmt_pct(row.get('change_pct_5d'), signed=True)} | 1mo {self._fmt_pct(row.get('change_pct_21d'), signed=True)}")
+                lines.append(
+                    f"- {ticker}: {row.get('current_price', 'N/A')} | 5d {self._fmt_pct(row.get('change_pct_5d'), signed=True)} | 1mo {self._fmt_pct(row.get('change_pct_21d'), signed=True)}"
+                )
         if watchlist:
             lines.append("")
             lines.append("Watchlist signals:")
@@ -1435,7 +1449,9 @@ class DesktopApp(tk.Tk):
             pady=2,
         ).pack(side="left", padx=(0, 6))
 
-    def _wrapped_dashboard_label(self, parent: tk.Widget, text: str, *, bg: str, fg: str, font: tuple[str, int, str] | tuple[str, int] = ("Helvetica", 11)) -> tk.Label:
+    def _wrapped_dashboard_label(
+        self, parent: tk.Widget, text: str, *, bg: str, fg: str, font: tuple[str, int, str] | tuple[str, int] = ("Helvetica", 11)
+    ) -> tk.Label:
         label = tk.Label(parent, text=text, bg=bg, fg=fg, font=font, justify="left", anchor="w", wraplength=900)
         label.pack(fill="x", pady=(6, 0))
         parent.bind("<Configure>", lambda event, widget=label: widget.configure(wraplength=max(event.width - 20, 260)))
@@ -1577,10 +1593,16 @@ class DesktopApp(tk.Tk):
         self.signal_meta.set(f"{len(actions)} priority actions | {medium_plus} high/medium quality gates | {len(breaches)} stop breaches")
 
         concentration = str(health.get("concentration_risk") or "unknown").upper()
-        self._set_metric("Portfolio", self._fmt_money(health.get("total_value_usd_equivalent") or risk.get("total_value_usd")), "USD equivalent")
+        self._set_metric(
+            "Portfolio", self._fmt_money(health.get("total_value_usd_equivalent") or risk.get("total_value_usd")), "USD equivalent"
+        )
         self._set_metric("P&L", self._fmt_pct(health.get("overall_pnl_pct"), signed=True), "overall")
         self._set_metric("SPY Beta", str(beta.get("SPY", "N/A")), f"QQQ {beta.get('QQQ', 'N/A')} | SMH {beta.get('SMH', 'N/A')}")
-        self._set_metric("Annual Vol", f"{risk.get('annualized_volatility_pct', 0):.1f}%", f"max DD {self._fmt_pct(risk.get('max_drawdown_estimate_pct'), signed=True)}")
+        self._set_metric(
+            "Annual Vol",
+            f"{risk.get('annualized_volatility_pct', 0):.1f}%",
+            f"max DD {self._fmt_pct(risk.get('max_drawdown_estimate_pct'), signed=True)}",
+        )
         self._set_metric("Top-3 Conc.", f"{risk.get('top3_concentration_pct', 0):.1f}%", f"risk {concentration}")
         self._set_metric("Warnings", str(medium_plus), f"{len(warnings)} total gates")
         self._set_metric("Claude Cost", f"${usage.get('cost_usd', 0):.4f}", f"{int(usage.get('total_tokens', 0) or 0):,} tokens")

@@ -31,9 +31,7 @@ def clean_csv_row(row: dict) -> dict:
     of a csv.DictReader row.
     """
     return {
-        (k.strip().strip('"') if isinstance(k, str) else k):
-        (v.strip().strip('"') if isinstance(v, str) else v)
-        for k, v in row.items()
+        (k.strip().strip('"') if isinstance(k, str) else k): (v.strip().strip('"') if isinstance(v, str) else v) for k, v in row.items()
     }
 
 

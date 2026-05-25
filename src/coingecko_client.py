@@ -78,6 +78,7 @@ def _request(endpoint: str, params: dict | None = None) -> dict | list | None:
 
 # ── Crypto market context ─────────────────────────────────────────────────────
 
+
 def _fetch_crypto_context() -> dict | None:
     # Prices and changes
     data = _request(
@@ -94,11 +95,11 @@ def _fetch_crypto_context() -> dict | None:
 
     btc = data.get("bitcoin", {})
     eth = data.get("ethereum", {})
-    btc_price  = btc.get("usd")
-    btc_24h    = btc.get("usd_24h_change")
-    btc_7d     = btc.get("usd_7d_change")
-    eth_price  = eth.get("usd")
-    eth_24h    = eth.get("usd_24h_change")
+    btc_price = btc.get("usd")
+    btc_24h = btc.get("usd_24h_change")
+    btc_7d = btc.get("usd_7d_change")
+    eth_price = eth.get("usd")
+    eth_24h = eth.get("usd_24h_change")
 
     # Crypto fear & greed from alternative.me (free, no auth)
     fear_greed = None
@@ -116,7 +117,7 @@ def _fetch_crypto_context() -> dict | None:
 
     # Risk-on/off interpretation
     risk_signal = "NEUTRAL"
-    risk_note   = "Crypto market is stable — no special risk-off signal."
+    risk_note = "Crypto market is stable — no special risk-off signal."
 
     if btc_7d is not None:
         if btc_7d < -15:
@@ -127,16 +128,10 @@ def _fetch_crypto_context() -> dict | None:
             )
         elif btc_7d < -8:
             risk_signal = "CAUTION"
-            risk_note = (
-                f"Bitcoin down {btc_7d:.1f}% this week — mild risk-off signal. "
-                "Watch high-beta positions carefully."
-            )
+            risk_note = f"Bitcoin down {btc_7d:.1f}% this week — mild risk-off signal. Watch high-beta positions carefully."
         elif btc_7d > 10:
             risk_signal = "RISK-ON"
-            risk_note = (
-                f"Bitcoin up {btc_7d:.1f}% this week — risk-on environment. "
-                "High-beta tech typically benefits."
-            )
+            risk_note = f"Bitcoin up {btc_7d:.1f}% this week — risk-on environment. High-beta tech typically benefits."
 
     if fear_greed is not None and fear_greed < 25 and risk_signal == "NEUTRAL":
         risk_signal = "CAUTION"
@@ -173,5 +168,6 @@ def crypto_context() -> dict | None:
 
 if __name__ == "__main__":
     import json
+
     print("── crypto_context() ──")
     print(json.dumps(crypto_context(), indent=2))

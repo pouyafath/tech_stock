@@ -65,13 +65,13 @@ from src.report_generator import generate_markdown, save_report, watchlist_price
 from src.updater import apply_update, check_for_update, cli_update_check, update_status_text
 from src.version import APP_VERSION
 
-CONFIG_DIR  = ROOT / "config"
-DATA_DIR    = ROOT / "data"
+CONFIG_DIR = ROOT / "config"
+DATA_DIR = ROOT / "data"
 THESIS_LOG_PATH = ROOT / "data" / "thesis_log.json"
 DECISION_JOURNAL_PATH = ROOT / "data" / "decision_journal.json"
 REPORTS_DIR = ROOT / "reports"
 RECS_LOG_DIR = DATA_DIR / "recommendations_log"
-UPLOAD_DIR  = ROOT / "temporary_upload"
+UPLOAD_DIR = ROOT / "temporary_upload"
 
 
 def _copy_tree_defaults(src_dir: Path, dest_dir: Path) -> None:
@@ -100,27 +100,29 @@ ensure_workspace()
 
 MODELS = {
     "1": ("claude-sonnet-4-6", "Sonnet 4.6", "~$0.22/run — two-pass, recommended"),
-    "2": ("claude-opus-4-7",   "Opus 4.7",   "~$0.45/run — deeper analysis, slower"),
+    "2": ("claude-opus-4-7", "Opus 4.7", "~$0.45/run — deeper analysis, slower"),
 }
+
 
 # ── ANSI colour codes (no extra dependencies) ─────────────────────────────────
 class C:
-    GREEN  = "\033[92m"
+    GREEN = "\033[92m"
     YELLOW = "\033[93m"
-    RED    = "\033[91m"
+    RED = "\033[91m"
     ORANGE = "\033[38;5;208m"
-    CYAN   = "\033[96m"
-    GREY   = "\033[90m"
-    BOLD   = "\033[1m"
-    DIM    = "\033[2m"
-    RESET  = "\033[0m"
+    CYAN = "\033[96m"
+    GREY = "\033[90m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    RESET = "\033[0m"
+
 
 ACTION_STYLE = {
-    "BUY":  (f"{C.GREEN}🟢 BUY {C.RESET}",  C.GREEN),
-    "ADD":  (f"{C.YELLOW}🟡 ADD {C.RESET}", C.YELLOW),
-    "HOLD": (f"{C.GREY}⚪ HOLD{C.RESET}",   C.GREY),
+    "BUY": (f"{C.GREEN}🟢 BUY {C.RESET}", C.GREEN),
+    "ADD": (f"{C.YELLOW}🟡 ADD {C.RESET}", C.YELLOW),
+    "HOLD": (f"{C.GREY}⚪ HOLD{C.RESET}", C.GREY),
     "TRIM": (f"{C.ORANGE}🟠 TRIM{C.RESET}", C.ORANGE),
-    "SELL": (f"{C.RED}🔴 SELL{C.RESET}",    C.RED),
+    "SELL": (f"{C.RED}🔴 SELL{C.RESET}", C.RED),
 }
 
 
@@ -249,6 +251,7 @@ def copy_csv_to_temp(csv_path: Path) -> Path:
 
     # Copy to UPLOAD_DIR with the original filename
     import shutil
+
     dest_path = UPLOAD_DIR / csv_path.name
     shutil.copy2(csv_path, dest_path)
     return dest_path
@@ -284,20 +287,21 @@ def _load_api_keys_from_file():
             with open(api_keys_file) as f:
                 for line in f:
                     line = line.strip()
-                    if not line or line.startswith('#') or line.startswith('='):
+                    if not line or line.startswith("#") or line.startswith("="):
                         continue
-                    if '=' in line:
-                        key, val = line.split('=', 1)
+                    if "=" in line:
+                        key, val = line.split("=", 1)
                         key = key.strip()
                         val = val.strip()
                         # Only set if it looks like a real key (not the example template)
-                        if val and not val.startswith('Get it from') and val != 'sk-ant-api03-xxx...':
+                        if val and not val.startswith("Get it from") and val != "sk-ant-api03-xxx...":
                             os.environ[key] = val
         except Exception:
             pass
 
     # Also try .env (for CI/Docker/advanced users with hidden files)
     from dotenv import load_dotenv
+
     for directory in search_roots:
         load_dotenv(directory / ".env", override=True)
 
@@ -335,14 +339,16 @@ def _dedupe_paths(paths: list[Path]) -> list[Path]:
 
 def report_search_paths() -> list[Path]:
     """Return user-facing report folders checked by report viewer/history UIs."""
-    return _dedupe_paths([
-        REPORTS_DIR,
-        Path.cwd() / "reports",
-        Path.home() / "Documents" / "tech_stock" / "reports",
-        Path.home() / "Desktop" / "tech_stock" / "reports",
-        Path.home() / "Downloads" / "tech_stock" / "reports",
-        SOURCE_ROOT / "reports",
-    ])
+    return _dedupe_paths(
+        [
+            REPORTS_DIR,
+            Path.cwd() / "reports",
+            Path.home() / "Documents" / "tech_stock" / "reports",
+            Path.home() / "Desktop" / "tech_stock" / "reports",
+            Path.home() / "Downloads" / "tech_stock" / "reports",
+            SOURCE_ROOT / "reports",
+        ]
+    )
 
 
 def runtime_locations() -> dict[str, Path]:
@@ -477,13 +483,13 @@ def interactive_setup() -> dict:
         activities_path = copy_csv_to_temp(activities_path)
 
     return {
-        "session_type":    session_type,
-        "budget_usd":      budget_usd,
-        "budget_cad":      budget_cad,
-        "holdings_path":   holdings_path,
+        "session_type": session_type,
+        "budget_usd": budget_usd,
+        "budget_cad": budget_cad,
+        "holdings_path": holdings_path,
         "activities_path": activities_path,
-        "model_id":        model_id,
-        "model_name":      model_name,
+        "model_id": model_id,
+        "model_name": model_name,
     }
 
 
@@ -536,6 +542,7 @@ def save_recommendations_csv(
 ) -> Path:
     """Save recommendations as a clean CSV table."""
     import csv
+
     csv_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     csv_path = csv_dir / f"{timestamp}_{session_type}_recommendations.csv"
@@ -545,15 +552,35 @@ def save_recommendations_csv(
         writer = csv.DictWriter(
             f,
             fieldnames=[
-                "Ticker", "Action", "Hold Tier", "Conviction",
-                "Invest USD", "Action Shares", "Action Fraction", "Action Amount",
+                "Ticker",
+                "Action",
+                "Hold Tier",
+                "Conviction",
+                "Invest USD",
+                "Action Shares",
+                "Action Fraction",
+                "Action Amount",
                 "Expected Stock Move %",
-                "Expected Benefit of Action %", "Net Expected %",
-                "Time Horizon", "Exit Target", "Bear Case %", "Bull Case %",
-                "Stop Loss %", "Take Profit %", "Catalyst Verified", "Catalyst Source", "Manual Review",
-                "Tranche 1 (now)", "Tranche 2 (pullback)", "Tranche 3 (confirmation)",
-                "Quote", "Previous Close", "Quote Time UTC", "Quote Source",
-                "Earnings Alert", "Thesis",
+                "Expected Benefit of Action %",
+                "Net Expected %",
+                "Time Horizon",
+                "Exit Target",
+                "Bear Case %",
+                "Bull Case %",
+                "Stop Loss %",
+                "Take Profit %",
+                "Catalyst Verified",
+                "Catalyst Source",
+                "Manual Review",
+                "Tranche 1 (now)",
+                "Tranche 2 (pullback)",
+                "Tranche 3 (confirmation)",
+                "Quote",
+                "Previous Close",
+                "Quote Time UTC",
+                "Quote Source",
+                "Earnings Alert",
+                "Thesis",
             ],
             extrasaction="ignore",
         )
@@ -570,6 +597,7 @@ def save_recommendations_csv(
             # Tranched plan (entry for BUY/ADD, exit for SELL/TRIM). Each cell
             # is "fraction% @ price%" (e.g. "40% @ 0%", "30% @ -3%", "30% @ +2%")
             plan = r.get("entry_plan") or r.get("exit_plan") or []
+
             def _fmt_tranche(t):
                 if not isinstance(t, dict):
                     return ""
@@ -579,42 +607,48 @@ def save_recommendations_csv(
                     return f"{frac:.0f}% @ {price:+.1f}%"
                 except (TypeError, ValueError):
                     return ""
+
             tranche_cells = [_fmt_tranche(t) for t in plan[:3]] + [""] * 3
 
-            writer.writerow({
-                "Ticker":           ticker,
-                "Action":           r.get("action", "HOLD"),
-                "Hold Tier":        r.get("hold_tier", ""),
-                "Conviction":       r.get("conviction", 0),
-                "Invest USD":       f"${r['invest_amount_usd']:,.0f}" if r.get("invest_amount_usd") else "",
-                "Action Shares":    r.get("shares", ""),
-                "Action Fraction":  f"{r.get('action_fraction') * 100:.0f}%" if r.get("action_fraction") else "",
-                "Action Amount":    (
-                    f"${r.get('action_amount'):,.0f} {r.get('action_amount_currency', 'USD')}"
-                    if r.get("action_amount") is not None else ""
-                ),
-                "Expected Stock Move %": f"{expected_move:+.2f}%",
-                "Expected Benefit of Action %": f"{net_expected:+.2f}%",
-                "Net Expected %":   f"{net_expected:+.2f}%",
-                "Time Horizon":     r.get("time_horizon", ""),
-                "Exit Target":      r.get("target_exit_date", ""),
-                "Bear Case %":      f"{lo:+.0f}%" if lo is not None else "",
-                "Bull Case %":      f"{hi:+.0f}%" if hi is not None else "",
-                "Stop Loss %":      f"{controls.get('stop_loss_pct'):+.1f}%" if controls.get("stop_loss_pct") is not None else "",
-                "Take Profit %":    f"{controls.get('take_profit_pct'):+.1f}%" if controls.get("take_profit_pct") is not None else "",
-                "Catalyst Verified": "YES" if r.get("catalyst_verified") else "NO",
-                "Catalyst Source":  r.get("catalyst_source", ""),
-                "Manual Review":    "YES" if r.get("manual_review_required") else "NO",
-                "Tranche 1 (now)":          tranche_cells[0],
-                "Tranche 2 (pullback)":     tranche_cells[1],
-                "Tranche 3 (confirmation)": tranche_cells[2],
-                "Quote":            f"{md.get('current_price')} {md.get('currency', '')}".strip() if md.get("current_price") is not None else "",
-                "Previous Close":   f"{md.get('previous_close')} {md.get('currency', '')}".strip() if md.get("previous_close") is not None else "",
-                "Quote Time UTC":   md.get("quote_timestamp_utc", ""),
-                "Quote Source":     md.get("quote_source", ""),
-                "Earnings Alert":   "⚠️ YES" if r.get("earnings_alert") else "",
-                "Thesis":           r.get("thesis", ""),
-            })
+            writer.writerow(
+                {
+                    "Ticker": ticker,
+                    "Action": r.get("action", "HOLD"),
+                    "Hold Tier": r.get("hold_tier", ""),
+                    "Conviction": r.get("conviction", 0),
+                    "Invest USD": f"${r['invest_amount_usd']:,.0f}" if r.get("invest_amount_usd") else "",
+                    "Action Shares": r.get("shares", ""),
+                    "Action Fraction": f"{r.get('action_fraction') * 100:.0f}%" if r.get("action_fraction") else "",
+                    "Action Amount": (
+                        f"${r.get('action_amount'):,.0f} {r.get('action_amount_currency', 'USD')}"
+                        if r.get("action_amount") is not None
+                        else ""
+                    ),
+                    "Expected Stock Move %": f"{expected_move:+.2f}%",
+                    "Expected Benefit of Action %": f"{net_expected:+.2f}%",
+                    "Net Expected %": f"{net_expected:+.2f}%",
+                    "Time Horizon": r.get("time_horizon", ""),
+                    "Exit Target": r.get("target_exit_date", ""),
+                    "Bear Case %": f"{lo:+.0f}%" if lo is not None else "",
+                    "Bull Case %": f"{hi:+.0f}%" if hi is not None else "",
+                    "Stop Loss %": f"{controls.get('stop_loss_pct'):+.1f}%" if controls.get("stop_loss_pct") is not None else "",
+                    "Take Profit %": f"{controls.get('take_profit_pct'):+.1f}%" if controls.get("take_profit_pct") is not None else "",
+                    "Catalyst Verified": "YES" if r.get("catalyst_verified") else "NO",
+                    "Catalyst Source": r.get("catalyst_source", ""),
+                    "Manual Review": "YES" if r.get("manual_review_required") else "NO",
+                    "Tranche 1 (now)": tranche_cells[0],
+                    "Tranche 2 (pullback)": tranche_cells[1],
+                    "Tranche 3 (confirmation)": tranche_cells[2],
+                    "Quote": f"{md.get('current_price')} {md.get('currency', '')}".strip() if md.get("current_price") is not None else "",
+                    "Previous Close": f"{md.get('previous_close')} {md.get('currency', '')}".strip()
+                    if md.get("previous_close") is not None
+                    else "",
+                    "Quote Time UTC": md.get("quote_timestamp_utc", ""),
+                    "Quote Source": md.get("quote_source", ""),
+                    "Earnings Alert": "⚠️ YES" if r.get("earnings_alert") else "",
+                    "Thesis": r.get("thesis", ""),
+                }
+            )
     return csv_path
 
 
@@ -709,7 +743,7 @@ def run(
     print(f"\n{C.DIM}[tech_stock] Starting {session_type} session — {datetime.now().strftime('%Y-%m-%d %H:%M')}{C.RESET}")
 
     watchlist = load_json(CONFIG_DIR / "watchlist.json")
-    settings  = load_json(CONFIG_DIR / "settings.json")
+    settings = load_json(CONFIG_DIR / "settings.json")
 
     # Load portfolio
     if holdings_csv:
@@ -780,6 +814,7 @@ def run(
     #    available, so CAD-denominated holdings get valued accurately. Falls
     #    back to settings["cad_per_usd_assumption"] (default 1.37) on failure.
     from src.fred_client import live_cad_per_usd
+
     live_fx = live_cad_per_usd()
     if live_fx and 1.20 < live_fx < 1.55:  # sanity check vs historical range
         cad_per_usd = live_fx
@@ -812,6 +847,7 @@ def run(
         update_reviews_from_recommendation,
         record_new_entries,
     )
+
     thesis_due = quarterly_reviews_due(THESIS_LOG_PATH)
     thesis_forced_exits = force_exit_candidates(THESIS_LOG_PATH)
 
@@ -920,9 +956,7 @@ def run(
         holdings_pre_run=holdings_pre,
     )
     if new_thesis_entries:
-        print(
-            f"{C.DIM}[tech_stock] Thesis tracker: recorded {len(new_thesis_entries)} new entries{C.RESET}"
-        )
+        print(f"{C.DIM}[tech_stock] Thesis tracker: recorded {len(new_thesis_entries)} new entries{C.RESET}")
     # Append review verdicts for any thesis past its quarterly mark.
     update_reviews_from_recommendation(
         THESIS_LOG_PATH,
@@ -945,9 +979,12 @@ def run(
     paper_summary = None
     if paper_trade:
         from src.paper_trading import apply_session, performance_summary
+
         paper_path = DATA_DIR / "paper_portfolio.json"
         paper_state = apply_session(
-            paper_path, recommendation, market_data,
+            paper_path,
+            recommendation,
+            market_data,
             session_file=log_path.name,
         )
         paper_summary = performance_summary(paper_state, market_data)
@@ -1027,17 +1064,16 @@ CLI examples:
   python src/main.py update
         """,
     )
-    parser.add_argument("session", nargs="?", choices=["morning", "afternoon"],
-                        help="Session type (omit for interactive mode)")
-    parser.add_argument("--holdings",  "-p", type=Path, metavar="CSV",
-                        help="Path to Wealthsimple Holdings CSV export")
-    parser.add_argument("--activities", "-a", type=Path, metavar="CSV",
-                        help="Path to Wealthsimple Activities CSV export (optional)")
-    parser.add_argument("--model", "-m", choices=["sonnet", "opus"],
-                        help="Model: sonnet = claude-sonnet-4-6, opus = claude-opus-4-7")
-    parser.add_argument("--paper", action="store_true",
-                        help="Also apply this run's recommendations to the paper portfolio "
-                             "(data/paper_portfolio.json) so you can quantify discretion penalty.")
+    parser.add_argument("session", nargs="?", choices=["morning", "afternoon"], help="Session type (omit for interactive mode)")
+    parser.add_argument("--holdings", "-p", type=Path, metavar="CSV", help="Path to Wealthsimple Holdings CSV export")
+    parser.add_argument("--activities", "-a", type=Path, metavar="CSV", help="Path to Wealthsimple Activities CSV export (optional)")
+    parser.add_argument("--model", "-m", choices=["sonnet", "opus"], help="Model: sonnet = claude-sonnet-4-6, opus = claude-opus-4-7")
+    parser.add_argument(
+        "--paper",
+        action="store_true",
+        help="Also apply this run's recommendations to the paper portfolio "
+        "(data/paper_portfolio.json) so you can quantify discretion penalty.",
+    )
     parser.add_argument("--version", action="version", version=f"tech_stock {APP_VERSION}")
 
     args = parser.parse_args()

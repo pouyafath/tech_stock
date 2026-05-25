@@ -40,11 +40,11 @@ BASE_URL = "https://api.stlouisfed.org/fred"
 
 # Series ID → (label, units, higher_is_good for equities)
 SERIES = {
-    "DFF":      ("Fed Funds Rate",         "%",    False),
-    "T10Y2Y":   ("Yield Curve (10Y-2Y)",   "%",    True),
-    "CPIAUCSL": ("CPI Inflation",          "% YoY",False),
-    "UNRATE":   ("Unemployment Rate",      "%",    False),
-    "VIXCLS":   ("VIX (Fear Index)",       "pts",  False),
+    "DFF": ("Fed Funds Rate", "%", False),
+    "T10Y2Y": ("Yield Curve (10Y-2Y)", "%", True),
+    "CPIAUCSL": ("CPI Inflation", "% YoY", False),
+    "UNRATE": ("Unemployment Rate", "%", False),
+    "VIXCLS": ("VIX (Fear Index)", "pts", False),
 }
 
 # Separate from SERIES because FX has a different consumer (portfolio_loader),
@@ -164,10 +164,7 @@ def _fetch_cpi_yoy() -> float | None:
     if r.status_code >= 400:
         return None
     try:
-        obs = [
-            o for o in r.json().get("observations", [])
-            if o.get("value") not in (".", "", None)
-        ]
+        obs = [o for o in r.json().get("observations", []) if o.get("value") not in (".", "", None)]
         if len(obs) < 13:
             return None
         latest = float(obs[0]["value"])
@@ -191,10 +188,10 @@ def _fetch_macro_context() -> dict | None:
         return None
 
     # Derived interpretations
-    dff    = (data.get("DFF", {}).get("value") or 0)
-    curve  = data.get("T10Y2Y", {}).get("value")
-    cpi    = data.get("CPIAUCSL", {}).get("value")
-    vix    = data.get("VIXCLS", {}).get("value")
+    dff = data.get("DFF", {}).get("value") or 0
+    curve = data.get("T10Y2Y", {}).get("value")
+    cpi = data.get("CPIAUCSL", {}).get("value")
+    vix = data.get("VIXCLS", {}).get("value")
 
     # Rate regime
     if dff >= 5.0:
@@ -235,9 +232,7 @@ def _fetch_macro_context() -> dict | None:
         "yield_curve_signal": curve_signal,
         "vix_regime": vix_regime,
         "inflation_signal": (
-            "ELEVATED INFLATION" if (cpi or 0) > 4 else
-            "MODERATE INFLATION" if (cpi or 0) > 2.5 else
-            "LOW INFLATION — benign for equities"
+            "ELEVATED INFLATION" if (cpi or 0) > 4 else "MODERATE INFLATION" if (cpi or 0) > 2.5 else "LOW INFLATION — benign for equities"
         ),
         "summary": _macro_summary(dff, curve, cpi, vix),
     }
@@ -290,6 +285,7 @@ def live_cad_per_usd() -> float | None:
 
 if __name__ == "__main__":
     import json
+
     if not _api_key():
         print("FRED_API_KEY not set — skipping live test")
     else:

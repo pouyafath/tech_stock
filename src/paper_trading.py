@@ -36,6 +36,7 @@ recommendations and what they actually traded. Without this, you can't
 say "Claude's picks would have made me 12% YTD; I made 8%; the gap is
 my hesitation."
 """
+
 from __future__ import annotations
 
 import json
@@ -45,7 +46,7 @@ from typing import Any
 
 DEFAULT_STARTING_CASH_USD = 25_000.0
 DEFAULT_TRIM_FRACTION = 0.30  # how much of position to sell on TRIM
-DEFAULT_FEE_PCT = 0.10          # 0.1% one-way default; override per ticker via fee_calculator
+DEFAULT_FEE_PCT = 0.10  # 0.1% one-way default; override per ticker via fee_calculator
 
 
 def _load_state(path: Path) -> dict:
@@ -59,11 +60,11 @@ def _load_state(path: Path) -> dict:
 
 def _empty_state() -> dict:
     return {
-        "starting_cash_usd":  DEFAULT_STARTING_CASH_USD,
-        "current_cash_usd":   DEFAULT_STARTING_CASH_USD,
-        "positions":          {},
-        "trade_log":          [],
-        "value_history":      [],
+        "starting_cash_usd": DEFAULT_STARTING_CASH_USD,
+        "current_cash_usd": DEFAULT_STARTING_CASH_USD,
+        "positions": {},
+        "trade_log": [],
+        "value_history": [],
     }
 
 
@@ -76,6 +77,7 @@ def _estimate_fee(ticker: str, notional_usd: float) -> float:
     """Estimate one-way fee using fee_calculator.calculate_round_trip_cost."""
     try:
         from src.fee_calculator import calculate_round_trip_cost
+
         fees = calculate_round_trip_cost(ticker, notional_usd=notional_usd)
         # round-trip / 2 = one-way
         return float(fees.get("total_usd", 0)) / 2
@@ -134,21 +136,30 @@ def apply_session(
                 continue
             fee = _estimate_fee(ticker, invest_usd)
             shares_bought = (invest_usd - fee) / price
-            position = state["positions"].setdefault(ticker, {
-                "shares": 0.0, "avg_cost": price, "first_entry_date": today_iso,
-            })
+            position = state["positions"].setdefault(
+                ticker,
+                {
+                    "shares": 0.0,
+                    "avg_cost": price,
+                    "first_entry_date": today_iso,
+                },
+            )
             new_shares = position["shares"] + shares_bought
             if new_shares > 0:
-                position["avg_cost"] = (
-                    position["shares"] * position["avg_cost"] + shares_bought * price
-                ) / new_shares
+                position["avg_cost"] = (position["shares"] * position["avg_cost"] + shares_bought * price) / new_shares
             position["shares"] = new_shares
             state["current_cash_usd"] -= invest_usd
-            state["trade_log"].append({
-                "date": today_iso, "ticker": ticker, "action": action,
-                "shares": round(shares_bought, 4), "price": price,
-                "fee_usd": round(fee, 4), "session_file": session_file,
-            })
+            state["trade_log"].append(
+                {
+                    "date": today_iso,
+                    "ticker": ticker,
+                    "action": action,
+                    "shares": round(shares_bought, 4),
+                    "price": price,
+                    "fee_usd": round(fee, 4),
+                    "session_file": session_file,
+                }
+            )
 
         elif action in {"SELL", "TRIM"}:
             position = state["positions"].get(ticker)
@@ -163,20 +174,28 @@ def apply_session(
             net_proceeds = proceeds - fee
             position["shares"] -= shares_sold
             state["current_cash_usd"] += net_proceeds
-            state["trade_log"].append({
-                "date": today_iso, "ticker": ticker, "action": action,
-                "shares": round(shares_sold, 4), "price": price,
-                "fee_usd": round(fee, 4), "session_file": session_file,
-            })
+            state["trade_log"].append(
+                {
+                    "date": today_iso,
+                    "ticker": ticker,
+                    "action": action,
+                    "shares": round(shares_sold, 4),
+                    "price": price,
+                    "fee_usd": round(fee, 4),
+                    "session_file": session_file,
+                }
+            )
             if position["shares"] <= 1e-6:
                 del state["positions"][ticker]
 
     # Mark-to-market for value_history
     portfolio_value = mark_to_market(state, market_data)
-    state["value_history"].append({
-        "date":      today_iso,
-        "value_usd": round(portfolio_value, 2),
-    })
+    state["value_history"].append(
+        {
+            "date": today_iso,
+            "value_usd": round(portfolio_value, 2),
+        }
+    )
 
     _save_state(path, state)
     return state
@@ -201,13 +220,13 @@ def performance_summary(state: dict, market_data: dict | None = None) -> dict:
     n_trades = len(state.get("trade_log") or [])
     n_positions = len(state.get("positions") or {})
     return {
-        "starting_value_usd":  round(starting, 2),
-        "current_value_usd":   round(current_value, 2),
-        "current_cash_usd":    round(float(state.get("current_cash_usd", 0)), 2),
-        "total_return_pct":    round(total_return_pct, 2),
-        "n_trades":            n_trades,
-        "n_open_positions":    n_positions,
-        "n_marks_recorded":    len(history),
+        "starting_value_usd": round(starting, 2),
+        "current_value_usd": round(current_value, 2),
+        "current_cash_usd": round(float(state.get("current_cash_usd", 0)), 2),
+        "total_return_pct": round(total_return_pct, 2),
+        "n_trades": n_trades,
+        "n_open_positions": n_positions,
+        "n_marks_recorded": len(history),
     }
 
 

@@ -78,13 +78,16 @@ def _request(params: dict) -> dict | None:
 
 # ── News & Sentiment ──────────────────────────────────────────────────────────
 
+
 def _fetch_news_sentiment(ticker: str, limit: int = 10) -> dict | None:
-    data = _request({
-        "function": "NEWS_SENTIMENT",
-        "tickers": ticker,
-        "limit": limit,
-        "sort": "LATEST",
-    })
+    data = _request(
+        {
+            "function": "NEWS_SENTIMENT",
+            "tickers": ticker,
+            "limit": limit,
+            "sort": "LATEST",
+        }
+    )
     if not data:
         return None
     items = data.get("feed") or []
@@ -103,7 +106,7 @@ def _fetch_news_sentiment(ticker: str, limit: int = 10) -> dict | None:
     # Ticker-specific scores (filtered)
     ticker_scores = []
     for article in items:
-        for ts in (article.get("ticker_sentiment") or []):
+        for ts in article.get("ticker_sentiment") or []:
             if ts.get("ticker") == ticker:
                 try:
                     ticker_scores.append(float(ts["ticker_sentiment_score"]))
@@ -121,11 +124,15 @@ def _fetch_news_sentiment(ticker: str, limit: int = 10) -> dict | None:
         "bearish": bearish,
         "neutral": neutral,
         "label": (
-            "BULLISH" if avg_score > 0.35 else
-            "SOMEWHAT BULLISH" if avg_score > 0.15 else
-            "NEUTRAL" if avg_score > -0.15 else
-            "SOMEWHAT BEARISH" if avg_score > -0.35 else
-            "BEARISH"
+            "BULLISH"
+            if avg_score > 0.35
+            else "SOMEWHAT BULLISH"
+            if avg_score > 0.15
+            else "NEUTRAL"
+            if avg_score > -0.15
+            else "SOMEWHAT BEARISH"
+            if avg_score > -0.35
+            else "BEARISH"
         ),
     }
 
@@ -149,6 +156,7 @@ def news_sentiment(ticker: str, limit: int = 10) -> dict | None:
 
 
 # ── Earnings Calendar ──────────────────────────────────────────────────────────
+
 
 def _fetch_earnings_calendar(ticker: str) -> dict | None:
     """Annual and quarterly earnings + analyst estimates."""
@@ -204,6 +212,7 @@ def earnings_calendar(ticker: str) -> dict | None:
 
 if __name__ == "__main__":
     import json
+
     if not _api_key():
         print("ALPHA_VANTAGE_API_KEY not set — skipping live test")
     else:
