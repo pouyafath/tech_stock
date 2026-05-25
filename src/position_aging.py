@@ -20,25 +20,26 @@ The caller passes:
   - `holdings`: list of holding dicts from portfolio_loader
   - `holding_days_map`: output of activity_loader.holding_days_by_ticker()
 """
+
 from __future__ import annotations
 
 from typing import Iterable
 
 # Tier boundaries are configurable via settings.json -> position_aging_tiers.
 DEFAULT_TIERS = {
-    "fresh_max_days":  90,
-    "core_max_days":   180,
+    "fresh_max_days": 90,
+    "core_max_days": 180,
     "mature_max_days": 365,
-    "aged_max_days":   730,
+    "aged_max_days": 730,
     # > aged_max_days = stale (forced exit)
 }
 
 TIER_GUIDANCE = {
-    "fresh":  "Normal evaluation. Inside the 0-3 month entry window.",
-    "core":   "Sweet-spot hold (3-6 months). Add on dips when conviction is high.",
+    "fresh": "Normal evaluation. Inside the 0-3 month entry window.",
+    "core": "Sweet-spot hold (3-6 months). Add on dips when conviction is high.",
     "mature": "Re-validate the thesis. Drop conviction by 1 if no fresh catalyst.",
-    "aged":   "Trim candidate. Keep only with a verified new catalyst.",
-    "stale":  "Forced exit candidate (>2 years). The strategy rejects permanent holds.",
+    "aged": "Trim candidate. Keep only with a verified new catalyst.",
+    "stale": "Forced exit candidate (>2 years). The strategy rejects permanent holds.",
 }
 
 
@@ -82,18 +83,34 @@ def annotate_holdings(holdings: Iterable[dict], holding_days_map: dict, tiers: d
 
 
 def aging_summary(annotated: Iterable[dict]) -> dict:
-    """Summarize counts per aging tier, useful in the prompt and quality gates."""
+    """Summarize counts per aging tier, useful in the prompt and quality gates.
+
+    The ``unknown_with_lower_bound`` list captures holdings whose exact entry date
+    is not in the activities window but where the activities CSV proves the
+    position has been held *at least* that many days. We surface these to
+    Claude so it can reason about long-untouched positions even when the buy
+    pre-dates the available window.
+    """
     counts = {"fresh": 0, "core": 0, "mature": 0, "aged": 0, "stale": 0, "unknown": 0}
     stale_tickers: list[str] = []
     aged_tickers: list[str] = []
     mature_tickers: list[str] = []
+    unknown_with_lower_bound: list[dict] = []
     for holding in annotated or []:
         tier = holding.get("aging_tier")
+        ticker = holding.get("ticker")
         if tier is None:
             counts["unknown"] += 1
+            lower_bound = holding.get("lower_bound_days")
+            if ticker and isinstance(lower_bound, (int, float)) and lower_bound > 0:
+                unknown_with_lower_bound.append(
+                    {
+                        "ticker": ticker,
+                        "lower_bound_days": int(lower_bound),
+                    }
+                )
             continue
         counts[tier] = counts.get(tier, 0) + 1
-        ticker = holding.get("ticker")
         if not ticker:
             continue
         if tier == "stale":
@@ -103,25 +120,32 @@ def aging_summary(annotated: Iterable[dict]) -> dict:
         elif tier == "mature":
             mature_tickers.append(ticker)
     return {
-        "counts":          counts,
-        "stale_tickers":   sorted(stale_tickers),
-        "aged_tickers":    sorted(aged_tickers),
-        "mature_tickers":  sorted(mature_tickers),
+        "counts": counts,
+        "stale_tickers": sorted(stale_tickers),
+        "aged_tickers": sorted(aged_tickers),
+        "mature_tickers": sorted(mature_tickers),
+        "unknown_with_lower_bound": sorted(
+            unknown_with_lower_bound,
+            key=lambda item: -item["lower_bound_days"],
+        ),
     }
 
 
 def format_aging_for_prompt(annotated: list[dict], summary: dict) -> str:
     """Render a compact, Claude-friendly summary of position ages.
 
-    Only emits content when there are positions whose age changes the action
-    (mature, aged, or stale tickers). When everything is fresh/core, returns "".
+    Emits content when there are positions whose age changes the action
+    (mature, aged, or stale tickers), OR when there are holdings with an
+    activities-window-derived lower bound on hold time. When everything is
+    fresh/core with no lower-bound info, returns "".
     """
     counts = summary.get("counts") or {}
     stale = summary.get("stale_tickers") or []
     aged = summary.get("aged_tickers") or []
     mature = summary.get("mature_tickers") or []
+    unknown_bounds = summary.get("unknown_with_lower_bound") or []
 
-    if not (stale or aged or mature):
+    if not (stale or aged or mature or unknown_bounds):
         return ""  # nothing worth telling Claude about
 
     lines = [
@@ -133,18 +157,15 @@ def format_aging_for_prompt(annotated: list[dict], summary: dict) -> str:
         f"  - stale (>730d): {counts.get('stale', 0)}",
     ]
     if mature:
-        lines.append(
-            f"  MATURE — re-validate thesis or drop conviction by 1: "
-            f"{', '.join(mature[:10])}"
-        )
+        lines.append(f"  MATURE — re-validate thesis or drop conviction by 1: {', '.join(mature[:10])}")
     if aged:
-        lines.append(
-            f"  AGED — trim candidate, keep only with fresh catalyst: "
-            f"{', '.join(aged[:10])}"
-        )
+        lines.append(f"  AGED — trim candidate, keep only with fresh catalyst: {', '.join(aged[:10])}")
     if stale:
-        lines.append(
-            f"  STALE — FORCE EXIT (over 2-year cap, strategy rejects permanent holds): "
-            f"{', '.join(stale[:10])}"
-        )
+        lines.append(f"  STALE — FORCE EXIT (over 2-year cap, strategy rejects permanent holds): {', '.join(stale[:10])}")
+    if unknown_bounds:
+        # Holdings whose entry date is older than the activities CSV window:
+        # we know they have been held *at least* lower_bound_days. Useful when
+        # the lower bound already exceeds the mature/aged thresholds.
+        formatted = ", ".join(f"{item['ticker']} (≥{item['lower_bound_days']}d)" for item in unknown_bounds[:10])
+        lines.append("  UNKNOWN ENTRY DATE — held at least this long (entry pre-dates activities window): " + formatted)
     return "\n".join(lines)

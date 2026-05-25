@@ -35,8 +35,11 @@ jobs:
           pip install -r requirements-dev.txt
       - name: Ruff syntax/undefined-name check
         run: ruff check .
-      - name: Ruff format check for new shared modules
-        run: ruff format --check src/view_models.py src/report_pipeline.py tests/test_view_models.py tests/test_report_pipeline.py
+      - name: Ruff format check (whole src/ and tests/)
+        # Previously only checked 4 hand-picked files; CI passed even when
+        # 30+ modules drifted out of format. Expanded after a one-time
+        # `ruff format src/ tests/` baseline so the signal is honest.
+        run: ruff format --check src/ tests/
       - name: Dependency vulnerability audit
         run: pip-audit --requirement requirements.txt
 

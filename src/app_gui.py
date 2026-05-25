@@ -13,6 +13,7 @@ Dispatch rules
 * --cli [args] : run the CLI (same process, remaining argv forwarded)
 * (no args)    : show the tkinter launcher window
 """
+
 import json
 import os
 import shlex
@@ -103,13 +104,15 @@ def _open_terminal(flag: str) -> None:
     cmd = _self_command(flag)
     if sys.platform == "darwin":
         script = " ".join(shlex.quote(part) for part in cmd)
-        subprocess.Popen([
-            "osascript",
-            "-e",
-            'tell application "Terminal" to activate',
-            "-e",
-            f'tell application "Terminal" to do script {json.dumps(script)}',
-        ])
+        subprocess.Popen(
+            [
+                "osascript",
+                "-e",
+                'tell application "Terminal" to activate',
+                "-e",
+                f'tell application "Terminal" to do script {json.dumps(script)}',
+            ]
+        )
         return
     if sys.platform == "win32":
         subprocess.Popen(["cmd", "/c", "start", "tech_stock", "cmd", "/k", *cmd])
@@ -117,7 +120,9 @@ def _open_terminal(flag: str) -> None:
     terminal = os.environ.get("TERMINAL") or "x-terminal-emulator"
     subprocess.Popen([terminal, "-e", *cmd])
 
+
 # ── Sub-process dispatch (called when the bundled exe is re-invoked) ─────────
+
 
 def _run_streamlit() -> None:
     """Launch Streamlit server and open browser."""
@@ -133,6 +138,7 @@ def _run_streamlit() -> None:
 
     # streamlit.web.bootstrap is available in the bundle
     from streamlit.web import bootstrap  # type: ignore[import]
+
     sys.argv = [
         "streamlit",
         "run",
@@ -165,6 +171,7 @@ def _run_desktop() -> None:
 def _run_textual() -> None:
     """Run the Textual TUI app directly."""
     import importlib.util
+
     spec = importlib.util.spec_from_file_location("textual_app", TEXTUAL_SCRIPT)
     mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
     spec.loader.exec_module(mod)  # type: ignore[union-attr]
@@ -175,6 +182,7 @@ def _run_cli(extra: list[str]) -> None:
     """Run the CLI main module, forwarding extra argv."""
     sys.argv = [str(CLI_SCRIPT)] + extra
     import importlib.util
+
     spec = importlib.util.spec_from_file_location("main", CLI_SCRIPT)
     mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
     spec.loader.exec_module(mod)  # type: ignore[union-attr]
@@ -184,18 +192,10 @@ def _run_cli(extra: list[str]) -> None:
 # ── GUI launcher ─────────────────────────────────────────────────────────────
 
 _CHOICES = [
-    ("Desktop App",
-     "Embedded dashboard inside this app.\nNo browser required.",
-     "desktop"),
-    ("Streamlit Web UI",
-     "Opens a dashboard in your browser.\nFull feature set: Dashboard, Run, History, Backtest, Editor.",
-     "streamlit"),
-    ("Textual Terminal UI",
-     "Keyboard-driven interface in Terminal.\nNo browser needed.",
-     "textual"),
-    ("Command-Line (CLI)",
-     "Classic terminal mode.\nUse for scripting, cron, or maximum speed.",
-     "cli"),
+    ("Desktop App", "Embedded dashboard inside this app.\nNo browser required.", "desktop"),
+    ("Streamlit Web UI", "Opens a dashboard in your browser.\nFull feature set: Dashboard, Run, History, Backtest, Editor.", "streamlit"),
+    ("Textual Terminal UI", "Keyboard-driven interface in Terminal.\nNo browser needed.", "textual"),
+    ("Command-Line (CLI)", "Classic terminal mode.\nUse for scripting, cron, or maximum speed.", "cli"),
 ]
 
 
@@ -224,23 +224,24 @@ def _show_launcher() -> None:
     # ── Fonts ─────────────────────────────────────────────────────────────────
     try:
         title_font = tkfont.Font(family="SF Pro Display", size=22, weight="bold")
-        sub_font   = tkfont.Font(family="SF Pro Text",    size=12)
-        label_font = tkfont.Font(family="SF Pro Text",    size=13, weight="bold")
-        desc_font  = tkfont.Font(family="SF Pro Text",    size=11)
-        btn_font   = tkfont.Font(family="SF Pro Text",    size=12, weight="bold")
+        sub_font = tkfont.Font(family="SF Pro Text", size=12)
+        label_font = tkfont.Font(family="SF Pro Text", size=13, weight="bold")
+        desc_font = tkfont.Font(family="SF Pro Text", size=11)
+        btn_font = tkfont.Font(family="SF Pro Text", size=12, weight="bold")
     except Exception:
         title_font = tkfont.Font(size=20, weight="bold")
-        sub_font   = tkfont.Font(size=11)
+        sub_font = tkfont.Font(size=11)
         label_font = tkfont.Font(size=12, weight="bold")
-        desc_font  = tkfont.Font(size=10)
-        btn_font   = tkfont.Font(size=11, weight="bold")
+        desc_font = tkfont.Font(size=10)
+        btn_font = tkfont.Font(size=11, weight="bold")
 
     # ── Header ────────────────────────────────────────────────────────────────
     header = tk.Frame(root, bg=BG, padx=32, pady=24)
     header.pack(fill="x")
     tk.Label(header, text="tech_stock", fg=GREEN, bg=BG, font=title_font).pack(anchor="w")
-    tk.Label(header, text="AI-powered portfolio advisor — choose your interface",
-             fg=MUTED, bg=BG, font=sub_font).pack(anchor="w", pady=(2, 0))
+    tk.Label(header, text="AI-powered portfolio advisor — choose your interface", fg=MUTED, bg=BG, font=sub_font).pack(
+        anchor="w", pady=(2, 0)
+    )
 
     sep = tk.Frame(root, bg=BORDER, height=1)
     sep.pack(fill="x", padx=32)
@@ -255,7 +256,10 @@ def _show_launcher() -> None:
         status_var.set("Checking GitHub Releases for updates...")
 
         def worker() -> None:
-            info = check_for_update()
+            # Auto-fired probe on launcher boot uses the 6-hour cache so it
+            # doesn't hammer GitHub on every app open; "Check for updates"
+            # menu item (manual=True) forces a fresh network lookup.
+            info = check_for_update(use_cache=not manual)
 
             def finish_check() -> None:
                 if info.error:
@@ -342,9 +346,7 @@ def _show_launcher() -> None:
                 status_var.set("Streamlit failed to start. See the log file.")
                 messagebox.showerror(
                     "Streamlit failed to start",
-                    "The Web UI could not start.\n\n"
-                    f"Log file:\n{log_path}\n\n"
-                    f"Last log lines:\n{details or '(log was empty)'}",
+                    f"The Web UI could not start.\n\nLog file:\n{log_path}\n\nLast log lines:\n{details or '(log was empty)'}",
                 )
                 return
             webbrowser.open(url)
@@ -376,8 +378,7 @@ def _show_launcher() -> None:
             launch_terminal("--cli")
 
     for label, description, mode in _CHOICES:
-        card = tk.Frame(body, bg=CARD, bd=0, highlightthickness=1,
-                        highlightbackground=BORDER, highlightcolor=GREEN)
+        card = tk.Frame(body, bg=CARD, bd=0, highlightthickness=1, highlightbackground=BORDER, highlightcolor=GREEN)
         card.pack(fill="x", pady=6, ipady=14, ipadx=16)
 
         inner = tk.Frame(card, bg=CARD)
@@ -386,32 +387,46 @@ def _show_launcher() -> None:
         left = tk.Frame(inner, bg=CARD)
         left.pack(side="left", fill="both", expand=True)
 
-        tk.Label(left, text=label, fg=TEXT, bg=CARD, font=label_font,
-                 anchor="w").pack(fill="x")
-        tk.Label(left, text=description, fg=MUTED, bg=CARD, font=desc_font,
-                 anchor="w", justify="left", wraplength=340).pack(fill="x", pady=(3, 0))
+        tk.Label(left, text=label, fg=TEXT, bg=CARD, font=label_font, anchor="w").pack(fill="x")
+        tk.Label(left, text=description, fg=MUTED, bg=CARD, font=desc_font, anchor="w", justify="left", wraplength=340).pack(
+            fill="x", pady=(3, 0)
+        )
 
-        btn = tk.Button(inner, text="Launch →", font=btn_font,
-                        bg=BTN_BG, fg=BTN_FG, relief="flat", cursor="hand2",
-                        padx=14, pady=6, bd=0,
-                        command=lambda m=mode: launch(m))
+        btn = tk.Button(
+            inner,
+            text="Launch →",
+            font=btn_font,
+            bg=BTN_BG,
+            fg=BTN_FG,
+            relief="flat",
+            cursor="hand2",
+            padx=14,
+            pady=6,
+            bd=0,
+            command=lambda m=mode: launch(m),
+        )
         btn.pack(side="right", padx=(12, 0))
 
-        def on_enter(e, b=btn):   b.configure(bg=BTN_HOVER)
-        def on_leave(e, b=btn):   b.configure(bg=BTN_BG)
+        def on_enter(e, b=btn):
+            b.configure(bg=BTN_HOVER)
+
+        def on_leave(e, b=btn):
+            b.configure(bg=BTN_BG)
+
         btn.bind("<Enter>", on_enter)
         btn.bind("<Leave>", on_leave)
 
         # Clicking anywhere on the card also triggers launch
-        def on_card_click(e, m=mode): launch(m)
+        def on_card_click(e, m=mode):
+            launch(m)
+
         for w in (card, inner, left):
             w.bind("<Button-1>", on_card_click)
 
     # ── Footer ────────────────────────────────────────────────────────────────
     sep2 = tk.Frame(root, bg=BORDER, height=1)
     sep2.pack(fill="x", padx=32)
-    tk.Label(root, textvariable=status_var,
-             fg=MUTED, bg=BG, font=desc_font).pack(pady=(10, 0))
+    tk.Label(root, textvariable=status_var, fg=MUTED, bg=BG, font=desc_font).pack(pady=(10, 0))
     tk.Button(
         root,
         text=f"Check Updates (v{APP_VERSION})",
@@ -422,14 +437,13 @@ def _show_launcher() -> None:
         cursor="hand2",
         command=lambda: check_for_updates(manual=True),
     ).pack(pady=(4, 0))
-    tk.Label(root, text="Powered by Claude  ·  Anthropic",
-             fg=MUTED, bg=BG, font=desc_font).pack(pady=(4, 10))
+    tk.Label(root, text="Powered by Claude  ·  Anthropic", fg=MUTED, bg=BG, font=desc_font).pack(pady=(4, 10))
 
     # Centre window on screen
     root.update_idletasks()
     w, h = root.winfo_width(), root.winfo_height()
     sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
-    root.geometry(f"+{(sw-w)//2}+{(sh-h)//2}")
+    root.geometry(f"+{(sw - w) // 2}+{(sh - h) // 2}")
     if os.environ.get("TECH_STOCK_SKIP_UPDATE_CHECK") != "1":
         root.after(900, lambda: check_for_updates(manual=False))
 
@@ -437,6 +451,7 @@ def _show_launcher() -> None:
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
+
 
 def main() -> None:
     argv = sys.argv[1:]

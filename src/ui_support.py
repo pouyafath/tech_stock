@@ -224,14 +224,16 @@ def preview_holdings_csv(path: str | Path | None, limit: int = 25) -> dict[str, 
         return {"ok": False, "error": str(exc)}
     rows = []
     for holding in portfolio.get("holdings", [])[:limit]:
-        rows.append({
-            "ticker": holding.get("ticker"),
-            "quantity": holding.get("quantity"),
-            "market_price": holding.get("market_price"),
-            "currency": holding.get("market_value_currency") or holding.get("market_currency"),
-            "market_value": holding.get("market_value"),
-            "unrealized_pnl_pct": holding.get("unrealized_pnl_pct"),
-        })
+        rows.append(
+            {
+                "ticker": holding.get("ticker"),
+                "quantity": holding.get("quantity"),
+                "market_price": holding.get("market_price"),
+                "currency": holding.get("market_value_currency") or holding.get("market_currency"),
+                "market_value": holding.get("market_value"),
+                "unrealized_pnl_pct": holding.get("unrealized_pnl_pct"),
+            }
+        )
     return {
         "ok": True,
         "exported_at": portfolio.get("exported_at", ""),
@@ -457,45 +459,47 @@ def buy_signal_insights(limit: int = 8) -> dict[str, Any]:
         if per_ticker.get("upcoming_earnings"):
             source_notes.append("Earnings calendar: Finnhub")
 
-        candidates.append({
-            "ticker": ticker,
-            "action": rec.get("action"),
-            "hold_tier": rec.get("hold_tier"),
-            "conviction": rec.get("conviction"),
-            "action_amount": rec.get("action_amount") or rec.get("invest_amount_usd"),
-            "action_amount_currency": rec.get("action_amount_currency") or "USD",
-            "current_price": price,
-            "currency": md.get("currency") or "USD",
-            "change_pct_1d": md.get("change_pct_1d"),
-            "quote_source": md.get("quote_source"),
-            "quote_timestamp_utc": md.get("quote_timestamp_utc"),
-            "price_basis": md.get("price_basis"),
-            "market_data_error": md.get("error"),
-            "analyst_consensus": analyst,
-            "price_targets": price_targets,
-            "latest_rating_changes": (per_ticker.get("upgrade_downgrade") or [])[:4],
-            "insider_activity": per_ticker.get("insider_activity") or {},
-            "upcoming_earnings": per_ticker.get("upcoming_earnings") or {},
-            "earnings_history": (per_ticker.get("earnings_history") or [])[:4],
-            "technical": {
-                "rsi_14": indicators.get("rsi_14"),
-                "macd_hist": indicators.get("macd_hist"),
-                "atr_pct_of_price": indicators.get("atr_pct_of_price"),
-                "price_vs_sma50_pct": indicators.get("price_vs_sma50_pct"),
-                "price_vs_sma200_pct": indicators.get("price_vs_sma200_pct"),
-                "volatility_20d_pct": indicators.get("volatility_20d_pct"),
-                "volume_spike_ratio": indicators.get("volume_spike_ratio"),
-            },
-            "catalyst_verified": rec.get("catalyst_verified"),
-            "catalyst_source": rec.get("catalyst_source"),
-            "manual_review_required": rec.get("manual_review_required"),
-            "quality_warnings": quality_by_ticker.get(ticker, []),
-            "news": news[:3],
-            "news_summary": aggregate_sentiment(news),
-            "thesis": rec.get("thesis") or "",
-            "risk_or_invalidation": rec.get("risk_or_invalidation") or "",
-            "source_notes": source_notes,
-        })
+        candidates.append(
+            {
+                "ticker": ticker,
+                "action": rec.get("action"),
+                "hold_tier": rec.get("hold_tier"),
+                "conviction": rec.get("conviction"),
+                "action_amount": rec.get("action_amount") or rec.get("invest_amount_usd"),
+                "action_amount_currency": rec.get("action_amount_currency") or "USD",
+                "current_price": price,
+                "currency": md.get("currency") or "USD",
+                "change_pct_1d": md.get("change_pct_1d"),
+                "quote_source": md.get("quote_source"),
+                "quote_timestamp_utc": md.get("quote_timestamp_utc"),
+                "price_basis": md.get("price_basis"),
+                "market_data_error": md.get("error"),
+                "analyst_consensus": analyst,
+                "price_targets": price_targets,
+                "latest_rating_changes": (per_ticker.get("upgrade_downgrade") or [])[:4],
+                "insider_activity": per_ticker.get("insider_activity") or {},
+                "upcoming_earnings": per_ticker.get("upcoming_earnings") or {},
+                "earnings_history": (per_ticker.get("earnings_history") or [])[:4],
+                "technical": {
+                    "rsi_14": indicators.get("rsi_14"),
+                    "macd_hist": indicators.get("macd_hist"),
+                    "atr_pct_of_price": indicators.get("atr_pct_of_price"),
+                    "price_vs_sma50_pct": indicators.get("price_vs_sma50_pct"),
+                    "price_vs_sma200_pct": indicators.get("price_vs_sma200_pct"),
+                    "volatility_20d_pct": indicators.get("volatility_20d_pct"),
+                    "volume_spike_ratio": indicators.get("volume_spike_ratio"),
+                },
+                "catalyst_verified": rec.get("catalyst_verified"),
+                "catalyst_source": rec.get("catalyst_source"),
+                "manual_review_required": rec.get("manual_review_required"),
+                "quality_warnings": quality_by_ticker.get(ticker, []),
+                "news": news[:3],
+                "news_summary": aggregate_sentiment(news),
+                "thesis": rec.get("thesis") or "",
+                "risk_or_invalidation": rec.get("risk_or_invalidation") or "",
+                "source_notes": source_notes,
+            }
+        )
 
     return {
         "session_file": path.name,
@@ -680,12 +684,14 @@ def api_key_inventory() -> list[dict[str, Any]]:
                 source = path
                 value = values[env_name]
                 break
-        rows.append({
-            **field,
-            "configured": bool(value),
-            "masked": mask_secret(value),
-            "source_path": source,
-        })
+        rows.append(
+            {
+                **field,
+                "configured": bool(value),
+                "masked": mask_secret(value),
+                "source_path": source,
+            }
+        )
     return rows
 
 
@@ -724,12 +730,14 @@ def check_connectivity(timeout: float = 12.0) -> list[dict[str, Any]]:
     checks: list[dict[str, Any]] = []
 
     def record(source: str, ok: bool, detail: str, started: float) -> None:
-        checks.append({
-            "source": source,
-            "ok": ok,
-            "latency_ms": round((time.perf_counter() - started) * 1000),
-            "detail": detail,
-        })
+        checks.append(
+            {
+                "source": source,
+                "ok": ok,
+                "latency_ms": round((time.perf_counter() - started) * 1000),
+                "detail": detail,
+            }
+        )
 
     def record_missing(source: str, env_name: str, started: float, *, optional: bool = True) -> None:
         suffix = " missing (optional)" if optional else " missing"
@@ -737,6 +745,7 @@ def check_connectivity(timeout: float = 12.0) -> list[dict[str, Any]]:
 
     try:
         import requests
+
         started = time.perf_counter()
         key = os.environ.get("ANTHROPIC_API_KEY")
         if not key:
@@ -753,6 +762,7 @@ def check_connectivity(timeout: float = 12.0) -> list[dict[str, Any]]:
 
     try:
         import yfinance as yf
+
         started = time.perf_counter()
         hist = yf.Ticker("SPY").history(period="1d")
         record("yfinance", not hist.empty, "SPY 1d history returned" if not hist.empty else "empty history", started)
@@ -761,6 +771,7 @@ def check_connectivity(timeout: float = 12.0) -> list[dict[str, Any]]:
 
     try:
         import requests
+
         started = time.perf_counter()
         key = os.environ.get("FINNHUB_API_KEY")
         if not key:
@@ -774,6 +785,7 @@ def check_connectivity(timeout: float = 12.0) -> list[dict[str, Any]]:
 
     try:
         import requests
+
         started = time.perf_counter()
         key = os.environ.get("POLYGON_API_KEY")
         if not key:
@@ -788,6 +800,7 @@ def check_connectivity(timeout: float = 12.0) -> list[dict[str, Any]]:
 
     try:
         import requests
+
         started = time.perf_counter()
         key = os.environ.get("TWELVE_DATA_API_KEY")
         if not key:
@@ -805,6 +818,7 @@ def check_connectivity(timeout: float = 12.0) -> list[dict[str, Any]]:
 
     try:
         import requests
+
         started = time.perf_counter()
         key = os.environ.get("FRED_API_KEY")
         if not key:
@@ -823,6 +837,7 @@ def check_connectivity(timeout: float = 12.0) -> list[dict[str, Any]]:
 
     try:
         import requests
+
         started = time.perf_counter()
         key = os.environ.get("COINGECKO_API_KEY")
         headers = {}
@@ -844,6 +859,7 @@ def check_connectivity(timeout: float = 12.0) -> list[dict[str, Any]]:
 
     try:
         import requests
+
         started = time.perf_counter()
         key = os.environ.get("ALPHA_VANTAGE_API_KEY")
         if not key:
@@ -880,10 +896,12 @@ def api_key_locations() -> list[dict[str, Any]]:
         if key in seen:
             continue
         seen.add(key)
-        rows.append({
-            "path": resolved,
-            "exists": resolved.exists(),
-        })
+        rows.append(
+            {
+                "path": resolved,
+                "exists": resolved.exists(),
+            }
+        )
     return rows
 
 
@@ -892,11 +910,13 @@ def report_locations() -> list[dict[str, Any]]:
     rows = []
     for path in _ui_report_search_paths():
         exists = path.exists()
-        rows.append({
-            "path": path,
-            "exists": exists,
-            "count": len(list(path.glob("*.md"))) if exists else 0,
-        })
+        rows.append(
+            {
+                "path": path,
+                "exists": exists,
+                "count": len(list(path.glob("*.md"))) if exists else 0,
+            }
+        )
     return rows
 
 
@@ -910,9 +930,15 @@ def current_app_version() -> str:
     return APP_VERSION
 
 
-def check_update_available(timeout: float = 6.0) -> UpdateInfo:
-    """Return latest GitHub release update status."""
-    return check_for_update(timeout=timeout)
+def check_update_available(timeout: float = 6.0, *, force: bool = False) -> UpdateInfo:
+    """Return the latest GitHub release update status.
+
+    UI surfaces (Streamlit dashboard, Textual app, desktop tab) call this on
+    every refresh. By default we serve the result from the local 6-hour disk
+    cache so background reloads do not hammer the GitHub API. The user-facing
+    "Check now" button should pass ``force=True`` to bypass the cache.
+    """
+    return check_for_update(timeout=timeout, use_cache=not force)
 
 
 def apply_available_update(info: UpdateInfo, *, restart: bool = True) -> UpdateResult:

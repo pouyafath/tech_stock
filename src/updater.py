@@ -152,8 +152,109 @@ def fetch_latest_release(timeout: float = 6.0) -> dict[str, Any]:
         return json.loads(response.read().decode("utf-8"))
 
 
-def check_for_update(current_version: str | None = None, timeout: float = 6.0) -> UpdateInfo:
-    """Check GitHub Releases for a newer public release."""
+DEFAULT_UPDATE_CHECK_TTL_SECONDS = 6 * 60 * 60  # 6 hours
+
+
+def _update_cache_path() -> Path:
+    path = user_workspace() / "cache"
+    path.mkdir(parents=True, exist_ok=True)
+    return path / "update_check.json"
+
+
+def _serialize_update_info(info: "UpdateInfo") -> dict[str, Any]:
+    return {
+        "current_version": info.current_version,
+        "latest_version": info.latest_version,
+        "available": info.available,
+        "release_url": info.release_url,
+        "asset_name": info.asset_name,
+        "asset_url": info.asset_url,
+        "checksum_url": info.checksum_url,
+        "published_at": info.published_at,
+        "body": info.body,
+        "error": info.error,
+    }
+
+
+def _deserialize_update_info(payload: dict[str, Any]) -> "UpdateInfo":
+    return UpdateInfo(
+        current_version=payload.get("current_version") or APP_VERSION,
+        latest_version=payload.get("latest_version"),
+        available=bool(payload.get("available")),
+        release_url=payload.get("release_url") or RELEASES_PAGE_URL,
+        asset_name=payload.get("asset_name"),
+        asset_url=payload.get("asset_url"),
+        checksum_url=payload.get("checksum_url"),
+        published_at=payload.get("published_at"),
+        body=payload.get("body") or "",
+        error=payload.get("error"),
+    )
+
+
+def _load_cached_update_info(ttl_seconds: int) -> "UpdateInfo | None":
+    cache_path = _update_cache_path()
+    if not cache_path.exists():
+        return None
+    try:
+        envelope = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    cached_at_iso = envelope.get("cached_at")
+    info_payload = envelope.get("info")
+    cached_current = envelope.get("for_current_version")
+    if not (cached_at_iso and isinstance(info_payload, dict)):
+        return None
+    try:
+        cached_at = datetime.fromisoformat(cached_at_iso)
+    except ValueError:
+        return None
+    if (datetime.now() - cached_at).total_seconds() > ttl_seconds:
+        return None
+    # Invalidate stale-current-version entries: after the user updates,
+    # the cache key on disk would otherwise lie about "available".
+    if cached_current and cached_current != APP_VERSION:
+        return None
+    info = _deserialize_update_info(info_payload)
+    # An error result should not stick — let the next call retry the network path.
+    if info.error:
+        return None
+    return info
+
+
+def _save_update_cache(info: "UpdateInfo") -> None:
+    if info.error:
+        # Don't persist failed lookups — let the next caller retry.
+        return
+    try:
+        envelope = {
+            "cached_at": datetime.now().isoformat(timespec="seconds"),
+            "for_current_version": APP_VERSION,
+            "info": _serialize_update_info(info),
+        }
+        _update_cache_path().write_text(json.dumps(envelope, indent=2), encoding="utf-8")
+    except OSError as exc:
+        _log(f"cache write failed: {exc}")
+
+
+def check_for_update(
+    current_version: str | None = None,
+    timeout: float = 6.0,
+    *,
+    use_cache: bool = False,
+    cache_ttl_seconds: int = DEFAULT_UPDATE_CHECK_TTL_SECONDS,
+) -> UpdateInfo:
+    """Check GitHub Releases for a newer public release.
+
+    By default this hits the live GitHub API every call (keeping prior CLI
+    behaviour). UI surfaces that probe on every refresh should set
+    ``use_cache=True`` to read the last successful result from
+    ``user_workspace()/cache/update_check.json`` when fresher than
+    ``cache_ttl_seconds`` (default 6 hours). Failed lookups are never cached.
+    """
+    if use_cache:
+        cached = _load_cached_update_info(cache_ttl_seconds)
+        if cached is not None:
+            return cached
     current = current_version or APP_VERSION
     try:
         release = fetch_latest_release(timeout=timeout)
@@ -177,7 +278,7 @@ def check_for_update(current_version: str | None = None, timeout: float = 6.0) -
             asset_url = str(asset.get("browser_download_url") or "")
 
     available = is_newer_version(latest_tag, current)
-    return UpdateInfo(
+    info = UpdateInfo(
         current_version=current,
         latest_version=latest_tag.lstrip("vV") if latest_tag else None,
         available=available,
@@ -188,6 +289,8 @@ def check_for_update(current_version: str | None = None, timeout: float = 6.0) -
         published_at=release.get("published_at"),
         body=str(release.get("body") or ""),
     )
+    _save_update_cache(info)
+    return info
 
 
 def download_asset(info: UpdateInfo, timeout: float = 60.0) -> Path:
@@ -321,14 +424,16 @@ if (Test-Path $Exe) {{
 }}
 """
     script_path.write_text(script, encoding="utf-8")
-    subprocess.Popen([
-        "powershell",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        str(script_path),
-    ])
+    subprocess.Popen(
+        [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(script_path),
+        ]
+    )
     return True
 
 
@@ -386,7 +491,13 @@ def apply_update(info: UpdateInfo, *, restart: bool = True) -> UpdateResult:
         checksum_verified = verify_asset_checksum(downloaded, info)
     except Exception as exc:
         _log(f"download or verification failed: {exc}")
-        return UpdateResult(ok=False, message="Update download or verification failed.", log_path=log_path, error=str(exc), checksum_verified=checksum_verified)
+        return UpdateResult(
+            ok=False,
+            message="Update download or verification failed.",
+            log_path=log_path,
+            error=str(exc),
+            checksum_verified=checksum_verified,
+        )
 
     system = platform.system().lower()
     restart_started = False

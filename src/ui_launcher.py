@@ -91,6 +91,14 @@ def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
 
+    # Short-circuit version flag so `./run.sh --version` answers without invoking the menu
+    # or hitting the update-check API path. Keep the answer identical to `main.py --version`.
+    if argv and argv[0] in {"--version", "-V"}:
+        from src.version import APP_VERSION
+
+        print(f"tech_stock {APP_VERSION}")
+        return 0
+
     # Non-interactive: first arg is a choice key (1/2/3/4) passed by the shell script
     choice = ""
     extra_args: list[str] = []
@@ -107,7 +115,9 @@ def main(argv: list[str] | None = None) -> int:
     # Interactive menu
     if not choice:
         if os.environ.get("TECH_STOCK_SKIP_UPDATE_CHECK") != "1":
-            info = check_for_update(timeout=4.0)
+            # Cached lookup — every `./run.sh` boot should not pay a GitHub round-trip
+            # when we successfully checked within the last 6 hours.
+            info = check_for_update(timeout=4.0, use_cache=True)
             if info.available:
                 print(f"\n  Update available: version {info.latest_version} (current {info.current_version})")
                 try:

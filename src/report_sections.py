@@ -5,6 +5,7 @@ Each function returns a list of markdown lines (or empty list if there's
 nothing to show). Designed to be imported by report_generator.generate_markdown()
 without modifying the existing rendering logic.
 """
+
 from __future__ import annotations
 
 from typing import Iterable
@@ -12,8 +13,8 @@ from typing import Iterable
 
 # ── Position aging ──────────────────────────────────────────────────────
 
-def render_position_aging(holdings: Iterable[dict], holding_days_map: dict | None,
-                          settings: dict | None = None) -> list[str]:
+
+def render_position_aging(holdings: Iterable[dict], holding_days_map: dict | None, settings: dict | None = None) -> list[str]:
     """Render the position aging table. Empty list when no actionable tiers."""
     from src.position_aging import annotate_holdings, aging_summary
 
@@ -35,8 +36,7 @@ def render_position_aging(holdings: Iterable[dict], holding_days_map: dict | Non
             return [
                 "## Position Aging",
                 "",
-                f"_Known activity-derived ages are fresh/core only._ "
-                f"({counts['fresh']} fresh, {counts['core']} core).{unknown_note}",
+                f"_Known activity-derived ages are fresh/core only._ ({counts['fresh']} fresh, {counts['core']} core).{unknown_note}",
                 "",
                 "---",
                 "",
@@ -67,12 +67,18 @@ def render_position_aging(holdings: Iterable[dict], holding_days_map: dict | Non
     if summary["stale_tickers"]:
         lines.append("**Stale** (forced exit): " + ", ".join(summary["stale_tickers"]))
         lines.append("")
+    unknown_bounds = summary.get("unknown_with_lower_bound") or []
+    if unknown_bounds:
+        formatted = ", ".join(f"{item['ticker']} (≥{item['lower_bound_days']}d)" for item in unknown_bounds[:12])
+        lines.append("**Unknown entry date** (held at least this long, entry pre-dates activities window): " + formatted)
+        lines.append("")
 
     lines += ["---", ""]
     return lines
 
 
 # ── Trailing stops ──────────────────────────────────────────────────────
+
 
 def render_trailing_stops(trailing_alerts: list[dict] | None) -> list[str]:
     """Render trailing-stop status table."""
@@ -123,9 +129,8 @@ def render_trailing_stops(trailing_alerts: list[dict] | None) -> list[str]:
 
 # ── Sector rotation ─────────────────────────────────────────────────────
 
-def render_sector_rotation(market_context: dict | None,
-                            previous_market_context: dict | None,
-                            settings: dict | None = None) -> list[str]:
+
+def render_sector_rotation(market_context: dict | None, previous_market_context: dict | None, settings: dict | None = None) -> list[str]:
     """Render sector rotation leadership table + rotation arrows."""
     if not market_context:
         return []
@@ -174,9 +179,8 @@ def render_sector_rotation(market_context: dict | None,
 
 # ── Drawdown / VIX status banner ────────────────────────────────────────
 
-def render_market_state_banner(drawdown_state: dict | None,
-                                market_context: dict | None,
-                                vix_multiplier_applied: float | None) -> list[str]:
+
+def render_market_state_banner(drawdown_state: dict | None, market_context: dict | None, vix_multiplier_applied: float | None) -> list[str]:
     """Top-of-report banner showing active risk modifiers."""
     has_drawdown = drawdown_state and drawdown_state.get("triggered")
     macro = (market_context or {}).get("macro") if market_context else None
@@ -214,6 +218,7 @@ def render_market_state_banner(drawdown_state: dict | None,
 
 # ── Tranched plan rendering (per-recommendation insert) ─────────────────
 
+
 def render_entry_or_exit_plan(rec: dict) -> list[str]:
     """Render a recommendation's entry_plan or exit_plan as a small table.
 
@@ -225,9 +230,7 @@ def render_entry_or_exit_plan(rec: dict) -> list[str]:
 
     is_entry = bool(rec.get("entry_plan"))
     label = "Entry Plan" if is_entry else "Exit Plan"
-    auto_flag = (
-        rec.get("entry_plan_auto_generated") if is_entry else rec.get("exit_plan_auto_generated")
-    )
+    auto_flag = rec.get("entry_plan_auto_generated") if is_entry else rec.get("exit_plan_auto_generated")
     suffix = "  _(auto-generated tranches; override by overriding entry_plan in the JSON)_" if auto_flag else ""
 
     lines = [
@@ -240,10 +243,7 @@ def render_entry_or_exit_plan(rec: dict) -> list[str]:
         try:
             frac = float(tranche.get("fraction", 0)) * 100
             price_pct = float(tranche.get("price_pct", 0))
-            lines.append(
-                f"| {tranche.get('trigger', '?')} | {frac:.0f}% | {price_pct:+.1f}% | "
-                f"{tranche.get('note', '')} |"
-            )
+            lines.append(f"| {tranche.get('trigger', '?')} | {frac:.0f}% | {price_pct:+.1f}% | {tranche.get('note', '')} |")
         except (TypeError, ValueError):
             continue
     lines.append("")

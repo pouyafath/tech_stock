@@ -4,6 +4,27 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.14.2] — 2026-05-24
+
+### Added — Audit-driven hardening
+- **`--version` flag** on both `python src/main.py` and the `./run.sh` launcher (short-circuits without hitting the update API).
+- **`time_horizon` normalization** in `normalize_recommendation`: Claude variants like `3 months`, `1 year`, `long-term`, `next quarter` now snap to the canonical Rule 20 strings before logging/rendering, with the original preserved as `time_horizon_original` when changed.
+- **Update-check disk cache**: `check_for_update(use_cache=True)` reads the last successful result from `user_workspace()/cache/update_check.json` (default TTL 6 hours). Background probes in `app_gui`, `ui_launcher`, Streamlit, Textual, and Desktop now use the cache; CLI `check-update` and explicit “Check now” buttons force a refresh. Failed lookups never cache; bumps to `APP_VERSION` invalidate stale entries automatically.
+- **`unknown_with_lower_bound`** field in `aging_summary` and corresponding block in the prompt + markdown report: positions whose entry pre-dates the activities window now surface their `lower_bound_days` so Claude can reason about long-untouched holdings.
+
+### Fixed
+- **`apply_quality_gates` docstring** updated to reflect the seven actual layers (catalyst, stale, thesis decay, trailing stop, VIX, conviction sizing, drawdown) instead of the four documented when the gate was simpler.
+- **README staleness** — version footer and recap pointer now match the v1.14 line.
+
+### Changed — Code hygiene
+- **Repo-wide `ruff format` baseline** applied to all source and test files. CI’s ruff-format step now checks `src/` and `tests/` instead of four hand-picked files, so future drift is caught at PR time.
+
+### Tests
+- Added `test_main_cli.py` (3 tests), `test_horizon_normalization.py` (29 tests), updater cache coverage (5 tests), and 3 new position-aging tests for `unknown_with_lower_bound`.
+- Full local suite: **236 tests passing** (was 196).
+
+---
+
 ## [1.14.1] — 2026-05-24
 
 ### Fixed — Security and updater hardening

@@ -26,8 +26,7 @@ def test_classify_age_handles_unknown():
 
 
 def test_classify_age_respects_custom_tiers():
-    tiers = {"fresh_max_days": 30, "core_max_days": 90,
-             "mature_max_days": 180, "aged_max_days": 365}
+    tiers = {"fresh_max_days": 30, "core_max_days": 90, "mature_max_days": 180, "aged_max_days": 365}
     assert classify_age(15, tiers) == "fresh"
     assert classify_age(45, tiers) == "core"
     assert classify_age(150, tiers) == "mature"
@@ -71,11 +70,11 @@ def test_annotate_holdings_preserves_unknown_duration_lower_bound():
 def test_aging_summary_lists_stale_aged_mature():
     annotated = [
         {"ticker": "FRESH", "aging_tier": "fresh"},
-        {"ticker": "CORE",  "aging_tier": "core"},
-        {"ticker": "MATU",  "aging_tier": "mature"},
-        {"ticker": "AGED",  "aging_tier": "aged"},
-        {"ticker": "OLD",   "aging_tier": "stale"},
-        {"ticker": "X",     "aging_tier": None},
+        {"ticker": "CORE", "aging_tier": "core"},
+        {"ticker": "MATU", "aging_tier": "mature"},
+        {"ticker": "AGED", "aging_tier": "aged"},
+        {"ticker": "OLD", "aging_tier": "stale"},
+        {"ticker": "X", "aging_tier": None},
     ]
     summary = aging_summary(annotated)
     assert summary["counts"]["fresh"] == 1
@@ -88,8 +87,12 @@ def test_aging_summary_lists_stale_aged_mature():
 
 def test_format_for_prompt_emits_only_when_actionable():
     # All fresh/core: returns empty string (nothing actionable)
-    summary = {"counts": {"fresh": 3, "core": 2, "mature": 0, "aged": 0, "stale": 0},
-               "stale_tickers": [], "aged_tickers": [], "mature_tickers": []}
+    summary = {
+        "counts": {"fresh": 3, "core": 2, "mature": 0, "aged": 0, "stale": 0},
+        "stale_tickers": [],
+        "aged_tickers": [],
+        "mature_tickers": [],
+    }
     assert format_aging_for_prompt([], summary) == ""
 
     # With stale: returns block
@@ -106,3 +109,55 @@ def test_default_tiers_match_strategy_doc():
     assert DEFAULT_TIERS["fresh_max_days"] == 90
     assert DEFAULT_TIERS["core_max_days"] == 180
     assert DEFAULT_TIERS["aged_max_days"] == 730  # 2 years
+
+
+def test_aging_summary_collects_unknown_lower_bounds():
+    annotated = [
+        {"ticker": "AAPL", "aging_tier": "mature", "days_held": 200},
+        {
+            "ticker": "SOXL",
+            "aging_tier": None,
+            "days_held": None,
+            "lower_bound_days": 41,
+            "holding_duration_unknown": True,
+        },
+        {
+            "ticker": "TQQQ",
+            "aging_tier": None,
+            "days_held": None,
+            "lower_bound_days": 250,
+            "holding_duration_unknown": True,
+        },
+        # No lower_bound — should not appear in the list
+        {"ticker": "GHOSTCO", "aging_tier": None, "days_held": None},
+    ]
+    summary = aging_summary(annotated)
+    bounds = summary["unknown_with_lower_bound"]
+    assert [item["ticker"] for item in bounds] == ["TQQQ", "SOXL"]  # sorted by largest bound first
+    assert bounds[0]["lower_bound_days"] == 250
+    assert summary["counts"]["unknown"] == 3
+
+
+def test_format_aging_surfaces_unknown_entry_lower_bounds():
+    annotated = [
+        {"ticker": "FRESH", "aging_tier": "fresh"},
+        {
+            "ticker": "SOXL",
+            "aging_tier": None,
+            "lower_bound_days": 41,
+            "holding_duration_unknown": True,
+        },
+    ]
+    summary = aging_summary(annotated)
+    block = format_aging_for_prompt(annotated, summary)
+    assert "UNKNOWN ENTRY DATE" in block
+    assert "SOXL (≥41d)" in block
+
+
+def test_format_aging_still_quiet_when_all_fresh_and_no_bounds():
+    annotated = [
+        {"ticker": "FRESH1", "aging_tier": "fresh"},
+        {"ticker": "FRESH2", "aging_tier": "core"},
+    ]
+    summary = aging_summary(annotated)
+    assert format_aging_for_prompt(annotated, summary) == ""

@@ -1490,6 +1490,8 @@ For issues or questions:
 
 ---
 
-**Last updated:** May 14, 2026 — OS-specific install paths for app-based and terminal-based use
-**Version:** 1.11.0
-**Status:** Production-ready — deterministic quality gates, current catalyst headlines, four interface options, native app distribution, paper-trading mode, decision journal
+**Last updated:** May 24, 2026 — audit-driven hardening (v1.14.2).
+**Version:** 1.14.2
+**Status:** Production-ready — 40 system-prompt rules, 7-layer deterministic quality gate, trade-readiness classifier, source-backed Buy Signals, in-app updater with SHA-256 verification, API key manager, four interface options (CLI, Streamlit, Textual, native desktop), paper-trading mode, decision-journal scorecard. 236 tests in the local suite.
+
+See [CHANGELOG.md](CHANGELOG.md) for the per-release history (v1.12 → v1.14 added decision-journal scorecards, the embedded desktop app, the in-app updater, source-backed Buy Signals, full API health checks + key manager, and CI hardening).

@@ -152,3 +152,119 @@ def test_apply_update_reports_checksum_result(tmp_path, monkeypatch):
     assert result.checksum_verified is True
     assert result.downloaded_path == asset
     assert opened == [["open", str(asset)]]
+
+
+# ── Update-check cache (throttling) ─────────────────────────────────────
+
+
+def _stub_fetch_payload(latest_tag: str = "v9.9.9"):
+    return {
+        "tag_name": latest_tag,
+        "html_url": "https://example.test/release",
+        "published_at": "2026-05-24T00:00:00Z",
+        "body": "release notes",
+        "assets": [
+            {"name": "tech_stock.dmg", "browser_download_url": "https://example.test/app.dmg"},
+            {"name": "SHA256SUMS.txt", "browser_download_url": "https://example.test/SHA256SUMS.txt"},
+        ],
+    }
+
+
+def test_check_for_update_uses_disk_cache_when_fresh(tmp_path, monkeypatch):
+    """Second call within TTL must hit the disk cache, not the network."""
+    monkeypatch.setattr(updater, "user_workspace", lambda: tmp_path)
+    monkeypatch.setattr(updater, "current_platform_asset_name", lambda: "tech_stock.dmg")
+
+    call_counter = {"n": 0}
+
+    def fake_fetch(timeout=6.0):
+        call_counter["n"] += 1
+        return _stub_fetch_payload()
+
+    monkeypatch.setattr(updater, "fetch_latest_release", fake_fetch)
+
+    first = updater.check_for_update(current_version="1.0.0", use_cache=True)
+    second = updater.check_for_update(current_version="1.0.0", use_cache=True)
+
+    assert call_counter["n"] == 1, "second call should have read the disk cache"
+    assert first.latest_version == "9.9.9"
+    assert second.latest_version == "9.9.9"
+    assert (tmp_path / "cache" / "update_check.json").exists()
+
+
+def test_check_for_update_bypasses_cache_when_force(tmp_path, monkeypatch):
+    """force=use_cache=False must always hit the network."""
+    monkeypatch.setattr(updater, "user_workspace", lambda: tmp_path)
+    monkeypatch.setattr(updater, "current_platform_asset_name", lambda: "tech_stock.dmg")
+
+    call_counter = {"n": 0}
+
+    def fake_fetch(timeout=6.0):
+        call_counter["n"] += 1
+        return _stub_fetch_payload()
+
+    monkeypatch.setattr(updater, "fetch_latest_release", fake_fetch)
+
+    updater.check_for_update(current_version="1.0.0", use_cache=True)  # populates cache
+    updater.check_for_update(current_version="1.0.0", use_cache=False)  # forced refresh
+    updater.check_for_update(current_version="1.0.0")  # default = forced
+
+    assert call_counter["n"] == 3
+
+
+def test_check_for_update_cache_invalidates_when_app_version_changes(tmp_path, monkeypatch):
+    """After the user upgrades, the on-disk cache must not pretend an old update is still available."""
+    monkeypatch.setattr(updater, "user_workspace", lambda: tmp_path)
+    monkeypatch.setattr(updater, "current_platform_asset_name", lambda: "tech_stock.dmg")
+
+    call_counter = {"n": 0}
+
+    def fake_fetch(timeout=6.0):
+        call_counter["n"] += 1
+        return _stub_fetch_payload()
+
+    monkeypatch.setattr(updater, "fetch_latest_release", fake_fetch)
+
+    # First call populates the cache while APP_VERSION = X
+    monkeypatch.setattr(updater, "APP_VERSION", "1.0.0")
+    updater.check_for_update(current_version="1.0.0", use_cache=True)
+
+    # User upgrades — APP_VERSION rolls forward. Cache must be invalidated.
+    monkeypatch.setattr(updater, "APP_VERSION", "9.9.9")
+    updater.check_for_update(current_version="9.9.9", use_cache=True)
+
+    assert call_counter["n"] == 2
+
+
+def test_check_for_update_does_not_cache_failures(tmp_path, monkeypatch):
+    """Errored lookups must never be cached — next call should retry."""
+    monkeypatch.setattr(updater, "user_workspace", lambda: tmp_path)
+
+    def bad_fetch(timeout=6.0):
+        raise updater.urllib.error.URLError("boom")
+
+    monkeypatch.setattr(updater, "fetch_latest_release", bad_fetch)
+    info = updater.check_for_update(current_version="1.0.0")
+
+    assert info.error
+    assert not (tmp_path / "cache" / "update_check.json").exists()
+
+
+def test_check_for_update_cache_expires_after_ttl(tmp_path, monkeypatch):
+    """Stale entries beyond cache_ttl_seconds must trigger a network refresh."""
+    monkeypatch.setattr(updater, "user_workspace", lambda: tmp_path)
+    monkeypatch.setattr(updater, "current_platform_asset_name", lambda: "tech_stock.dmg")
+
+    call_counter = {"n": 0}
+
+    def fake_fetch(timeout=6.0):
+        call_counter["n"] += 1
+        return _stub_fetch_payload()
+
+    monkeypatch.setattr(updater, "fetch_latest_release", fake_fetch)
+
+    updater.check_for_update(current_version="1.0.0", use_cache=True)
+    # ttl=0 forces the cached value to be treated as expired immediately.
+    updater.check_for_update(current_version="1.0.0", use_cache=True, cache_ttl_seconds=0)
+
+    assert call_counter["n"] == 2
