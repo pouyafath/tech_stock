@@ -37,13 +37,9 @@ def test_platform_fonts_returns_complete_ladder():
 
 def test_platform_fonts_picks_sf_pro_on_macos(monkeypatch):
     """On macOS the ladder should use the SF Pro family — best system match."""
-    monkeypatch.setattr("src.desktop_app.IS_MACOS", True)
-    # Re-import the helper after patching so it picks up the patched flag
-    import importlib
-
     import src.desktop_app as dapp
 
-    importlib.reload(dapp)
+    monkeypatch.setattr(dapp, "IS_MACOS", True)
     fonts = dapp._platform_fonts()
     assert "SF Pro" in fonts["title"][0]
     assert "SF Pro" in fonts["body"][0]
