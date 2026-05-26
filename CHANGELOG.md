@@ -4,6 +4,28 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.15.1] — 2026-05-26
+
+### Added — macOS native-app polish
+
+- **Shared `PALETTE` adopted by `src/desktop_app.py`** — the embedded Tkinter dashboard now reads the same colour tokens as Streamlit and the Textual TUI, so a tweak in `src/ui_theme.py` propagates to every UI.
+- **Native macOS menu bar with keyboard shortcuts** — File (New Report ⌘N, Open Latest ⌘L, Reveal Workspace, Reveal Latest Report), View (Dashboard / Buy Signals / Report / History / Config Editor ⌘,), Refresh Current Tab ⌘R, Find ⌘F, Help (Check for Updates, Open Repository, Report a Bug, About). On macOS the standard About / Preferences / Quit slots are wired into the application menu via `tk::mac::ShowPreferences` and `tk::mac::Quit`.
+- **Status pill in the header** — top-right indicator shows `⚡ cost · ⚠️ warnings` (or `⛔` for high-severity) once the dashboard warms up; auto-refreshes when the dashboard refreshes.
+- **Platform-aware font ladder (`_platform_fonts`)** — SF Pro Display / SF Pro Text / SF Mono on macOS, Segoe UI on Windows, TkDefault elsewhere; pushed through TFrame, Treeview, and TNotebook styles so every widget reads from the same family.
+- **PyInstaller spec hardening** — `tech_stock.spec` now ships the macOS-recommended `Info.plist` keys: `LSApplicationCategoryType=public.app-category.finance`, `LSUIElement=False`, `NSPrincipalClass=NSApplication`, `NSSupportsAutomaticGraphicsSwitching`, `NSAppTransportSecurity`, plus user-friendly explanations for `NSAppleEventsUsageDescription`, `NSDocumentsFolderUsageDescription`, `NSDownloadsFolderUsageDescription`, and `NSDesktopFolderUsageDescription`. Added `CFBundleDocumentTypes` so double-clicking a CSV opens tech_stock.
+
+### Fixed — Startup cost
+
+- **Cold-start tax removed from `DesktopApp.__init__`**. Previously the constructor synchronously called `latest_report()`, `refresh_dashboard()`, `refresh_history()`, `load_report(...)`, a CSV-detection toast, an update probe, and a buy-signal refresh — the window paint was blocked for ~1–2 s on first launch. All of that now runs via `self.after_idle(self._post_paint_warmup)`, and `start_buy_signal_refresh` is deferred until the user actually opens the Buy Signals tab (saves the yfinance hits when they don't).
+- **`aqua` ttk theme** preferred over `clam` on macOS so widgets honour the system dark-mode appearance.
+
+### Tests
+
+- New `tests/test_desktop_app_macos.py` (10 tests): font ladder, palette wiring, Info.plist keys, file-association, menu-factory presence, post-paint warm-up presence, no hard-coded hex.
+- Total: **288 tests passing** (was 278).
+
+---
+
 ## [1.15.0] — 2026-05-25
 
 ### Added — Production-grade UI overhaul

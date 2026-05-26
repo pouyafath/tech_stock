@@ -175,12 +175,56 @@ if sys.platform == "darwin":
         icon=icon,
         bundle_identifier="com.techstock.app",
         info_plist={
+            # — Identity —
+            "CFBundleName": "tech_stock",
+            "CFBundleDisplayName": "tech_stock",
             "CFBundleShortVersionString": APP_VERSION,
             "CFBundleVersion": APP_VERSION,
+            "CFBundleExecutable": "tech_stock",
+            "CFBundleIdentifier": "com.techstock.app",
+            "CFBundlePackageType": "APPL",
+            "CFBundleSignature": "????",
+            "CFBundleInfoDictionaryVersion": "6.0",
+            "NSHumanReadableCopyright": "© 2026 tech_stock — built on Claude",
+            # — Display / appearance —
             "NSHighResolutionCapable": True,
-            "NSRequiresAquaSystemAppearance": False,   # supports dark mode
+            "NSSupportsAutomaticGraphicsSwitching": True,
+            "NSRequiresAquaSystemAppearance": False,  # supports dark mode (Mojave+)
+            "LSApplicationCategoryType": "public.app-category.finance",
             "LSMinimumSystemVersion": "12.0",
-            "CFBundleDisplayName": "tech_stock",
-            "NSHumanReadableCopyright": "© 2026 tech_stock",
+            # — Behaviour —
+            # The app shows a dashboard window, so it should *not* be a UIElement.
+            "LSUIElement": False,
+            "LSBackgroundOnly": False,
+            "NSPrincipalClass": "NSApplication",
+            # CSV file association — double-click a Wealthsimple CSV → open in app
+            "CFBundleDocumentTypes": [
+                {
+                    "CFBundleTypeName": "Comma-Separated Values",
+                    "CFBundleTypeExtensions": ["csv"],
+                    "CFBundleTypeIconFile": "icon.icns",
+                    "CFBundleTypeRole": "Viewer",
+                    "LSItemContentTypes": ["public.comma-separated-values-text"],
+                    "LSHandlerRank": "Alternate",
+                }
+            ],
+            # — Privacy / entitlements descriptions (shown in macOS prompts) —
+            "NSAppleEventsUsageDescription": (
+                "tech_stock uses AppleScript only to reveal report files in Finder. "
+                "It does not control other applications."
+            ),
+            "NSDesktopFolderUsageDescription": (
+                "tech_stock looks for today's Wealthsimple holdings CSV on your Desktop."
+            ),
+            "NSDocumentsFolderUsageDescription": (
+                "tech_stock looks for today's Wealthsimple holdings CSV in your Documents folder."
+            ),
+            "NSDownloadsFolderUsageDescription": (
+                "tech_stock looks for today's Wealthsimple holdings CSV in your Downloads folder."
+            ),
+            # — Networking entitlement hint (no ATS exception; HTTPS only) —
+            "NSAppTransportSecurity": {
+                "NSAllowsArbitraryLoads": False,
+            },
         },
     )

@@ -50,6 +50,19 @@
 
 ---
 
+## ✨ What's New in v1.15.1 (May 26, 2026)
+
+**macOS native-app polish — same brand, faster boot, real menu bar.**
+
+- **Shared `PALETTE`** now drives the embedded Tkinter dashboard too — same colours as Streamlit and Textual; one place to tweak.
+- **Native menu bar** with macOS-standard keyboard shortcuts: ⌘N (new report), ⌘L (open latest), ⌘R (refresh tab), ⌘F (find), ⌘, (preferences → config editor). Wired into `tk::mac::ShowPreferences` and `tk::mac::Quit` so the system About / Preferences / Quit slots work as expected.
+- **Header status pill** — `⚡ cost · ⚠️ warnings` indicator at the top right; updates with the dashboard.
+- **Faster cold start** — `DesktopApp.__init__` no longer blocks the first paint with `refresh_dashboard / refresh_history / load_report / update probe / buy-signal pre-fetch`. All deferred via `after_idle` + lazy tab activation; buy signals only fire when you actually open that tab.
+- **Polished `Info.plist`** — `LSApplicationCategoryType=finance`, dark-mode capable, CSV file association (`CFBundleDocumentTypes`), and user-friendly `NS*UsageDescription` prompts for Documents / Downloads / Desktop / AppleEvents.
+- **`SF Pro Display` / `SF Pro Text` / `SF Mono`** typography ladder on macOS (Segoe UI on Windows) propagated to every ttk widget.
+
+Current local suite: `pytest -q` passes with 288 tests in ~2 s.
+
 ## ✨ What's New in v1.15.0 (May 25, 2026)
 
 **Production-grade UI overhaul across every front-end.**

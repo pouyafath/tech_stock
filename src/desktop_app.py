@@ -52,6 +52,64 @@ from src.ui_support import (
     write_editable_json,
 )
 
+try:
+    from src.ui_theme import PALETTE  # noqa: E402
+except Exception:  # pragma: no cover — defensive fallback for early bundle init
+
+    class _PaletteFallback:
+        bg = "#0b0d14"
+        surface = "#12141c"
+        panel = "#171a26"
+        card = "#1c1f2e"
+        border = "#272b3c"
+        border_strong = "#363b52"
+        text = "#e6e9f2"
+        text_strong = "#ffffff"
+        muted = "#8a93a8"
+        subtle = "#5b6478"
+        accent = "#22c55e"
+        accent_hover = "#16a34a"
+        warn = "#f59e0b"
+        danger = "#ef4444"
+        info = "#38bdf8"
+        neutral = "#94a3b8"
+
+    PALETTE = _PaletteFallback()  # type: ignore[assignment]
+
+
+IS_MACOS = sys.platform == "darwin"
+MOD_KEY = "Command" if IS_MACOS else "Control"
+MOD_LABEL = "⌘" if IS_MACOS else "Ctrl+"
+
+
+def _platform_fonts() -> dict[str, tuple]:
+    """Return a font ladder tuned per-platform.
+
+    On macOS we use the system "SF Pro" stack (Apple's modern default). On
+    Windows we use Segoe UI; elsewhere we fall back to TkDefaultFont. Each
+    entry is ``(family, size, weight)``.
+    """
+    if IS_MACOS:
+        family_display = "SF Pro Display"
+        family_text = "SF Pro Text"
+        mono = "SF Mono"
+    elif sys.platform == "win32":
+        family_display = "Segoe UI"
+        family_text = "Segoe UI"
+        mono = "Consolas"
+    else:
+        family_display = "TkDefaultFont"
+        family_text = "TkDefaultFont"
+        mono = "TkFixedFont"
+    return {
+        "title": (family_display, 28, "bold"),
+        "heading": (family_display, 17, "bold"),
+        "subheading": (family_text, 13, "bold"),
+        "body": (family_text, 12, "normal"),
+        "small": (family_text, 11, "normal"),
+        "mono": (mono, 12, "normal"),
+    }
+
 
 SEARCH_MATCH_LIMIT = 500
 
@@ -83,75 +141,189 @@ class DesktopApp(tk.Tk):
 
     def __init__(self) -> None:
         super().__init__()
-        self.title("tech_stock Desktop")
-        self.geometry("1180x820")
+        self.title("tech_stock")
+        self.geometry("1200x840")
         self.minsize(980, 680)
 
-        self.bg = "#12121a"
-        self.panel = "#1e1e2e"
-        self.text = "#e5e7eb"
-        self.muted = "#94a3b8"
-        self.accent = "#22c55e"
-        self.danger = "#ef4444"
-        self.warning = "#f59e0b"
-        self.good = "#22c55e"
-        self.card = "#171827"
+        # Shared palette (Streamlit + Textual + Tkinter all read the same tokens)
+        self.bg = PALETTE.bg
+        self.surface = PALETTE.surface
+        self.panel = PALETTE.panel
+        self.text = PALETTE.text
+        self.text_strong = PALETTE.text_strong
+        self.muted = PALETTE.muted
+        self.accent = PALETTE.accent
+        self.accent_hover = PALETTE.accent_hover
+        self.danger = PALETTE.danger
+        self.warning = PALETTE.warn
+        self.good = PALETTE.accent
+        self.card = PALETTE.card
+        self.border = PALETTE.border
+        self.border_strong = PALETTE.border_strong
         self.table_bg = "#0f172a"
         self.configure(bg=self.bg)
 
+        # Platform-aware font ladder
+        self.fonts = _platform_fonts()
+
         self.progress_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
-        self.latest_report_path: Path | None = latest_report()
+        self.latest_report_path: Path | None = None  # lazily resolved after first paint
         self.latest_update_info: Any = None
         self.search_state: dict[str, dict[str, Any]] = {}
+        self._warmed_tabs: set[str] = set()
 
         self._configure_style()
+        self._build_menu()
         self._build_header()
         self._build_tabs()
-        self.bind_all("<Command-f>", self.focus_active_search)
-        self.bind_all("<Control-f>", self.focus_active_search)
+
+        # Universal accelerators — the menu also binds these, but bind_all
+        # ensures they work even before the menu is realised on macOS.
+        self.bind_all(f"<{MOD_KEY}-f>", self.focus_active_search)
+        self.bind_all(f"<{MOD_KEY}-r>", lambda _e: self._refresh_active_tab())
+        self.bind_all(f"<{MOD_KEY}-comma>", lambda _e: self._jump_to_tab(self.editor_tab))
+        self.bind_all(f"<{MOD_KEY}-n>", lambda _e: self._jump_to_tab(self.run_tab))
+        self.bind_all(f"<{MOD_KEY}-l>", lambda _e: self.load_report(latest_report(), select_tab=True))
+
+        # Drain the progress queue every 100ms — cheap, must run on the Tk loop.
         self.after(100, self._drain_progress_queue)
-        self.refresh_dashboard()
-        self.refresh_history()
-        self.load_report(self.latest_report_path, select_tab=False)
-        self.after(350, self.confirm_detected_csv_paths)
-        if os.environ.get("TECH_STOCK_SKIP_UPDATE_CHECK") != "1":
-            self.after(1200, lambda: self.start_update_check(startup=True))
-        self.after(1600, self.start_buy_signal_refresh)
+
+        # Defer ALL non-essential startup work to after the first paint.
+        # The window now appears instantly; heavy I/O happens behind the scenes.
+        self.after_idle(self._post_paint_warmup)
 
     def _configure_style(self) -> None:
         style = ttk.Style(self)
         try:
-            style.theme_use("clam")
+            # 'aqua' is macOS's native theme and respects system dark mode
+            # better than 'clam'. Fall back if it isn't available.
+            preferred = "aqua" if IS_MACOS and "aqua" in style.theme_names() else "clam"
+            style.theme_use(preferred)
         except tk.TclError:
             pass
+        fonts = self.fonts
         style.configure("TFrame", background=self.bg)
         style.configure("Panel.TFrame", background=self.panel)
-        style.configure("TLabel", background=self.bg, foreground=self.text)
-        style.configure("Muted.TLabel", background=self.bg, foreground=self.muted)
-        style.configure("Title.TLabel", background=self.bg, foreground=self.accent, font=("Helvetica", 28, "bold"))
-        style.configure("TButton", padding=(12, 7))
-        style.configure("Accent.TButton", padding=(14, 8))
+        style.configure("TLabel", background=self.bg, foreground=self.text, font=fonts["body"])
+        style.configure("Muted.TLabel", background=self.bg, foreground=self.muted, font=fonts["small"])
+        style.configure("Title.TLabel", background=self.bg, foreground=self.accent, font=fonts["title"])
+        style.configure("TButton", padding=(12, 7), font=fonts["body"])
+        style.configure("Accent.TButton", padding=(14, 8), font=fonts["subheading"])
         style.configure("TNotebook", background=self.bg, borderwidth=0)
-        style.configure("TNotebook.Tab", padding=(16, 8))
+        style.configure("TNotebook.Tab", padding=(18, 9), font=fonts["body"])
+        style.map(
+            "TNotebook.Tab",
+            background=[("selected", self.surface)],
+            foreground=[("selected", self.accent)],
+        )
         style.configure(
             "Treeview",
-            rowheight=27,
-            background="#0f172a",
-            fieldbackground="#0f172a",
+            rowheight=28,
+            background=self.table_bg,
+            fieldbackground=self.table_bg,
             foreground=self.text,
             borderwidth=0,
+            font=fonts["body"],
         )
-        style.configure("Treeview.Heading", background="#242436", foreground=self.text, font=("Helvetica", 11, "bold"))
+        style.configure(
+            "Treeview.Heading",
+            background=self.surface,
+            foreground=self.text_strong,
+            font=fonts["subheading"],
+            relief="flat",
+        )
+        style.map("Treeview.Heading", background=[("active", self.panel)])
+
+    def _build_menu(self) -> None:
+        """Build the native macOS menu bar (also works on Windows/Linux)."""
+        menubar = tk.Menu(self)
+
+        # — App menu (macOS automatically pulls this from the first menu) —
+        if IS_MACOS:
+            # The first 'apple' menu is auto-handled by Tk on macOS; we also
+            # use the special "TK." prefix to inject items into the
+            # application menu (About / Preferences / Quit grouping).
+            app_menu = tk.Menu(menubar, name="apple", tearoff=0)
+            app_menu.add_command(label="About tech_stock", command=self._show_about_dialog)
+            menubar.add_cascade(menu=app_menu)
+            # Wire up the system Preferences shortcut (⌘,)
+            self.createcommand("tk::mac::ShowPreferences", lambda: self._jump_to_tab(self.editor_tab))
+            self.createcommand("tk::mac::Quit", self.destroy)
+
+        # — File menu —
+        file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu.add_command(
+            label="New Report…",
+            accelerator=f"{MOD_LABEL}N",
+            command=lambda: self._jump_to_tab(self.run_tab),
+        )
+        file_menu.add_command(
+            label="Open Latest Report",
+            accelerator=f"{MOD_LABEL}L",
+            command=lambda: self.load_report(latest_report(), select_tab=True),
+        )
+        file_menu.add_separator()
+        file_menu.add_command(label="Reveal Workspace in Finder", command=self._reveal_workspace)
+        file_menu.add_command(label="Reveal Latest Report", command=self._reveal_latest_report)
+        if not IS_MACOS:
+            file_menu.add_separator()
+            file_menu.add_command(label="Quit", accelerator="Ctrl+Q", command=self.destroy)
+            self.bind_all("<Control-q>", lambda _e: self.destroy())
+        menubar.add_cascade(label="File", menu=file_menu)
+
+        # — View menu —
+        view_menu = tk.Menu(menubar, tearoff=0)
+        view_menu.add_command(label="Dashboard", command=lambda: self._jump_to_tab(self.dashboard_tab))
+        view_menu.add_command(label="Buy Signals", command=lambda: self._jump_to_tab(self.buy_signals_tab))
+        view_menu.add_command(label="Report Viewer", command=lambda: self._jump_to_tab(self.report_tab))
+        view_menu.add_command(label="History", command=lambda: self._jump_to_tab(self.history_tab))
+        view_menu.add_command(label="Config Editor", accelerator=f"{MOD_LABEL},", command=lambda: self._jump_to_tab(self.editor_tab))
+        view_menu.add_separator()
+        view_menu.add_command(
+            label="Refresh Current Tab",
+            accelerator=f"{MOD_LABEL}R",
+            command=self._refresh_active_tab,
+        )
+        view_menu.add_command(
+            label="Find in Report…",
+            accelerator=f"{MOD_LABEL}F",
+            command=self.focus_active_search,
+        )
+        menubar.add_cascade(label="View", menu=view_menu)
+
+        # — Help menu —
+        help_menu = tk.Menu(menubar, tearoff=0, name="help")
+        help_menu.add_command(label="Check for Updates…", command=lambda: self.start_update_check(startup=False))
+        help_menu.add_command(label="Open GitHub Repository", command=self._open_repo)
+        help_menu.add_command(label="Report a Bug…", command=self._open_issues)
+        if not IS_MACOS:
+            help_menu.add_separator()
+            help_menu.add_command(label="About tech_stock", command=self._show_about_dialog)
+        menubar.add_cascade(label="Help", menu=help_menu)
+
+        self.config(menu=menubar)
 
     def _build_header(self) -> None:
         header = ttk.Frame(self)
         header.pack(fill="x", padx=22, pady=(18, 8))
-        ttk.Label(header, text="tech_stock", style="Title.TLabel").pack(side="left")
+
+        left = ttk.Frame(header)
+        left.pack(side="left", anchor="w")
+        ttk.Label(left, text="tech_stock", style="Title.TLabel").pack(side="left")
         ttk.Label(
-            header,
-            text="Embedded desktop dashboard - no browser required",
+            left,
+            text=f"v{current_app_version()} · embedded desktop dashboard",
             style="Muted.TLabel",
-        ).pack(side="left", padx=(18, 0), pady=(12, 0))
+        ).pack(side="left", padx=(14, 0), pady=(14, 0))
+
+        # Status pill on the right shows API health summary once warmed up.
+        self.header_status_var = tk.StringVar(value="● Warming up…")
+        self.header_status_label = ttk.Label(
+            header,
+            textvariable=self.header_status_var,
+            style="Muted.TLabel",
+        )
+        self.header_status_label.pack(side="right", padx=(0, 6), pady=(14, 0))
 
     def _build_tabs(self) -> None:
         self.tabs = ttk.Notebook(self)
@@ -183,6 +355,150 @@ class DesktopApp(tk.Tk):
         self._build_editor_tab()
         self._build_health_tab()
         self._build_update_tab()
+
+    # ── Lazy-warm-up & menu helpers ─────────────────────────────────────────
+    def _post_paint_warmup(self) -> None:
+        """Run after the first paint; load lightweight context, defer heavy work."""
+        # 1. Cheap: read the latest report path from disk (~1ms)
+        self.latest_report_path = latest_report()
+
+        # 2. Cheap: paint dashboard from the most recent JSON log
+        self.refresh_dashboard()
+        self.refresh_history()
+        self.load_report(self.latest_report_path, select_tab=False)
+        self._update_header_status()
+
+        # 3. Background: CSV detection toast (350 ms after paint)
+        self.after(350, self.confirm_detected_csv_paths)
+
+        # 4. Background: cached update check after 1.2 s
+        if os.environ.get("TECH_STOCK_SKIP_UPDATE_CHECK") != "1":
+            self.after(1200, lambda: self.start_update_check(startup=True))
+
+        # 5. Buy-signal refresh is deferred until the tab is *actually opened*.
+        self.tabs.bind("<<NotebookTabChanged>>", self._on_tab_changed, add="+")
+
+    def _on_tab_changed(self, _event: object) -> None:
+        """Warm up a tab the first time the user actually visits it.
+
+        Saves 2-5 s of yfinance / API calls when the user just wants to read
+        the latest report and never opens Buy Signals or API Checks.
+        """
+        try:
+            selected = self.tabs.select()
+            tab_text = self.tabs.tab(selected, "text")
+        except tk.TclError:
+            return
+        if tab_text in self._warmed_tabs:
+            return
+        self._warmed_tabs.add(tab_text)
+        if tab_text == "Buy Signals":
+            self.start_buy_signal_refresh()
+        elif tab_text == "API Checks":
+            # Refresh the API key inventory; live connectivity probe stays manual.
+            self.refresh_api_key_manager()
+
+    def _refresh_active_tab(self) -> None:
+        """⌘R handler — re-run the data-load for whichever tab is in front."""
+        try:
+            selected = self.tabs.select()
+            tab_text = self.tabs.tab(selected, "text")
+        except tk.TclError:
+            return
+        actions: dict[str, callable] = {
+            "Dashboard": self.refresh_dashboard,
+            "Buy Signals": self.start_buy_signal_refresh,
+            "Report Viewer": lambda: self.load_report(latest_report(), select_tab=True),
+            "History": self.refresh_history,
+            "Config Editor": self.load_editor_file,
+            "API Checks": self.start_connectivity_check,
+            "Updates": lambda: self.start_update_check(startup=False),
+        }
+        handler = actions.get(tab_text)
+        if handler is not None:
+            handler()
+
+    def _jump_to_tab(self, tab_frame: ttk.Frame) -> None:
+        try:
+            self.tabs.select(tab_frame)
+        except tk.TclError:
+            pass
+
+    def _update_header_status(self) -> None:
+        """Refresh the small status pill at the top-right of the window."""
+        summary = latest_log_summary() or {}
+        usage = summary.get("usage") or {}
+        warnings = summary.get("quality_warnings") or []
+        if not summary or summary.get("error"):
+            self.header_status_var.set("● No data yet")
+            return
+        cost = usage.get("cost_usd")
+        parts = []
+        if cost is not None:
+            parts.append(f"⚡ ${cost:.4f}")
+        if warnings:
+            critical = sum(1 for w in warnings if str(w.get("severity", "")).lower() in {"critical", "high"})
+            if critical:
+                parts.append(f"⛔ {critical}")
+            else:
+                parts.append(f"⚠️ {len(warnings)}")
+        else:
+            parts.append("✓ clean")
+        self.header_status_var.set(" · ".join(parts) or "Ready.")
+
+    def _show_about_dialog(self) -> None:
+        from tkinter import messagebox
+
+        messagebox.showinfo(
+            f"About tech_stock {current_app_version()}",
+            f"tech_stock v{current_app_version()}\n\n"
+            "AI-powered portfolio advisor — built on Claude.\n\n"
+            "Two-pass review · deterministic quality gates · full audit trail.\n\n"
+            "https://github.com/pouyafath/tech_stock\n\n"
+            "© 2026 tech_stock",
+        )
+
+    def _reveal_workspace(self) -> None:
+        from src.ui_support import app_data_locations as _locs
+
+        locations = _locs()
+        root = locations.get("workspace") or Path.home()
+        self._reveal_in_finder(Path(root))
+
+    def _reveal_latest_report(self) -> None:
+        report = latest_report()
+        if report is None:
+            from tkinter import messagebox
+
+            messagebox.showinfo("No report yet", "Generate a report first from the Run Report tab.")
+            return
+        self._reveal_in_finder(report)
+
+    def _reveal_in_finder(self, path: Path) -> None:
+        import subprocess
+
+        try:
+            if IS_MACOS:
+                subprocess.Popen(["open", "-R", str(path)] if path.is_file() else ["open", str(path)])
+            elif sys.platform == "win32":
+                if path.is_file():
+                    subprocess.Popen(["explorer", "/select,", str(path)])
+                else:
+                    os.startfile(str(path))  # type: ignore[attr-defined]
+            else:
+                subprocess.Popen(["xdg-open", str(path.parent if path.is_file() else path)])
+        except Exception:
+            pass
+
+    def _open_repo(self) -> None:
+        import webbrowser
+
+        webbrowser.open("https://github.com/pouyafath/tech_stock")
+
+    def _open_issues(self) -> None:
+        import webbrowser
+
+        webbrowser.open("https://github.com/pouyafath/tech_stock/issues/new")
 
     def _panel(self, parent: tk.Widget, title: str | None = None) -> ttk.Frame:
         frame = ttk.Frame(parent, style="Panel.TFrame", padding=14)
@@ -1557,6 +1873,9 @@ class DesktopApp(tk.Tk):
                 self._wrapped_dashboard_label(body, self._trim_text(note, 220), bg=bg, fg=self.muted, font=("Helvetica", 10))
 
     def refresh_dashboard(self) -> None:
+        # Keep the header status pill in lock-step with the dashboard.
+        if hasattr(self, "header_status_var"):
+            self._update_header_status()
         summary = latest_log_summary()
         if not summary:
             self.dashboard_caption.configure(text="No recommendation JSON logs found yet.")
