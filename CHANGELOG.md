@@ -4,6 +4,33 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.16.0] — 2026-05-26
+
+### Added — Close the learning loop
+
+The app already collected a lot of introspective data (thesis verdicts, decision-journal scorecard, backtester); v1.16 surfaces it and feeds the high-leverage signals back into the next Claude run.
+
+- **Per-horizon edge in `decision_journal`** — `summarize_outcomes` now emits a `by_horizon` block (`{1: {...}, 5: {...}, 20: {...}, 60: {...}}`) computed from the same scored windows the dashboard already displays. Additive; existing keys unchanged.
+- **Risk-adjusted sizing in `backtester`** — `_avg_and_hit_rate` now returns `stdev_pct`, `sharpe` (rf=0, `mean/stdev × √N`), and `max_drawdown_pct` per bucket. The conviction-stratified sizing multiplier formula is now **Sharpe-dampened** — high-variance buckets no longer get the same size as low-variance buckets with the same expectation. Clamp range `[0.4, 1.4]` preserved.
+- **Thesis-text drift in `drift_tracker`** — new `thesis_text_drift` event fires when action / conviction / sign all stayed the same but the rationale was substantially rewritten (token-set Jaccard < 0.55 after stop-word filtering). Catches the "moving goalposts" smell. Pure-Python — no new hard dependency.
+- **Claude prompt enrichment (`src/claude_analyst.py`)** — track-record block now lists `Sharpe / max_dd` per conviction bucket; scorecard block now lists `Your edge by horizon: 1d ±X% | 5d ±Y% | 20d ±Z% | 60d ±W%` plus a tuning hint pointing to the user's strongest horizon; drift section has a dedicated `Thesis-text drift` mini-section.
+- **`learning_view()` in `ui_support.py`** — single aggregator returning `{thesis_verdicts, edge_by_horizon, sharpe_by_conviction, thesis_text_drift_alerts, errors}`. Lazy and read-only; never triggers a Claude run.
+- **`VERDICT_META` + `verdict_badge()` in `ui_theme.py`** — colour map for the thesis-tracker verdicts (materialized / partial / not_yet / invalidated), matching the existing badge family.
+- **🧠 Learning tab in Streamlit (`ui/streamlit_app.py`)** — per-horizon edge metrics + bar chart, Sharpe-by-conviction table, thesis-verdict heat-map with history dots, thesis-text drift alerts.
+- **Learning tab in the embedded Tk desktop (`src/desktop_app.py`)** — same data via Treeviews, registered between History and Config Editor, wired into the lazy `_on_tab_changed` warm-up so it doesn't fire on cold start.
+- **One-line per-horizon edge in the Textual TUI Dashboard** — surfaces the same signal without adding a new pane.
+
+### Fixed
+
+- `summarize_outcomes` no longer raises `TypeError` when a legacy outcome row has `horizon_days=None` — bad rows are silently dropped from the new `by_horizon` block.
+
+### Tests
+
+- Total: **333 passing** (was 288) — `pytest -q` runs in ~2 s.
+- New: `test_decision_journal_horizon.py` (8), `test_backtester_risk_metrics.py` (10), `test_drift_tracker_thesis_text.py` (10), `test_learning_view.py` (6), plus 5 added to `test_ui_theme.py` for `verdict_badge`.
+
+---
+
 ## [1.15.1] — 2026-05-26
 
 ### Added — macOS native-app polish

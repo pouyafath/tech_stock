@@ -9,10 +9,142 @@ self-correct (and into the markdown report so the user sees it).
 """
 
 import json
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from src._utils import parse_session_filename
+
+
+# ── Thesis-text drift constants ────────────────────────────────────────────
+
+# Words that carry little semantic load — present in nearly every thesis
+# regardless of the actual rationale.  Filtered out before Jaccard so a
+# rewrite from "AI tailwind drives revenue acceleration" to "M&A speculation
+# from META lifts price" doesn't get inflated similarity from "drives" /
+# "from" / "the".  Small, deliberate, English-only.
+_THESIS_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "but",
+        "of",
+        "for",
+        "in",
+        "on",
+        "at",
+        "by",
+        "with",
+        "from",
+        "to",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "this",
+        "that",
+        "these",
+        "those",
+        "it",
+        "as",
+        "than",
+        "then",
+        "so",
+        "we",
+        "you",
+        "your",
+        "our",
+        "their",
+        "they",
+        "should",
+        "would",
+        "could",
+        "may",
+        "might",
+        "will",
+        "shall",
+        "do",
+        "does",
+        "did",
+        "has",
+        "have",
+        "had",
+        "into",
+        "out",
+        "over",
+        "under",
+        "above",
+        "below",
+        "between",
+        "after",
+        "before",
+        "while",
+        "via",
+    }
+)
+
+# Token-set similarity threshold below which we flag a thesis_text_drift
+# event.  Tuned empirically: identical → 1.0, paraphrase typically 0.65+,
+# wholesale rewrite < 0.4.  0.55 is the boundary that catches "rewritten
+# rationale" without being noisy for ordinary edits.
+_THESIS_DRIFT_SIM_THRESHOLD = 0.55
+
+# Don't run the comparison for very short theses — too noisy.  Real
+# rationales typically run 20-50 meaningful tokens; we just want to skip
+# 2-3-word stubs ("Buy now" vs "Sell now") where the comparison would be
+# whim-driven.  4 is the floor at which a real rewrite has enough surface
+# area to detect.
+_THESIS_DRIFT_MIN_TOKENS = 4
+
+_WORD_RE = re.compile(r"[a-z0-9]+")
+
+
+def _thesis_tokens(text: str | None) -> set[str]:
+    """Lower-case, strip punctuation, drop stop-words. Stable across calls."""
+    if not text:
+        return set()
+    tokens = _WORD_RE.findall(text.lower())
+    return {tok for tok in tokens if tok not in _THESIS_STOPWORDS and len(tok) > 1}
+
+
+def _thesis_text_similarity(was: str | None, now: str | None) -> float:
+    """Jaccard similarity between two thesis strings after stop-word filtering.
+
+    Returns a float in [0.0, 1.0].  1.0 means token-equivalent (after
+    normalisation); 0.0 means no shared content.  Pure-Python so we don't
+    pull in rapidfuzz as a hard dependency; tested to be plenty fast for
+    the few-dozen-tickers-per-run scale of this app.
+    """
+    was_tokens = _thesis_tokens(was)
+    now_tokens = _thesis_tokens(now)
+    if not was_tokens or not now_tokens:
+        return 0.0
+    if min(len(was_tokens), len(now_tokens)) < _THESIS_DRIFT_MIN_TOKENS:
+        return 1.0  # too short to be a meaningful comparison — treat as identical
+    intersection = was_tokens & now_tokens
+    union = was_tokens | now_tokens
+    return len(intersection) / len(union) if union else 0.0
+
+
+def _is_thesis_text_drift(was_rec: dict, now_rec: dict) -> tuple[bool, float]:
+    """True iff action stayed the same but the thesis was substantially rewritten.
+
+    Returns ``(is_drift, similarity)`` so callers can show the score.  We
+    deliberately skip this check when the action flipped — that's already
+    flagged by ``action_flip`` and adding a second event would just be
+    noise.
+    """
+    was_action = (was_rec.get("action") or "").upper()
+    now_action = (now_rec.get("action") or "").upper()
+    if was_action != now_action or not was_action:
+        return False, 1.0
+    similarity = _thesis_text_similarity(was_rec.get("thesis"), now_rec.get("thesis"))
+    return similarity < _THESIS_DRIFT_SIM_THRESHOLD, similarity
 
 
 def get_previous_session(
@@ -198,6 +330,25 @@ def compute_drift(
                     "now": now_summary,
                 }
             )
+            continue
+
+        # Thesis-text drift — action stayed the same, conviction is steady,
+        # net direction is consistent, but the rationale was substantially
+        # rewritten.  This is the "moving goalposts" smell: same call, new
+        # reason.  Often indicates the model couldn't reproduce its prior
+        # reasoning and is post-rationalising — worth surfacing to Claude
+        # for self-check on the next pass.
+        is_drift, similarity = _is_thesis_text_drift(was_rec, now_rec)
+        if is_drift:
+            drift.append(
+                {
+                    "ticker": ticker,
+                    "drift_type": "thesis_text_drift",
+                    "was": was_summary,
+                    "now": now_summary,
+                    "similarity": round(similarity, 2),
+                }
+            )
 
     # Tickers dropped from prior session
     for ticker, was_rec in prev_by.items():
@@ -215,10 +366,14 @@ def compute_drift(
 
 
 def _summary(rec: dict) -> dict:
+    # ``thesis`` is included so downstream renderers can show "Was: <text> →
+    # Now: <text>" for thesis_text_drift events.  Truncated upstream when
+    # the prompt budget is tight; here we just preserve the field.
     return {
         "action": rec.get("action", ""),
         "conviction": rec.get("conviction"),
         "net_expected_pct": rec.get("net_expected_pct"),
+        "thesis": rec.get("thesis"),
     }
 
 

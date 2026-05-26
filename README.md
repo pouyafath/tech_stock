@@ -50,6 +50,18 @@
 
 ---
 
+## ✨ What's New in v1.16.0 (May 26, 2026)
+
+**Close the learning loop — Claude now sees what the app has learned about your trading style.**
+
+- **🧠 New Learning tab** (Streamlit + Tkinter desktop): thesis verdict heat-map, per-horizon edge (1d / 5d / 20d / 60d), Sharpe-by-conviction sizing table, thesis-text drift alerts. One-line edge summary in the Textual TUI Dashboard.
+- **Per-horizon edge in Claude prompt** — the model now sees `Your edge by horizon: 1d -0.3% | 5d +1.1% | 20d +3.2% | 60d -1.1%` plus a tuning hint, so it can bias `time_horizon` to where you actually outperform.
+- **Risk-adjusted sizing** — backtester now computes Sharpe + max-DD per conviction bucket; the sizing multiplier formula is Sharpe-dampened so high-variance buckets no longer get the same size as steady ones. Clamp range `[0.4, 1.4]` preserved.
+- **Thesis-text drift detection** — a new `thesis_text_drift` event fires when the same action is supported by a substantially rewritten rationale (token-set Jaccard < 0.55). Catches the "moving goalposts" smell and surfaces the top 3 to Claude on the next pass.
+- **278 → 333 tests** — added `test_decision_journal_horizon.py`, `test_backtester_risk_metrics.py`, `test_drift_tracker_thesis_text.py`, `test_learning_view.py`, plus `verdict_badge` coverage in `test_ui_theme.py`.
+
+Current local suite: `pytest -q` passes with 333 tests in ~2 s.
+
 ## ✨ What's New in v1.15.1 (May 26, 2026)
 
 **macOS native-app polish — same brand, faster boot, real menu bar.**

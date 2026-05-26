@@ -975,11 +975,19 @@ def build_user_message(
                 lines.append(f"    {action:6s} n={stats['n']:3d} avg={stats['avg_return_pct']:+.2f}%  win_rate={stats['hit_rate']:.0%}")
         by_conv = backtest_summary.get("avg_return_by_conviction", {})
         if by_conv:
-            lines.append("  Avg actual return by conviction score:")
+            lines.append("  Avg actual return by conviction score (v1.16: also Sharpe + max-DD):")
             for conv in sorted(by_conv.keys()):
                 stats = by_conv[conv]
+                line = f"    conviction={conv}  n={stats['n']:3d}  avg={stats['avg_return_pct']:+.2f}%  win_rate={stats['hit_rate']:.0%}"
+                # Sharpe and max-DD only present when v1.16+ backtester ran —
+                # gracefully skip on legacy summaries so prompt stays clean.
+                if "sharpe" in stats:
+                    line += f"  sharpe={stats['sharpe']:+.2f}  max_dd={stats['max_drawdown_pct']:+.2f}%"
+                lines.append(line)
+            sizing_mults = backtest_summary.get("sizing_multipliers_by_conviction") or {}
+            if sizing_mults:
                 lines.append(
-                    f"    conviction={conv}  n={stats['n']:3d}  avg={stats['avg_return_pct']:+.2f}%  win_rate={stats['hit_rate']:.0%}"
+                    "  ↳ Sizing multipliers (Sharpe-dampened): " + ", ".join(f"conv{k}={v:.2f}×" for k, v in sorted(sizing_mults.items()))
                 )
         by_ticker = backtest_summary.get("avg_return_by_ticker", {})
         if by_ticker:
@@ -1021,6 +1029,26 @@ def build_user_message(
                     f"user={stats['user_avg_return_pct']:+.2f}% "
                     f"delta={stats['avg_decision_delta_pct']:+.2f}%"
                 )
+        # v1.16: per-horizon edge — the user's edge often varies sharply by
+        # holding period. Surface it explicitly so Claude can bias the
+        # time_horizon field toward where the user actually outperforms.
+        by_horizon = decision_scorecard.get("by_horizon") or {}
+        if by_horizon:
+            edge_parts = []
+            best_horizon: tuple[int, float] | None = None
+            for horizon in sorted(int(h) for h in by_horizon.keys()):
+                stats = by_horizon[horizon]
+                user_avg = float(stats.get("user_avg_return_pct", 0.0))
+                edge_parts.append(f"{horizon}d {user_avg:+.1f}%")
+                # "Best" = highest user_avg, breaking ties toward shorter horizon.
+                if best_horizon is None or user_avg > best_horizon[1] + 1e-9:
+                    best_horizon = (horizon, user_avg)
+            lines.append("  Your edge by horizon (user_avg_return): " + " | ".join(edge_parts))
+            if best_horizon is not None and best_horizon[1] > 0:
+                lines.append(
+                    f"  ↳ Bias time_horizon toward ~{best_horizon[0]}d when conviction ≥ 7 "
+                    f"(user's strongest window: {best_horizon[1]:+.1f}%)."
+                )
         worst = decision_scorecard.get("worst_user_overrides") or []
         if worst:
             lines.append("  Overrides that hurt most:")
@@ -1035,12 +1063,32 @@ def build_user_message(
     # ── Drift from previous session ────────────────────────────────────────
     if drift:
         lines.append("\n=== DRIFT SINCE LAST SESSION ===")
+        # Render generic drift events first; thesis_text_drift gets its own
+        # mini-section because it needs the similarity score and a steering
+        # nudge for Claude.
+        thesis_drift_events = [d for d in drift if d.get("drift_type") == "thesis_text_drift"]
         for d in drift:
+            if d.get("drift_type") == "thesis_text_drift":
+                continue
+            was = d.get("was") or {}
+            now = d.get("now") or {}
             lines.append(
                 f"  {d['ticker']}: {d['drift_type']} — "
-                f"was {d['was']['action']}/{d['was']['conviction']}, "
-                f"now {d['now']['action']}/{d['now']['conviction']}"
+                f"was {was.get('action', '')}/{was.get('conviction', '')}, "
+                f"now {now.get('action', '')}/{now.get('conviction', '')}"
             )
+        if thesis_drift_events:
+            lines.append("  Thesis-text drift (action steady, rationale rewritten — confirm or downgrade):")
+            for d in thesis_drift_events[:3]:
+                ticker = d.get("ticker", "?")
+                similarity = d.get("similarity", 0.0)
+                was_thesis = ((d.get("was") or {}).get("thesis") or "").strip()
+                now_thesis = ((d.get("now") or {}).get("thesis") or "").strip()
+                lines.append(f"    {ticker}: similarity={similarity:.2f}")
+                if was_thesis:
+                    lines.append(f"      was: {was_thesis[:220]}")
+                if now_thesis:
+                    lines.append(f"      now: {now_thesis[:220]}")
 
     lines.append("\n=== FEE SNAPSHOT (round-trip cost per $1000 notional) ===")
     fee_model = settings.get("fee_model", {})

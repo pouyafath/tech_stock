@@ -31,6 +31,7 @@ from src.ui_support import (  # noqa: E402
     find_default_csvs,
     latest_log_summary,
     latest_report,
+    learning_view,
     list_reports,
     read_editable_json,
     read_text_file,
@@ -511,6 +512,19 @@ class TechStockTUI(App):
         journal_table.add_row("Pending", str(journal.get("pending", 0)))
         journal_table.add_row("Recorded", str(journal.get("recorded", 0)))
         log.write(journal_table)
+
+        # v1.16: per-horizon edge — one compact line so the Dashboard tab
+        # surfaces the learning-loop signal without a dedicated tab.
+        try:
+            learning = learning_view()
+            edge = learning.get("edge_by_horizon") or {}
+        except Exception:  # noqa: BLE001 — never break the dashboard on a soft failure
+            edge = {}
+        if edge:
+            edge_parts = [
+                f"{int(h)}d {float(edge[h].get('user_avg_return_pct', 0.0)):+.1f}%" for h in sorted(edge.keys(), key=lambda x: int(x))
+            ]
+            log.write(Text("Your edge by horizon: " + " | ".join(edge_parts), style="bold #38bdf8"))
 
     async def _check_connectivity(self) -> None:
         log = self.query_one("#connectivity_log", RichLog)

@@ -92,6 +92,16 @@ READINESS_META: dict[str, dict[str, str]] = {
     "BLOCKED": {"color": PALETTE.danger, "bg": PALETTE.danger_bg, "label": "Blocked"},
 }
 
+# v1.16: thesis-verdict colour map (matches thesis_tracker.evaluate_progress
+# output).  ``materialized`` is the success state, ``invalidated`` is exit,
+# the middle two are warning / neutral.
+VERDICT_META: dict[str, dict[str, str]] = {
+    "materialized": {"color": PALETTE.accent, "bg": PALETTE.accent_bg, "emoji": "✅", "label": "Materializing"},
+    "partial": {"color": PALETTE.warn, "bg": PALETTE.warn_bg, "emoji": "🟡", "label": "Partial"},
+    "not_yet": {"color": PALETTE.neutral, "bg": PALETTE.neutral_bg, "emoji": "⏳", "label": "Not yet"},
+    "invalidated": {"color": PALETTE.danger, "bg": PALETTE.danger_bg, "emoji": "❌", "label": "Invalidated"},
+}
+
 
 def action_meta(action: str | None) -> dict[str, str]:
     """Look up colour/emoji metadata for a recommendation action."""
@@ -114,6 +124,16 @@ def readiness_meta(readiness: str | None) -> dict[str, str]:
     return READINESS_META.get(
         str(readiness).upper(),
         {"color": PALETTE.subtle, "bg": PALETTE.neutral_bg, "label": str(readiness)},
+    )
+
+
+def verdict_meta(verdict: str | None) -> dict[str, str]:
+    """Look up colour/emoji/label for a thesis-tracker verdict."""
+    if not verdict:
+        return {"color": PALETTE.subtle, "bg": PALETTE.neutral_bg, "emoji": "·", "label": "Unknown"}
+    return VERDICT_META.get(
+        str(verdict).lower(),
+        {"color": PALETTE.subtle, "bg": PALETTE.neutral_bg, "emoji": "·", "label": str(verdict)},
     )
 
 
@@ -154,6 +174,13 @@ def readiness_badge(readiness: str | None) -> str:
     """Pill for buy-signal readiness state."""
     meta = readiness_meta(readiness)
     return badge(meta["label"], color=meta["color"], bg=meta["bg"])
+
+
+def verdict_badge(verdict: str | None) -> str:
+    """Pill for a thesis-tracker verdict (materialized / partial / not_yet / invalidated)."""
+    meta = verdict_meta(verdict)
+    label = f"{meta['emoji']} {meta['label']}".strip()
+    return badge(label, color=meta["color"], bg=meta["bg"])
 
 
 def conviction_bar(score: float | int | None, *, max_score: int = 10) -> str:
@@ -557,12 +584,15 @@ __all__ = [
     "ACTION_META",
     "SEVERITY_META",
     "READINESS_META",
+    "VERDICT_META",
     "action_meta",
     "severity_meta",
     "readiness_meta",
+    "verdict_meta",
     "action_badge",
     "severity_badge",
     "readiness_badge",
+    "verdict_badge",
     "badge",
     "conviction_bar",
     "metric_card",

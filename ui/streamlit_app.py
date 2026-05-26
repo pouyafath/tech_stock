@@ -44,6 +44,7 @@ from src.ui_support import (  # noqa: E402
     find_default_csvs,
     latest_log_summary,
     latest_report,
+    learning_view,
     list_reports,
     preview_holdings_csv,
     read_editable_json,
@@ -69,6 +70,7 @@ from src.ui_theme import (  # noqa: E402
     readiness_badge,
     severity_badge,
     status_dot,
+    verdict_badge,
     warning_row,
 )
 
@@ -374,7 +376,17 @@ _html(
 
 # ── Tabs ────────────────────────────────────────────────────────────────────
 
-tab_dashboard, tab_buy, tab_report, tab_run, tab_history, tab_backtest, tab_journal, tab_editor = st.tabs(
+(
+    tab_dashboard,
+    tab_buy,
+    tab_report,
+    tab_run,
+    tab_history,
+    tab_backtest,
+    tab_journal,
+    tab_learning,
+    tab_editor,
+) = st.tabs(
     [
         "📊 Dashboard",
         "🎯 Buy Signals",
@@ -383,6 +395,7 @@ tab_dashboard, tab_buy, tab_report, tab_run, tab_history, tab_backtest, tab_jour
         "📚 History",
         "📈 Backtest",
         "📓 Journal",
+        "🧠 Learning",
         "⚙️ Editor",
     ]
 )
@@ -1129,6 +1142,178 @@ def _render_journal() -> None:
 
 with tab_journal:
     _render_journal()
+
+
+# ─── Learning ──────────────────────────────────────────────────────────────
+
+
+def _render_learning() -> None:
+    st.subheader("Learning Loop")
+    st.caption(
+        "What the app has learned about your portfolio so far — thesis verdicts, "
+        "per-horizon edge, risk-adjusted sizing, and any 'moving goalposts' on "
+        "active rationales. Feeds back into the Claude prompt on the next run."
+    )
+    if st.button("🔄 Refresh", key="learning_refresh"):
+        st.session_state["learning_view_cache"] = learning_view()
+        _toast("Learning view refreshed", icon="🧠")
+    view = st.session_state.get("learning_view_cache") or learning_view()
+    st.session_state["learning_view_cache"] = view
+
+    if view.get("errors"):
+        with st.expander("⚠️ Soft errors loading data", expanded=False):
+            for err in view["errors"]:
+                st.caption(f"• {err}")
+
+    # ── Per-horizon edge strip ────────────────────────────────────────────
+    st.markdown("### Your edge by horizon")
+    edge = view.get("edge_by_horizon") or {}
+    if not edge:
+        _html(
+            empty_state(
+                "Not enough scored decisions yet",
+                "Record at least a few decisions in the Journal tab and re-run — "
+                "this becomes the strongest signal Claude has about which "
+                "time-horizon you actually outperform on.",
+            )
+        )
+    else:
+        horizons = sorted(int(h) for h in edge.keys())
+        cols = st.columns(len(horizons))
+        for col, horizon in zip(cols, horizons):
+            stats = edge[horizon]
+            user_avg = float(stats.get("user_avg_return_pct", 0.0))
+            model_avg = float(stats.get("model_avg_return_pct", 0.0))
+            delta_color = PALETTE.accent if user_avg > model_avg else PALETTE.danger
+            col.metric(
+                f"{horizon}d",
+                _format_pct(user_avg, signed=True, digits=2),
+                delta=_format_pct(user_avg - model_avg, signed=True, digits=2),
+                help=f"User avg over {stats.get('n', 0)} scored windows · Model avg {model_avg:+.2f}%",
+            )
+            _html(f"<div style='font-size:0.78rem;color:{delta_color};margin-top:-12px'>hit rate {stats.get('user_hit_rate', 0):.0%}</div>")
+        edge_df = pd.DataFrame(
+            [
+                {
+                    "horizon_days": h,
+                    "user_avg_return_pct": edge[h].get("user_avg_return_pct", 0.0),
+                    "model_avg_return_pct": edge[h].get("model_avg_return_pct", 0.0),
+                }
+                for h in horizons
+            ]
+        )
+        st.bar_chart(edge_df.set_index("horizon_days"), color=[PALETTE.accent, PALETTE.muted])
+
+    # ── Sharpe-by-conviction table ────────────────────────────────────────
+    st.markdown("### Sizing multipliers (Sharpe-dampened)")
+    sharpe = view.get("sharpe_by_conviction") or {}
+    if not sharpe:
+        _html(
+            empty_state(
+                "No backtest samples yet",
+                "Generate a few reports and let some recommendations mature — the "
+                "sizing engine then learns the Sharpe + max-DD per conviction bucket.",
+            )
+        )
+    else:
+        rows = [
+            {
+                "conviction": conv,
+                "n": stats.get("n", 0),
+                "avg_return_pct": stats.get("avg_return_pct", 0.0),
+                "hit_rate": f"{stats.get('hit_rate', 0):.0%}",
+                "sharpe": stats.get("sharpe", 0.0),
+                "max_drawdown_pct": stats.get("max_drawdown_pct", 0.0),
+                "sizing_multiplier": f"{stats.get('sizing_multiplier', 1.0):.2f}×",
+            }
+            for conv, stats in sorted(sharpe.items())
+        ]
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+
+    # ── Thesis verdict heat-map ───────────────────────────────────────────
+    st.markdown("### Active thesis verdicts")
+    verdicts = view.get("thesis_verdicts") or []
+    if not verdicts:
+        _html(
+            empty_state(
+                "No active theses tracked",
+                "Theses are recorded when a new position is added. Open the latest "
+                "report → Run Report once you have a new BUY/ADD to start tracking.",
+            )
+        )
+    else:
+        for verdict in verdicts[:20]:
+            ticker = verdict.get("ticker") or "—"
+            current_verdict = verdict.get("current_verdict")
+            entry_date = verdict.get("entry_date") or "?"
+            days_held = verdict.get("days_held")
+            original_action = verdict.get("original_action") or "—"
+            original_conv = verdict.get("original_conviction")
+            history = verdict.get("verdict_history") or []
+            history_dots = "".join(
+                f"<span title='{h}' style='color:{PALETTE.muted};font-size:0.85rem;'>·</span>"
+                if h is None
+                else f"<span title='{h}' style='color:{(VERDICT_COLOR_LOOKUP.get(h) or PALETTE.muted)};font-size:1.1rem;'>●</span>"
+                for h in history
+            )
+            with st.container(border=True):
+                head_col, body_col = st.columns([2, 5])
+                with head_col:
+                    _html(
+                        f"<div style='font-size:1.05rem;font-weight:700;color:{PALETTE.text_strong};letter-spacing:0.04em;'>"
+                        f"{ticker}</div>"
+                        f"<div style='color:{PALETTE.muted};font-size:0.82rem;margin-top:2px;'>"
+                        f"entered {entry_date}"
+                        f"{f' · {days_held}d held' if days_held is not None else ''}</div>"
+                    )
+                with body_col:
+                    _html(
+                        f"<div style='display:flex;align-items:center;gap:10px;flex-wrap:wrap;'>"
+                        f"{verdict_badge(current_verdict)}"
+                        f"<span style='color:{PALETTE.muted};font-size:0.85rem;'>"
+                        f"original: {original_action} · conv {original_conv if original_conv is not None else '—'}"
+                        f"</span>"
+                        f"<span style='margin-left:auto;'>{history_dots}</span>"
+                        f"</div>"
+                    )
+
+    # ── Thesis-text drift alerts ──────────────────────────────────────────
+    st.markdown("### Thesis-text drift alerts")
+    alerts = view.get("thesis_text_drift_alerts") or []
+    if not alerts:
+        _html(empty_state("No drift detected", "All active theses kept a consistent rationale across the last two sessions."))
+    else:
+        st.caption(
+            f"{len(alerts)} ticker(s) had the same action but a substantially "
+            "rewritten thesis since last session. Confirm the new rationale or "
+            "downgrade — moving goalposts often precede reversals."
+        )
+        for alert in alerts:
+            with st.container(border=True):
+                ticker = alert.get("ticker", "—")
+                sim = alert.get("similarity", 0.0)
+                _html(
+                    f"<div style='display:flex;gap:10px;align-items:center;'>"
+                    f"<span style='font-weight:700;color:{PALETTE.text_strong};'>{ticker}</span>"
+                    f"<span class='ts-badge' style='color:{PALETTE.warn};background:{PALETTE.warn_bg};"
+                    f"border:1px solid {PALETTE.warn}55;'>similarity {sim:.0%}</span>"
+                    f"</div>"
+                )
+                st.caption(f"**Was:** {alert.get('was_thesis') or '—'}")
+                st.caption(f"**Now:** {alert.get('now_thesis') or '—'}")
+
+
+# Map verdict → palette colour for the history dots above.
+VERDICT_COLOR_LOOKUP = {
+    "materialized": PALETTE.accent,
+    "partial": PALETTE.warn,
+    "not_yet": PALETTE.neutral,
+    "invalidated": PALETTE.danger,
+}
+
+
+with tab_learning:
+    _render_learning()
 
 
 # ─── Editor ────────────────────────────────────────────────────────────────

@@ -227,14 +227,71 @@ def evaluate_recommendations(recs: list[dict], as_of: datetime = None) -> list[d
 
 
 def _avg_and_hit_rate(rows: list[dict]) -> dict:
+    """Summarise a bucket of evaluated recommendations.
+
+    Returns:
+      {
+        "n":               int    — sample count
+        "avg_return_pct":  float  — mean of actual_pct
+        "hit_rate":        float  — fraction with hit=True (0.0–1.0)
+        "stdev_pct":       float  — sample standard deviation of actual_pct
+        "sharpe":          float  — annualised Sharpe-like (mean/stdev × √N),
+                                    rf=0.  Returns 0.0 when n < 2 or stdev=0.
+        "max_drawdown_pct": float — worst peak-to-trough on the cumulative
+                                    return series (negative number, 0 if
+                                    monotonically rising or n=0).
+      }
+
+    The Sharpe and max-DD fields feed into the v1.16 sizing dampener
+    (see ``summarize`` below) — a high-variance bucket no longer gets the
+    same multiplier as a low-variance bucket with the same expectation.
+    """
     if not rows:
-        return {"n": 0, "avg_return_pct": 0.0, "hit_rate": 0.0}
-    actuals = [r["actual_pct"] for r in rows]
-    hits = [1 for r in rows if r.get("hit")]
+        return {
+            "n": 0,
+            "avg_return_pct": 0.0,
+            "hit_rate": 0.0,
+            "stdev_pct": 0.0,
+            "sharpe": 0.0,
+            "max_drawdown_pct": 0.0,
+        }
+    actuals = [float(r["actual_pct"]) for r in rows]
+    n = len(actuals)
+    mean = sum(actuals) / n
+    hits = sum(1 for r in rows if r.get("hit"))
+
+    # Sample stdev (n-1 denominator); 0 when n < 2 to avoid div-by-zero downstream.
+    if n >= 2:
+        variance = sum((x - mean) ** 2 for x in actuals) / (n - 1)
+        stdev = variance**0.5
+    else:
+        stdev = 0.0
+
+    # Sharpe-like ratio, rf=0.  Scaled by √N so it grows with sample size.
+    # This is intentionally simple — backtester samples are heterogeneous
+    # across horizons, so a true annualised Sharpe would over-claim precision.
+    sharpe = (mean / stdev) * (n**0.5) if stdev > 0 else 0.0
+
+    # Max drawdown of the cumulative return path.  Negative on losing
+    # streaks, 0 if the series only goes up.  Compares the running peak to
+    # each point; the worst gap is reported.
+    cumulative = 0.0
+    peak = 0.0
+    max_dd = 0.0
+    for r in actuals:
+        cumulative += r
+        peak = max(peak, cumulative)
+        drawdown = cumulative - peak
+        if drawdown < max_dd:
+            max_dd = drawdown
+
     return {
-        "n": len(rows),
-        "avg_return_pct": round(sum(actuals) / len(actuals), 2),
-        "hit_rate": round(len(hits) / len(rows), 3),
+        "n": n,
+        "avg_return_pct": round(mean, 2),
+        "hit_rate": round(hits / n, 3),
+        "stdev_pct": round(stdev, 2),
+        "sharpe": round(sharpe, 2),
+        "max_drawdown_pct": round(max_dd, 2),
     }
 
 
@@ -290,9 +347,21 @@ def summarize(results: list[dict]) -> dict:
         reverse=True,
     )[:8]
 
-    # Conviction-stratified sizing multipliers — feed actual hit rates back into
-    # position sizing.  Multiplier formula (Kelly-lite, dampened):
-    #     mult = clamp(0.4, hit_rate * (1 + avg_return / 10), 1.4)
+    # Conviction-stratified sizing multipliers — feed actual hit rates back
+    # into position sizing.  Multiplier formula (Kelly-lite, Sharpe-dampened
+    # in v1.16):
+    #
+    #     base       = hit_rate × (1 + avg_return / 10)
+    #     sharpe_adj = clamp(0.5, 0.7 + 0.3 × sharpe, 1.2)
+    #     mult       = clamp(0.4, base × sharpe_adj, 1.4)
+    #
+    # Why the dampener: pre-v1.16 the formula treated a bucket with
+    # +5%±2% the same as +5%±20% — both got the same size.  The Sharpe
+    # adjustment shrinks high-variance buckets toward 1× (neutral) and
+    # rewards low-variance, consistently-positive buckets.  Sharpe ≈ 1
+    # leaves the multiplier essentially unchanged (1.0 factor), preserving
+    # backwards compatibility for buckets near the historical norm.
+    #
     # Applied to invest_amount_usd downstream of Rule 18.  Only computed when
     # the bucket has ≥3 mature samples — otherwise falls back to 1.0.
     sizing_multipliers = {}
@@ -301,8 +370,11 @@ def summarize(results: list[dict]) -> dict:
             continue
         hit_rate = float(stats.get("hit_rate", 0.0))
         avg_return = float(stats.get("avg_return_pct", 0.0))
-        raw = hit_rate * (1.0 + avg_return / 10.0)
-        sizing_multipliers[int(conv)] = max(0.4, min(raw, 1.4))
+        sharpe = float(stats.get("sharpe", 1.0))
+        base = hit_rate * (1.0 + avg_return / 10.0)
+        sharpe_adj = max(0.5, min(0.7 + 0.3 * sharpe, 1.2))
+        raw = base * sharpe_adj
+        sizing_multipliers[int(conv)] = round(max(0.4, min(raw, 1.4)), 3)
 
     return {
         "n_samples": len(results),

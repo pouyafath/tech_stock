@@ -17,6 +17,7 @@ from src.ui_theme import (
     READINESS_META,
     SEVERITY_META,
     STREAMLIT_CSS,
+    VERDICT_META,
     action_badge,
     action_card,
     action_meta,
@@ -30,6 +31,8 @@ from src.ui_theme import (
     severity_badge,
     severity_meta,
     status_dot,
+    verdict_badge,
+    verdict_meta,
     warning_row,
 )
 
@@ -220,3 +223,50 @@ def test_hero_handles_empty_meta():
     out = hero("Title")
     assert "Title" in out
     assert "ts-hero-meta" not in out
+
+
+# ── v1.16 verdict_badge ────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "verdict,expected_color",
+    [
+        ("materialized", PALETTE.accent),
+        ("partial", PALETTE.warn),
+        ("not_yet", PALETTE.neutral),
+        ("invalidated", PALETTE.danger),
+    ],
+)
+def test_verdict_badge_uses_palette_color(verdict, expected_color):
+    out = verdict_badge(verdict)
+    assert expected_color in out
+
+
+def test_verdict_meta_falls_back_for_unknown_input():
+    meta = verdict_meta("never-heard-of-it")
+    assert "color" in meta
+    assert "label" in meta
+    # Falls back to neutral subtle colour rather than raising
+    assert meta["label"] == "never-heard-of-it"
+
+
+def test_verdict_badge_handles_none():
+    out = verdict_badge(None)
+    # Should still produce a well-formed pill, not raise
+    assert "ts-badge" in out
+    assert "Unknown" in out
+
+
+def test_verdict_badge_escapes_html_in_label():
+    out = verdict_badge("<script>alert(1)</script>")
+    assert "<script>" not in out
+    assert "&lt;script&gt;" in out
+
+
+def test_verdict_meta_dictionary_is_complete():
+    """All four canonical verdicts the tracker emits must have entries."""
+    for verdict in ("materialized", "partial", "not_yet", "invalidated"):
+        assert verdict in VERDICT_META
+        meta = VERDICT_META[verdict]
+        for key in ("color", "bg", "emoji", "label"):
+            assert key in meta

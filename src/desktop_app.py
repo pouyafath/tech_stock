@@ -39,6 +39,7 @@ from src.ui_support import (
     find_default_csvs,
     latest_log_summary,
     latest_report,
+    learning_view,
     list_reports,
     preview_holdings_csv,
     read_editable_json,
@@ -334,6 +335,7 @@ class DesktopApp(tk.Tk):
         self.run_tab = ttk.Frame(self.tabs)
         self.report_tab = ttk.Frame(self.tabs)
         self.history_tab = ttk.Frame(self.tabs)
+        self.learning_tab = ttk.Frame(self.tabs)
         self.editor_tab = ttk.Frame(self.tabs)
         self.health_tab = ttk.Frame(self.tabs)
         self.update_tab = ttk.Frame(self.tabs)
@@ -343,6 +345,7 @@ class DesktopApp(tk.Tk):
         self.tabs.add(self.run_tab, text="Run Report")
         self.tabs.add(self.report_tab, text="Report Viewer")
         self.tabs.add(self.history_tab, text="History")
+        self.tabs.add(self.learning_tab, text="Learning")
         self.tabs.add(self.editor_tab, text="Config Editor")
         self.tabs.add(self.health_tab, text="API Checks")
         self.tabs.add(self.update_tab, text="Updates")
@@ -352,6 +355,7 @@ class DesktopApp(tk.Tk):
         self._build_run_tab()
         self._build_report_tab()
         self._build_history_tab()
+        self._build_learning_tab()
         self._build_editor_tab()
         self._build_health_tab()
         self._build_update_tab()
@@ -397,6 +401,8 @@ class DesktopApp(tk.Tk):
         elif tab_text == "API Checks":
             # Refresh the API key inventory; live connectivity probe stays manual.
             self.refresh_api_key_manager()
+        elif tab_text == "Learning":
+            self.refresh_learning_tab()
 
     def _refresh_active_tab(self) -> None:
         """⌘R handler — re-run the data-load for whichever tab is in front."""
@@ -410,6 +416,7 @@ class DesktopApp(tk.Tk):
             "Buy Signals": self.start_buy_signal_refresh,
             "Report Viewer": lambda: self.load_report(latest_report(), select_tab=True),
             "History": self.refresh_history,
+            "Learning": self.refresh_learning_tab,
             "Config Editor": self.load_editor_file,
             "API Checks": self.start_connectivity_check,
             "Updates": lambda: self.start_update_check(startup=False),
@@ -782,6 +789,164 @@ class DesktopApp(tk.Tk):
         )
         self.history_text.pack(fill="both", expand=True)
         self._configure_markdown_tags(self.history_text)
+
+    # ── Learning tab ────────────────────────────────────────────────────────
+    def _build_learning_tab(self) -> None:
+        """Build the read-only "Learning Loop" tab.
+
+        Mirrors the Streamlit tab: per-horizon edge metrics, sizing
+        multipliers table, thesis-verdict heat-map list, and thesis-text
+        drift alerts. Pure-render — data is fetched lazily by
+        ``refresh_learning_tab`` only when the tab is opened.
+        """
+        toolbar = ttk.Frame(self.learning_tab)
+        toolbar.pack(fill="x", padx=16, pady=(16, 8))
+        ttk.Button(toolbar, text="Refresh learning view", command=self.refresh_learning_tab).pack(side="left")
+        self.learning_status = tk.StringVar(value="Open this tab to load the learning view.")
+        ttk.Label(toolbar, textvariable=self.learning_status, style="Muted.TLabel").pack(side="left", padx=14)
+
+        # Three stacked panels: edge by horizon, sizing-by-conviction, theses.
+        edge_panel = self._panel(self.learning_tab, "Your edge by horizon (user_avg_return %)")
+        edge_panel.pack(fill="x", padx=16, pady=(0, 12))
+        self.learning_edge_text = tk.Text(
+            edge_panel,
+            height=4,
+            wrap="word",
+            bg=self.table_bg,
+            fg=self.text,
+            insertbackground=self.text,
+            relief="flat",
+        )
+        self.learning_edge_text.pack(fill="x")
+        self.learning_edge_text.configure(state="disabled")
+
+        sizing_panel = self._panel(self.learning_tab, "Sizing multipliers (Sharpe-dampened)")
+        sizing_panel.pack(fill="x", padx=16, pady=(0, 12))
+        self.learning_sizing_tree = self._make_tree(
+            sizing_panel,
+            ["conviction", "n", "avg_return_pct", "hit_rate", "sharpe", "max_drawdown_pct", "sizing_multiplier"],
+            [90, 70, 120, 90, 80, 130, 140],
+            height=6,
+        )
+        self.learning_sizing_tree.pack(fill="x")
+
+        # Use a paned window so the user can rebalance verdicts vs drift.
+        body = ttk.PanedWindow(self.learning_tab, orient="horizontal")
+        body.pack(fill="both", expand=True, padx=16, pady=(0, 16))
+
+        verdict_panel = self._panel(body, "Active thesis verdicts")
+        body.add(verdict_panel, weight=3)
+        self.learning_verdict_tree = self._make_tree(
+            verdict_panel,
+            ["ticker", "entry_date", "days_held", "original_action", "original_conviction", "current_verdict", "reviews"],
+            [80, 110, 90, 130, 140, 150, 80],
+            height=10,
+        )
+        self.learning_verdict_tree.pack(fill="both", expand=True)
+
+        drift_panel = self._panel(body, "Thesis-text drift alerts")
+        body.add(drift_panel, weight=2)
+        self.learning_drift_text = tk.Text(
+            drift_panel,
+            wrap="word",
+            bg=self.table_bg,
+            fg=self.text,
+            insertbackground=self.text,
+            relief="flat",
+            padx=8,
+            pady=8,
+        )
+        self.learning_drift_text.pack(fill="both", expand=True)
+        self.learning_drift_text.configure(state="disabled")
+
+    def refresh_learning_tab(self) -> None:
+        """Fetch a fresh learning_view and re-render every panel."""
+        try:
+            view = learning_view()
+        except Exception as exc:  # noqa: BLE001
+            self.learning_status.set(f"Failed to load learning view: {exc}")
+            return
+
+        error_count = len(view.get("errors") or [])
+        self.learning_status.set(
+            f"Loaded {len(view.get('thesis_verdicts') or [])} thesis · "
+            f"{len(view.get('edge_by_horizon') or {})} horizons · "
+            f"{len(view.get('sharpe_by_conviction') or {})} conviction buckets · "
+            f"{len(view.get('thesis_text_drift_alerts') or [])} drift alert(s)" + (f" · {error_count} soft error(s)" if error_count else "")
+        )
+
+        # — Edge by horizon —
+        edge = view.get("edge_by_horizon") or {}
+        if edge:
+            parts = []
+            for horizon in sorted(int(h) for h in edge.keys()):
+                stats = edge[horizon]
+                parts.append(
+                    f"{horizon}d  user={stats.get('user_avg_return_pct', 0):+.2f}%  "
+                    f"model={stats.get('model_avg_return_pct', 0):+.2f}%  "
+                    f"hit={stats.get('user_hit_rate', 0):.0%}  "
+                    f"(n={stats.get('n', 0)})"
+                )
+            edge_text = "\n".join(parts)
+        else:
+            edge_text = "Not enough scored decisions yet. Record at least a few in the Journal tab and re-run."
+        self.learning_edge_text.configure(state="normal")
+        self.learning_edge_text.delete("1.0", "end")
+        self.learning_edge_text.insert("1.0", edge_text)
+        self.learning_edge_text.configure(state="disabled")
+
+        # — Sizing-by-conviction —
+        sharpe_rows = view.get("sharpe_by_conviction") or {}
+        rows = []
+        for conv in sorted(sharpe_rows.keys()):
+            stats = sharpe_rows[conv]
+            rows.append(
+                [
+                    str(conv),
+                    str(stats.get("n", 0)),
+                    f"{stats.get('avg_return_pct', 0):+.2f}%",
+                    f"{stats.get('hit_rate', 0):.0%}",
+                    f"{stats.get('sharpe', 0):+.2f}",
+                    f"{stats.get('max_drawdown_pct', 0):+.2f}%",
+                    f"{stats.get('sizing_multiplier', 1.0):.2f}×",
+                ]
+            )
+        self._replace_tree_rows(self.learning_sizing_tree, rows)
+
+        # — Verdict tree —
+        verdict_rows = []
+        for v in view.get("thesis_verdicts") or []:
+            verdict_rows.append(
+                [
+                    v.get("ticker") or "—",
+                    v.get("entry_date") or "—",
+                    str(v.get("days_held")) if v.get("days_held") is not None else "—",
+                    v.get("original_action") or "—",
+                    str(v.get("original_conviction")) if v.get("original_conviction") is not None else "—",
+                    (v.get("current_verdict") or "·").replace("_", " "),
+                    str(v.get("reviews_count") or 0),
+                ]
+            )
+        self._replace_tree_rows(self.learning_verdict_tree, verdict_rows)
+
+        # — Thesis-text drift alerts —
+        alerts = view.get("thesis_text_drift_alerts") or []
+        if not alerts:
+            drift_msg = "No drift detected — all active theses kept a consistent rationale across the last two sessions."
+        else:
+            lines = [f"{len(alerts)} alert(s):", ""]
+            for alert in alerts:
+                lines.append(f"• {alert.get('ticker')}  (similarity {float(alert.get('similarity') or 0):.0%})")
+                if alert.get("was_thesis"):
+                    lines.append(f"    Was: {alert['was_thesis']}")
+                if alert.get("now_thesis"):
+                    lines.append(f"    Now: {alert['now_thesis']}")
+                lines.append("")
+            drift_msg = "\n".join(lines).rstrip()
+        self.learning_drift_text.configure(state="normal")
+        self.learning_drift_text.delete("1.0", "end")
+        self.learning_drift_text.insert("1.0", drift_msg)
+        self.learning_drift_text.configure(state="disabled")
 
     def _build_editor_tab(self) -> None:
         toolbar = ttk.Frame(self.editor_tab)

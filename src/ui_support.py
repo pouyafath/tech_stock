@@ -64,6 +64,8 @@ EDITABLE_JSON_FILES = {
 }
 
 DECISION_JOURNAL_PATH = DATA_DIR / "decision_journal.json"
+THESIS_LOG_PATH = DATA_DIR / "thesis_log.json"
+RECS_LOG_DIR = DATA_DIR / "recommendations_log"
 
 API_KEY_FIELDS = [
     {
@@ -557,6 +559,140 @@ def decision_journal_view(limit: int = 200) -> dict[str, Any]:
 
 def decision_scorecard_summary() -> dict[str, Any]:
     return run_decision_scorecard(DECISION_JOURNAL_PATH)
+
+
+def learning_view() -> dict[str, Any]:
+    """Aggregated 'Learning' tab data used by every UI.
+
+    Returns a stable shape:
+      {
+        "thesis_verdicts":     list of {ticker, entry_date, original_action,
+                                       original_conviction, current_verdict,
+                                       days_held, verdict_history (list[str])},
+        "edge_by_horizon":     {1: {n, user_avg, model_avg, delta, user_hit,
+                                    model_hit}, 5: {...}, 20: {...}, 60: {...}},
+        "sharpe_by_conviction": {conv: {n, avg_return_pct, hit_rate, sharpe,
+                                        max_drawdown_pct, sizing_multiplier}},
+        "thesis_text_drift_alerts": list of {ticker, similarity, was_thesis,
+                                             now_thesis},
+        "errors": list of soft error strings (never raises),
+      }
+
+    Lazy and read-only — never triggers a Claude run or yfinance fetch.
+    Suitable to call on UI startup.
+    """
+    from src.drift_tracker import compute_drift, get_previous_session
+
+    out: dict[str, Any] = {
+        "thesis_verdicts": [],
+        "edge_by_horizon": {},
+        "sharpe_by_conviction": {},
+        "thesis_text_drift_alerts": [],
+        "errors": [],
+    }
+
+    # ── Thesis verdicts (from thesis_log.json) ────────────────────────────
+    try:
+        from datetime import date
+
+        thesis_state = json.loads(THESIS_LOG_PATH.read_text(encoding="utf-8")) if THESIS_LOG_PATH.exists() else {}
+        today = date.today()
+        verdicts: list[dict[str, Any]] = []
+        for key, entry in thesis_state.items():
+            review_log = entry.get("review_log") or []
+            history = [r.get("verdict") for r in review_log if r.get("verdict")]
+            latest_verdict = history[-1] if history else None
+            try:
+                entry_date = entry.get("entry_date")
+                days_held = (today - date.fromisoformat(entry_date)).days if entry_date else None
+            except (TypeError, ValueError):
+                days_held = None
+            verdicts.append(
+                {
+                    "key": key,
+                    "ticker": entry.get("ticker"),
+                    "entry_date": entry.get("entry_date"),
+                    "original_action": entry.get("original_action"),
+                    "original_conviction": entry.get("original_conviction"),
+                    "current_verdict": latest_verdict,
+                    "verdict_history": history[-6:],  # last six dots
+                    "days_held": days_held,
+                    "reviews_count": len(history),
+                }
+            )
+        # Order: most-recent-review-first, then oldest unreviewed positions.
+        verdicts.sort(key=lambda v: (v.get("current_verdict") is None, -(v.get("reviews_count") or 0), -(v.get("days_held") or 0)))
+        out["thesis_verdicts"] = verdicts
+    except Exception as exc:  # noqa: BLE001
+        out["errors"].append(f"thesis_verdicts: {exc}")
+
+    # ── Edge by horizon + per-conviction risk (from cached scorecard / backtest) ─
+    try:
+        scorecard = run_decision_scorecard(DECISION_JOURNAL_PATH) or {}
+        out["edge_by_horizon"] = scorecard.get("by_horizon") or {}
+    except Exception as exc:  # noqa: BLE001
+        out["errors"].append(f"edge_by_horizon: {exc}")
+
+    try:
+        from src.backtester import run_backtest
+
+        recs_dir = ROOT / "data" / "recommendations_log"
+        if recs_dir.exists() and any(recs_dir.glob("*.json")):
+            backtest = run_backtest(recs_dir)
+            by_conv = backtest.get("avg_return_by_conviction") or {}
+            mults = backtest.get("sizing_multipliers_by_conviction") or {}
+            enriched: dict[int, dict] = {}
+            for conv, stats in by_conv.items():
+                enriched[int(conv)] = {
+                    "n": stats.get("n", 0),
+                    "avg_return_pct": stats.get("avg_return_pct", 0.0),
+                    "hit_rate": stats.get("hit_rate", 0.0),
+                    "sharpe": stats.get("sharpe", 0.0),
+                    "max_drawdown_pct": stats.get("max_drawdown_pct", 0.0),
+                    "stdev_pct": stats.get("stdev_pct", 0.0),
+                    "sizing_multiplier": mults.get(int(conv), 1.0),
+                }
+            out["sharpe_by_conviction"] = enriched
+    except Exception as exc:  # noqa: BLE001
+        out["errors"].append(f"sharpe_by_conviction: {exc}")
+
+    # ── Thesis-text drift alerts ──────────────────────────────────────────
+    try:
+        recs_dir = ROOT / "data" / "recommendations_log"
+        latest_logs = list_logs(limit=1)
+        if latest_logs:
+            current = json.loads(latest_logs[0].read_text(encoding="utf-8"))
+            current_session_file = latest_logs[0].name
+            previous = get_previous_session(
+                recs_dir,
+                skip_newest=False,
+                current_session_type=None,
+                min_age_hours=0.0,
+            )
+            # If `get_previous_session` returned the same file we just loaded,
+            # pull the one before it instead.  Drift against itself is empty
+            # anyway, but skipping is cheaper.
+            if previous and previous.get("source_filename") == current_session_file:
+                previous = None
+            if previous:
+                drift_events = compute_drift(current, previous)
+                alerts = []
+                for event in drift_events:
+                    if event.get("drift_type") != "thesis_text_drift":
+                        continue
+                    alerts.append(
+                        {
+                            "ticker": event.get("ticker"),
+                            "similarity": event.get("similarity"),
+                            "was_thesis": (event.get("was") or {}).get("thesis"),
+                            "now_thesis": (event.get("now") or {}).get("thesis"),
+                        }
+                    )
+                out["thesis_text_drift_alerts"] = alerts
+    except Exception as exc:  # noqa: BLE001
+        out["errors"].append(f"thesis_text_drift_alerts: {exc}")
+
+    return out
 
 
 def save_decision_from_ui(
