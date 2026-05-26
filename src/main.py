@@ -149,12 +149,17 @@ def find_csv_by_date(pattern_prefix: str, max_results: int = 1) -> Path | None:
 
     Pattern: pattern_prefix-YYYY-MM-DD.csv (e.g., "holdings-report-2026-04-29.csv")
 
-    Search order:
-    1. Check temp UPLOAD_DIR first (highest priority)
-    2. Check Downloads folder (macOS ~/Downloads, Windows C:\Users\...\Downloads)
-    3. Search entire home directory
+    Search order (each step short-circuits as soon as a match is found):
 
-    Returns the first match or None.
+    1. ``UPLOAD_DIR`` — files dragged into the UI live here.
+    2. The OS Downloads folder — direct path lookup, O(1).
+    3. A small, bounded set of common user folders (Desktop, Documents).
+       We deliberately do **not** walk the whole home directory because that
+       can take 2+ minutes on disks with deep dotfile trees (node_modules,
+       VS Code caches, etc.) and used to be a real production hang every
+       time a UI was launched without today's CSV present.
+
+    Returns the first match or ``None``.
     """
     today = datetime.now().strftime("%Y-%m-%d")
     target_pattern = f"{pattern_prefix}-{today}.csv"
@@ -170,14 +175,22 @@ def find_csv_by_date(pattern_prefix: str, max_results: int = 1) -> Path | None:
     if candidate.exists():
         return candidate
 
-    # 3. Search home directory recursively (slower, last resort)
+    # 3. Check a small set of common user folders (Desktop, Documents,
+    #    iCloud Drive Desktop/Documents on macOS). No recursive glob:
+    #    we look for the exact filename at one level deep.
     home = Path.home()
-    try:
-        matches = list(home.glob(f"**/{target_pattern}"))
-        if matches:
-            return matches[0]
-    except (PermissionError, OSError):
-        pass
+    extra_roots = [
+        home / "Desktop",
+        home / "Documents",
+        home / "Library" / "Mobile Documents" / "com~apple~CloudDocs" / "Desktop",
+        home / "Library" / "Mobile Documents" / "com~apple~CloudDocs" / "Documents",
+    ]
+    for root in extra_roots:
+        if not root.exists():
+            continue
+        candidate = root / target_pattern
+        if candidate.exists():
+            return candidate
 
     return None
 

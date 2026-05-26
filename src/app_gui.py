@@ -44,6 +44,11 @@ CLI_SCRIPT = _BUNDLE / "src" / "main.py"
 from src.updater import apply_update, check_for_update  # noqa: E402
 from src.version import APP_VERSION  # noqa: E402
 
+try:
+    from src.ui_theme import PALETTE  # noqa: E402
+except Exception:  # pragma: no cover - PyInstaller bundle edge cases
+    PALETTE = None  # type: ignore[assignment]
+
 
 def _log_dir() -> Path:
     """Return a user-writable log directory for packaged GUI launches."""
@@ -192,11 +197,61 @@ def _run_cli(extra: list[str]) -> None:
 # ── GUI launcher ─────────────────────────────────────────────────────────────
 
 _CHOICES = [
-    ("Desktop App", "Embedded dashboard inside this app.\nNo browser required.", "desktop"),
-    ("Streamlit Web UI", "Opens a dashboard in your browser.\nFull feature set: Dashboard, Run, History, Backtest, Editor.", "streamlit"),
-    ("Textual Terminal UI", "Keyboard-driven interface in Terminal.\nNo browser needed.", "textual"),
-    ("Command-Line (CLI)", "Classic terminal mode.\nUse for scripting, cron, or maximum speed.", "cli"),
+    (
+        "Desktop App",
+        "Embedded dashboard inside this app. No browser, full feature set.",
+        "🖥",
+        "desktop",
+    ),
+    (
+        "Streamlit Web UI",
+        "Polished dashboard in your browser. Best for daily review and decision logging.",
+        "🌐",
+        "streamlit",
+    ),
+    (
+        "Textual Terminal UI",
+        "Keyboard-driven interface in Terminal. Fast, no browser needed.",
+        "⌨",
+        "textual",
+    ),
+    (
+        "Command-Line (CLI)",
+        "Classic terminal mode. Use for scripting, cron, or maximum speed.",
+        "▶",
+        "cli",
+    ),
 ]
+
+
+def _open_path_in_finder(path: Path) -> None:
+    """Best-effort 'reveal in finder/explorer' for a workspace path."""
+    try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", str(path)])
+        elif sys.platform == "win32":
+            os.startfile(str(path))  # type: ignore[attr-defined]
+        else:
+            subprocess.Popen(["xdg-open", str(path)])
+    except Exception:
+        # The launcher should never crash because Finder isn't available.
+        pass
+
+
+def _latest_report_summary() -> tuple[str, str]:
+    """Return a (title, hint) for the most recent report on disk, if any."""
+    try:
+        from src.ui_support import latest_report  # local import to avoid early init
+    except Exception:
+        return ("", "")
+    report = latest_report()
+    if not report:
+        return ("No reports yet", "Launch any interface and run your first one.")
+    try:
+        mtime = time.strftime("%a %d %b · %H:%M", time.localtime(report.stat().st_mtime))
+    except OSError:
+        mtime = "—"
+    return (report.name, f"Updated {mtime}")
 
 
 def _show_launcher() -> None:
@@ -208,46 +263,90 @@ def _show_launcher() -> None:
     root.title("tech_stock")
     root.resizable(False, False)
 
-    # ── Colours ──────────────────────────────────────────────────────────────
-    BG = "#12121a"
-    CARD = "#1e1e2e"
-    BORDER = "#313147"
-    GREEN = "#22c55e"
-    TEXT = "#e2e8f0"
-    MUTED = "#94a3b8"
-    BTN_BG = "#22c55e"
-    BTN_FG = "#0a0a10"
-    BTN_HOVER = "#16a34a"
+    # ── Colours (shared with Streamlit + Textual via ui_theme) ───────────────
+    if PALETTE is not None:
+        BG = PALETTE.bg
+        SURFACE = PALETTE.surface
+        CARD = PALETTE.card
+        CARD_HOVER = PALETTE.panel
+        BORDER = PALETTE.border
+        BORDER_STRONG = PALETTE.border_strong
+        GREEN = PALETTE.accent
+        GREEN_DIM = PALETTE.accent_hover
+        TEXT = PALETTE.text
+        TEXT_STRONG = PALETTE.text_strong
+        MUTED = PALETTE.muted
+        WARN = PALETTE.warn
+    else:  # pragma: no cover — fallback for very early bundle init
+        BG = "#0b0d14"
+        SURFACE = "#12141c"
+        CARD = "#1c1f2e"
+        CARD_HOVER = "#171a26"
+        BORDER = "#272b3c"
+        BORDER_STRONG = "#363b52"
+        GREEN = "#22c55e"
+        GREEN_DIM = "#16a34a"
+        TEXT = "#e6e9f2"
+        TEXT_STRONG = "#ffffff"
+        MUTED = "#8a93a8"
+        WARN = "#f59e0b"
+    BTN_BG = GREEN
+    BTN_FG = "#06170d"
 
     root.configure(bg=BG)
 
     # ── Fonts ─────────────────────────────────────────────────────────────────
     try:
-        title_font = tkfont.Font(family="SF Pro Display", size=22, weight="bold")
+        title_font = tkfont.Font(family="SF Pro Display", size=24, weight="bold")
         sub_font = tkfont.Font(family="SF Pro Text", size=12)
-        label_font = tkfont.Font(family="SF Pro Text", size=13, weight="bold")
+        label_font = tkfont.Font(family="SF Pro Text", size=14, weight="bold")
         desc_font = tkfont.Font(family="SF Pro Text", size=11)
+        meta_font = tkfont.Font(family="SF Pro Text", size=10)
         btn_font = tkfont.Font(family="SF Pro Text", size=12, weight="bold")
+        icon_font = tkfont.Font(family="SF Pro Display", size=24)
     except Exception:
-        title_font = tkfont.Font(size=20, weight="bold")
+        title_font = tkfont.Font(size=22, weight="bold")
         sub_font = tkfont.Font(size=11)
-        label_font = tkfont.Font(size=12, weight="bold")
+        label_font = tkfont.Font(size=13, weight="bold")
         desc_font = tkfont.Font(size=10)
+        meta_font = tkfont.Font(size=9)
         btn_font = tkfont.Font(size=11, weight="bold")
+        icon_font = tkfont.Font(size=22)
 
     # ── Header ────────────────────────────────────────────────────────────────
     header = tk.Frame(root, bg=BG, padx=32, pady=24)
     header.pack(fill="x")
-    tk.Label(header, text="tech_stock", fg=GREEN, bg=BG, font=title_font).pack(anchor="w")
-    tk.Label(header, text="AI-powered portfolio advisor — choose your interface", fg=MUTED, bg=BG, font=sub_font).pack(
-        anchor="w", pady=(2, 0)
+
+    title_row = tk.Frame(header, bg=BG)
+    title_row.pack(fill="x")
+    tk.Label(title_row, text="📈", bg=BG, font=icon_font).pack(side="left", padx=(0, 12))
+    title_block = tk.Frame(title_row, bg=BG)
+    title_block.pack(side="left", fill="x", expand=True)
+    tk.Label(title_block, text="tech_stock", fg=TEXT_STRONG, bg=BG, font=title_font).pack(anchor="w")
+    tk.Label(
+        title_block,
+        text="AI-powered portfolio advisor — choose your interface",
+        fg=MUTED,
+        bg=BG,
+        font=sub_font,
+    ).pack(anchor="w", pady=(2, 0))
+
+    version_pill = tk.Label(
+        title_row,
+        text=f"v{APP_VERSION}",
+        fg=GREEN,
+        bg=CARD,
+        font=meta_font,
+        padx=10,
+        pady=4,
     )
+    version_pill.pack(side="right", anchor="n")
 
     sep = tk.Frame(root, bg=BORDER, height=1)
     sep.pack(fill="x", padx=32)
 
     # ── Option cards ─────────────────────────────────────────────────────────
-    body = tk.Frame(root, bg=BG, padx=32, pady=20)
+    body = tk.Frame(root, bg=BG, padx=32, pady=18)
     body.pack(fill="both")
 
     status_var = tk.StringVar(value="Choose an interface to start.")
@@ -377,20 +476,40 @@ def _show_launcher() -> None:
         elif mode == "cli":
             launch_terminal("--cli")
 
-    for label, description, mode in _CHOICES:
-        card = tk.Frame(body, bg=CARD, bd=0, highlightthickness=1, highlightbackground=BORDER, highlightcolor=GREEN)
-        card.pack(fill="x", pady=6, ipady=14, ipadx=16)
+    for label, description, icon, mode in _CHOICES:
+        card = tk.Frame(
+            body,
+            bg=CARD,
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=BORDER,
+            highlightcolor=GREEN,
+            cursor="hand2",
+        )
+        card.pack(fill="x", pady=5, ipady=12, ipadx=14)
 
         inner = tk.Frame(card, bg=CARD)
-        inner.pack(fill="x", padx=16, pady=8)
+        inner.pack(fill="x", padx=14, pady=6)
 
+        # Icon column
+        icon_label = tk.Label(inner, text=icon, fg=GREEN, bg=CARD, font=icon_font, width=2)
+        icon_label.pack(side="left", padx=(0, 14))
+
+        # Text column
         left = tk.Frame(inner, bg=CARD)
         left.pack(side="left", fill="both", expand=True)
 
-        tk.Label(left, text=label, fg=TEXT, bg=CARD, font=label_font, anchor="w").pack(fill="x")
-        tk.Label(left, text=description, fg=MUTED, bg=CARD, font=desc_font, anchor="w", justify="left", wraplength=340).pack(
-            fill="x", pady=(3, 0)
-        )
+        tk.Label(left, text=label, fg=TEXT_STRONG, bg=CARD, font=label_font, anchor="w").pack(fill="x")
+        tk.Label(
+            left,
+            text=description,
+            fg=MUTED,
+            bg=CARD,
+            font=desc_font,
+            anchor="w",
+            justify="left",
+            wraplength=360,
+        ).pack(fill="x", pady=(3, 0))
 
         btn = tk.Button(
             inner,
@@ -398,46 +517,144 @@ def _show_launcher() -> None:
             font=btn_font,
             bg=BTN_BG,
             fg=BTN_FG,
+            activebackground=GREEN_DIM,
+            activeforeground=BTN_FG,
             relief="flat",
             cursor="hand2",
-            padx=14,
-            pady=6,
+            padx=16,
+            pady=7,
             bd=0,
             command=lambda m=mode: launch(m),
         )
         btn.pack(side="right", padx=(12, 0))
 
-        def on_enter(e, b=btn):
-            b.configure(bg=BTN_HOVER)
+        widgets_in_card = (card, inner, left, icon_label)
 
-        def on_leave(e, b=btn):
+        def on_enter(_event, c=card, b=btn, hover=CARD_HOVER, border=BORDER_STRONG, group=widgets_in_card):
+            c.configure(highlightbackground=border, bg=hover)
+            b.configure(bg=GREEN_DIM)
+            for w in group:
+                w.configure(bg=hover)
+
+        def on_leave(_event, c=card, b=btn, base=CARD, border=BORDER, group=widgets_in_card):
+            c.configure(highlightbackground=border, bg=base)
             b.configure(bg=BTN_BG)
+            for w in group:
+                w.configure(bg=base)
 
-        btn.bind("<Enter>", on_enter)
-        btn.bind("<Leave>", on_leave)
+        card.bind("<Enter>", on_enter)
+        card.bind("<Leave>", on_leave)
 
         # Clicking anywhere on the card also triggers launch
-        def on_card_click(e, m=mode):
+        def on_card_click(_event, m=mode):
             launch(m)
 
-        for w in (card, inner, left):
+        for w in widgets_in_card:
             w.bind("<Button-1>", on_card_click)
+
+    # ── Recent activity panel ────────────────────────────────────────────────
+    recent_panel = tk.Frame(root, bg=SURFACE, padx=32, pady=14)
+    recent_panel.pack(fill="x")
+    tk.Label(
+        recent_panel,
+        text="RECENT ACTIVITY",
+        fg=MUTED,
+        bg=SURFACE,
+        font=meta_font,
+    ).pack(anchor="w")
+    report_title, report_hint = _latest_report_summary()
+    recent_title_var = tk.StringVar(value=report_title or "—")
+    recent_hint_var = tk.StringVar(value=report_hint or "")
+    tk.Label(
+        recent_panel,
+        textvariable=recent_title_var,
+        fg=TEXT_STRONG,
+        bg=SURFACE,
+        font=label_font,
+        anchor="w",
+    ).pack(anchor="w", pady=(2, 0))
+    tk.Label(
+        recent_panel,
+        textvariable=recent_hint_var,
+        fg=MUTED,
+        bg=SURFACE,
+        font=meta_font,
+        anchor="w",
+    ).pack(anchor="w", pady=(2, 0))
+
+    def _refresh_recent_activity() -> None:
+        title, hint = _latest_report_summary()
+        recent_title_var.set(title or "—")
+        recent_hint_var.set(hint or "")
+
+    quick_row = tk.Frame(recent_panel, bg=SURFACE)
+    quick_row.pack(anchor="w", pady=(10, 0))
+
+    def _styled_link(parent: tk.Widget, text: str, command) -> tk.Button:
+        btn = tk.Button(
+            parent,
+            text=text,
+            font=desc_font,
+            bg=SURFACE,
+            fg=GREEN,
+            activebackground=SURFACE,
+            activeforeground=GREEN_DIM,
+            relief="flat",
+            cursor="hand2",
+            bd=0,
+            padx=0,
+            pady=0,
+            command=command,
+        )
+        return btn
+
+    _styled_link(
+        quick_row,
+        "📁 Open workspace",
+        command=lambda: _open_path_in_finder(ROOT),
+    ).pack(side="left", padx=(0, 18))
+
+    def _open_latest_report() -> None:
+        try:
+            from src.ui_support import latest_report
+        except Exception:
+            return
+        report = latest_report()
+        if report and report.exists():
+            _open_path_in_finder(report)
+
+    _styled_link(
+        quick_row,
+        "📝 Open latest report",
+        command=_open_latest_report,
+    ).pack(side="left", padx=(0, 18))
+    _styled_link(
+        quick_row,
+        "🔄 Refresh activity",
+        command=_refresh_recent_activity,
+    ).pack(side="left")
 
     # ── Footer ────────────────────────────────────────────────────────────────
     sep2 = tk.Frame(root, bg=BORDER, height=1)
     sep2.pack(fill="x", padx=32)
-    tk.Label(root, textvariable=status_var, fg=MUTED, bg=BG, font=desc_font).pack(pady=(10, 0))
+
+    footer = tk.Frame(root, bg=BG, padx=32, pady=12)
+    footer.pack(fill="x")
+    tk.Label(footer, textvariable=status_var, fg=MUTED, bg=BG, font=desc_font).pack(side="left")
     tk.Button(
-        root,
-        text=f"Check Updates (v{APP_VERSION})",
+        footer,
+        text="Check for updates",
         font=desc_font,
         bg=BG,
         fg=GREEN,
+        activebackground=BG,
+        activeforeground=GREEN_DIM,
         relief="flat",
         cursor="hand2",
+        bd=0,
         command=lambda: check_for_updates(manual=True),
-    ).pack(pady=(4, 0))
-    tk.Label(root, text="Powered by Claude  ·  Anthropic", fg=MUTED, bg=BG, font=desc_font).pack(pady=(4, 10))
+    ).pack(side="right")
+    tk.Label(footer, text="Powered by Claude · Anthropic", fg=MUTED, bg=BG, font=meta_font).pack(side="right", padx=(0, 14))
 
     # Centre window on screen
     root.update_idletasks()

@@ -50,6 +50,19 @@
 
 ---
 
+## ✨ What's New in v1.15.0 (May 25, 2026)
+
+**Production-grade UI overhaul across every front-end.**
+
+- **Shared design system** — new `src/ui_theme.py` is the single source of truth for colours, badges, conviction bars, status pills, hero banners, empty states, and the Streamlit CSS bundle. The Streamlit app, Tkinter launcher and Textual TUI all consume it so visual changes happen in one place.
+- **Streamlit redesign** — custom dark theme, polished sidebar (settings · live status · workspace info), hero banner with portfolio context, 8 colour-coded tabs, action badges, conviction bars, toast notifications, friendly empty states, and contextual help on every control.
+- **Native launcher polish** — per-mode icons, lift-on-hover cards, version pill, “Recent activity” panel with quick links to open the workspace or latest report in Finder/Explorer.
+- **Textual TUI polish** — colour-coded action / severity / readiness columns, multi-line placeholders, redesigned update-prompt modal.
+- **117 s → <1 ms boot fix** — `find_csv_by_date` no longer recursively globs the entire home directory; it now checks a bounded list of common locations (Uploads, Downloads, Desktop, Documents, iCloud Drive). Every UI startup is now near-instant.
+- **Test surface up to 278** (from 236): added `test_ui_theme.py` (40) and `test_streamlit_smoke.py` (2) — the smoke test mocks `streamlit` so the dashboard module runs end-to-end during `pytest`.
+
+Current local suite: `pytest -q` passes with 278 tests in ~2 s.
+
 ## ✨ What's New in v1.14.1 (May 24, 2026)
 
 **Security and updater hardening.**

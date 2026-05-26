@@ -4,6 +4,27 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.15.0] — 2026-05-25
+
+### Added — Production-grade UI overhaul
+
+- **`src/ui_theme.py`** — single source of truth for visual language used by every front-end. Exports a colour `PALETTE`, `STREAMLIT_CSS` bundle, and HTML-escaped helpers for badges (`action_badge`, `severity_badge`, `readiness_badge`), conviction bars, status dots, metric cards, action cards, warning rows, hero banners, and empty-state placeholders. The Streamlit dashboard, Tkinter launcher and Textual TUI all consume the same tokens so a colour tweak only needs to happen in one place.
+- **Streamlit dashboard rebuild (`ui/streamlit_app.py`)** — custom dark theme injected via CSS, polished sidebar (run settings · live API/update status · workspace info · refresh action), hero banner with latest-run context (date, portfolio value, β, run cost, warning count), 8 colour-coded tabs (📊 📝 🎯 ▶️ 📚 📈 📓 ⚙️), live status pills for Trade-Ready / Review-First / Blocked, conviction bars rendered inline, toast notifications for every state-changing action, friendly empty states for every section that can be empty, and contextual help tooltips on every model/budget/source control.
+- **Native launcher polish (`src/app_gui.py`)** — switched to the shared palette, added per-mode icons (🖥 🌐 ⌨ ▶), hover affordance now lifts the whole card, footer renamed/repositioned, version pill in the header, and a new “Recent activity” panel with quick links to open the workspace folder or the latest report in Finder/Explorer.
+- **Textual TUI polish (`ui/textual_app.py`)** — `rich.text.Text` cells colourise the action / severity / readiness columns in every table using the shared palette; placeholder screens for Buy Signals / Backtest are now multi-line with icons; the update-prompt modal got a centred layout, accent border, and a subtle “what is kept” line.
+- **Theme + Streamlit smoke tests** — `tests/test_ui_theme.py` (40 tests covering XSS escaping, palette wiring, badge/card/conviction output, CSS bundle integrity) and `tests/test_streamlit_smoke.py` (mocks `streamlit` so the module runs end-to-end during pytest to catch import/template errors in CI).
+
+### Fixed
+
+- **`find_csv_by_date` no longer recurses the entire home directory.** Previously the fallback step ran `Path.home().glob("**/*.csv")` which could take 2+ minutes on disks with deep dot-trees (node_modules, IDE caches), and was paid on every UI startup whose CSV was missing. Now we look at a bounded list of common roots (Desktop, Documents, iCloud Drive Desktop/Documents) without recursion — observed boot time went from **117 s** to **<1 ms**.
+
+### Tests
+
+- Total: **278 tests passing** (was 236) — `pytest -q` runs in ~2 s.
+- New: `test_ui_theme.py` (40), `test_streamlit_smoke.py` (2).
+
+---
+
 ## [1.14.2] — 2026-05-24
 
 ### Added — Audit-driven hardening

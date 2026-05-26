@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from rich.table import Table
+from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
@@ -40,8 +41,56 @@ from src.ui_support import (  # noqa: E402
     write_editable_json,
 )
 
+try:
+    from src.ui_theme import action_meta, severity_meta  # noqa: E402
+except Exception:  # pragma: no cover
+
+    def action_meta(value):  # type: ignore[misc]
+        return {"color": "white"}
+
+    def severity_meta(value):  # type: ignore[misc]
+        return {"color": "white"}
+
 
 ANSI_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+
+# Columns whose cells should be colour-styled using the shared palette.
+_ACTION_COLUMN_KEYS = {"action", "recommended_action", "actual_action"}
+_SEVERITY_COLUMN_KEYS = {"severity"}
+_READINESS_COLUMN_KEYS = {"readiness"}
+
+_READINESS_COLOURS = {
+    "trade_ready": "#22c55e",
+    "trade ready": "#22c55e",
+    "review_first": "#f59e0b",
+    "review first": "#f59e0b",
+    "blocked": "#ef4444",
+}
+
+
+def _coloured_action(value) -> Text:
+    """Wrap an action value in a colour-styled rich.Text using the shared palette."""
+    text = str(value or "").strip()
+    if not text:
+        return Text("")
+    color = action_meta(text).get("color", "white")
+    return Text(text.upper(), style=f"bold {color}")
+
+
+def _coloured_severity(value) -> Text:
+    text = str(value or "").strip()
+    if not text:
+        return Text("")
+    color = severity_meta(text).get("color", "white")
+    return Text(text.lower(), style=f"bold {color}")
+
+
+def _coloured_readiness(value) -> Text:
+    text = str(value or "").strip()
+    if not text:
+        return Text("")
+    color = _READINESS_COLOURS.get(text.lower(), "white")
+    return Text(text, style=f"bold {color}")
 
 
 class UpdatePrompt(ModalScreen[bool]):
@@ -50,23 +99,41 @@ class UpdatePrompt(ModalScreen[bool]):
     CSS = """
     UpdatePrompt {
         align: center middle;
+        background: rgba(0, 0, 0, 0.55);
     }
 
     #update_prompt {
-        width: 72;
+        width: 76;
         height: auto;
-        padding: 2 3;
-        border: thick $primary;
+        padding: 2 4;
+        border: thick $accent;
         background: $surface;
     }
 
     #update_prompt_title {
         text-style: bold;
+        color: $accent;
+        margin-bottom: 1;
+    }
+
+    #update_prompt_body {
+        margin-bottom: 1;
+        color: $text;
+    }
+
+    #update_prompt_subtle {
+        color: $text-muted;
+        text-style: italic;
         margin-bottom: 1;
     }
 
     #update_prompt_buttons {
         margin-top: 1;
+        align: center middle;
+    }
+
+    #confirm_update {
+        margin-right: 2;
     }
     """
 
@@ -77,11 +144,14 @@ class UpdatePrompt(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="update_prompt"):
-            yield Static("Update available", id="update_prompt_title")
+            yield Static(f"🆙  tech_stock v{self.latest_version} is available", id="update_prompt_title")
             yield Static(
-                f"Version {self.latest_version} is available. "
-                f"You are currently on {self.current_version}.\n\n"
-                "Reports, logs, uploaded CSVs, config files, and API keys will be kept."
+                f"You are currently on v{self.current_version}. The update will replace the bundled app while keeping all of your data.",
+                id="update_prompt_body",
+            )
+            yield Static(
+                "Kept: reports · recommendation logs · uploaded CSVs · config files · API keys.",
+                id="update_prompt_subtle",
             )
             with Horizontal(id="update_prompt_buttons"):
                 yield Button("Update now", id="confirm_update", variant="primary")
@@ -174,7 +244,12 @@ class TechStockTUI(App):
                         id="buy_action_filter",
                     )
                     yield Select(
-                        [("All readiness", "all"), ("Trade Ready", "TRADE_READY"), ("Review First", "REVIEW_FIRST"), ("Blocked", "BLOCKED")],
+                        [
+                            ("All readiness", "all"),
+                            ("Trade Ready", "TRADE_READY"),
+                            ("Review First", "REVIEW_FIRST"),
+                            ("Blocked", "BLOCKED"),
+                        ],
                         value="all",
                         id="buy_readiness_filter",
                     )
@@ -338,11 +413,7 @@ class TechStockTUI(App):
             status.update(f"Failed: {result.error}")
             return
 
-        status.update(
-            "Done. "
-            f"Report: {relative_to_root(result.report_path)} | "
-            f"CSV: {relative_to_root(result.csv_path)}"
-        )
+        status.update(f"Done. Report: {relative_to_root(result.report_path)} | CSV: {relative_to_root(result.csv_path)}")
         self._load_dashboard()
         self._load_today_report(result.report_path)
         self._refresh_history_select()
@@ -393,32 +464,46 @@ class TechStockTUI(App):
         log.clear()
         summary = latest_log_summary()
         if not summary:
-            log.write("No recommendation JSON logs found yet.")
+            log.write(Text("No recommendation JSON logs found yet.", style="dim italic"))
+            log.write(Text("Run a report from the 'Run Report' tab to populate the dashboard.", style="dim"))
             return
         if summary.get("error"):
-            log.write(f"Failed to read latest log: {summary['error']}")
+            log.write(Text(f"Failed to read latest log: {summary['error']}", style="bold #ef4444"))
             return
 
-        log.write(f"Latest log: {summary.get('session_file', '')}")
+        log.write(Text(f"📂 Latest log: {summary.get('session_file', '')}", style="bold #22c55e"))
         risk = summary.get("risk_dashboard") or {}
         beta = risk.get("beta") or {}
         usage = summary.get("usage") or {}
-        metrics = Table(title="Dashboard Metrics")
+        metrics = Table(title="Dashboard Metrics", title_style="bold #22c55e")
         metrics.add_column("Metric")
         metrics.add_column("Value", justify="right")
+        total_value = risk.get("total_value_usd")
+        if total_value is not None:
+            metrics.add_row("Portfolio value", Text(f"${total_value:,.2f}", style="bold white"))
         metrics.add_row("Beta SPY", str(beta.get("SPY", "N/A")))
         metrics.add_row("Annualized volatility", f"{risk.get('annualized_volatility_pct', 0):.1f}%")
-        metrics.add_row("Max drawdown estimate", f"{risk.get('max_drawdown_estimate_pct', 0):+.1f}%")
-        metrics.add_row("Top-3 concentration", f"{risk.get('top3_concentration_pct', 0):.1f}%")
-        metrics.add_row("Claude cost", f"${usage.get('cost_usd', 0):.4f}")
+        drawdown = risk.get("max_drawdown_estimate_pct", 0)
+        dd_style = "bold #ef4444" if drawdown < -10 else "bold #f59e0b" if drawdown < -5 else "white"
+        metrics.add_row("Max drawdown estimate", Text(f"{drawdown:+.1f}%", style=dd_style))
+        conc = risk.get("top3_concentration_pct", 0)
+        conc_style = "bold #f59e0b" if conc > 40 else "white"
+        metrics.add_row("Top-3 concentration", Text(f"{conc:.1f}%", style=conc_style))
+        metrics.add_row("Claude cost", Text(f"${usage.get('cost_usd', 0):.4f}", style="bold #22c55e"))
         metrics.add_row("Tokens", f"{usage.get('total_tokens', 0):,}")
         log.write(metrics)
 
         self._write_rows_table(log, "Priority Actions", summary.get("priority_actions") or [], ["order", "ticker", "action", "rationale"])
-        self._write_rows_table(log, "Quality Warnings", summary.get("quality_warnings") or [], ["severity", "code", "ticker", "message", "action_required"])
-        self._write_rows_table(log, "Hedge Suggestions", summary.get("hedge_suggestions") or [], ["type", "instrument", "action", "risk_note"])
-        self._write_rows_table(log, "Drift Vs Previous", self._flatten_drift(summary.get("drift") or []), ["ticker", "drift_type", "was", "now"])
-        journal = (decision_journal_view().get("status") or {})
+        self._write_rows_table(
+            log, "Quality Warnings", summary.get("quality_warnings") or [], ["severity", "code", "ticker", "message", "action_required"]
+        )
+        self._write_rows_table(
+            log, "Hedge Suggestions", summary.get("hedge_suggestions") or [], ["type", "instrument", "action", "risk_note"]
+        )
+        self._write_rows_table(
+            log, "Drift Vs Previous", self._flatten_drift(summary.get("drift") or []), ["ticker", "drift_type", "was", "now"]
+        )
+        journal = decision_journal_view().get("status") or {}
         journal_table = Table(title="Decision Journal")
         journal_table.add_column("Metric")
         journal_table.add_column("Value", justify="right")
@@ -433,16 +518,15 @@ class TechStockTUI(App):
         log.write("Checking connectivity...")
         health = await asyncio.to_thread(api_health_view)
         log.clear()
-        log.write(
-            f"{health.get('ok_count', 0)} OK / {health.get('fail_count', 0)} unavailable | "
-            f"storage: {health.get('storage_mode')}"
-        )
+        log.write(f"{health.get('ok_count', 0)} OK / {health.get('fail_count', 0)} unavailable | storage: {health.get('storage_mode')}")
         self._write_rows_table(log, "Connectivity", health.get("checks") or [], ["source", "ok", "latency_ms", "detail"])
 
     def _show_buy_signals_placeholder(self) -> None:
         log = self.query_one("#buy_signals_log", RichLog)
         log.clear()
-        log.write("Press Refresh buy signals to load source-backed BUY/ADD and add-on-dip candidates.")
+        log.write(Text("🎯 Buy Signals", style="bold #22c55e"))
+        log.write(Text("Press Refresh buy signals to load source-backed BUY/ADD and add-on-dip candidates.", style="dim"))
+        log.write(Text("Filter by action or readiness using the dropdowns above.", style="dim italic"))
 
     async def _load_buy_signals_async(self) -> None:
         log = self.query_one("#buy_signals_log", RichLog)
@@ -474,33 +558,50 @@ class TechStockTUI(App):
             readiness = item.get("readiness") or {}
             log.write(f"\n{item.get('ticker')} — {readiness.get('label')} — catalyst: {item.get('catalyst_source') or 'N/A'}")
             log.write(f"Readiness reasons: {'; '.join(readiness.get('reasons') or [])}")
-            log.write(f"Quote: {item.get('current_price')} | {item.get('quote_source') or 'unavailable'} | {item.get('quote_timestamp_utc') or 'missing timestamp'}")
+            log.write(
+                f"Quote: {item.get('current_price')} | {item.get('quote_source') or 'unavailable'} | {item.get('quote_timestamp_utc') or 'missing timestamp'}"
+            )
             log.write(f"Risk/invalidation: {item.get('risk_or_invalidation') or 'N/A'}")
             for note in item.get("source_notes") or []:
                 log.write(f"  source: {note}")
 
     def _write_rows_table(self, log: RichLog, title: str, rows: list[dict], columns: list[str]) -> None:
         if not rows:
-            log.write(f"{title}: none")
+            log.write(Text(f"{title}: none", style="dim italic"))
             return
-        table = Table(title=title)
+        table = Table(title=title, title_style="bold #22c55e")
         for column in columns:
             table.add_column(column.replace("_", " ").title())
         for row in rows[:20]:
-            table.add_row(*[self._format_cell(row.get(column)) for column in columns])
+            cells = []
+            for column in columns:
+                value = row.get(column)
+                if column in _ACTION_COLUMN_KEYS:
+                    cells.append(_coloured_action(value))
+                elif column in _SEVERITY_COLUMN_KEYS:
+                    cells.append(_coloured_severity(value))
+                elif column in _READINESS_COLUMN_KEYS:
+                    cells.append(_coloured_readiness(value))
+                else:
+                    cells.append(self._format_cell(value))
+            table.add_row(*cells)
         log.write(table)
+        if len(rows) > 20:
+            log.write(Text(f"… plus {len(rows) - 20} more rows", style="dim"))
 
     def _flatten_drift(self, drift: list[dict]) -> list[dict]:
         rows = []
         for item in drift:
             was = item.get("was") or {}
             now = item.get("now") or {}
-            rows.append({
-                "ticker": item.get("ticker"),
-                "drift_type": item.get("drift_type"),
-                "was": f"{was.get('action', '')} {was.get('conviction', '')}".strip() if isinstance(was, dict) else "",
-                "now": f"{now.get('action', '')} {now.get('conviction', '')}".strip() if isinstance(now, dict) else "",
-            })
+            rows.append(
+                {
+                    "ticker": item.get("ticker"),
+                    "drift_type": item.get("drift_type"),
+                    "was": f"{was.get('action', '')} {was.get('conviction', '')}".strip() if isinstance(was, dict) else "",
+                    "now": f"{now.get('action', '')} {now.get('conviction', '')}".strip() if isinstance(now, dict) else "",
+                }
+            )
         return rows
 
     def _format_cell(self, value) -> str:
@@ -564,7 +665,9 @@ class TechStockTUI(App):
     def _show_backtest_placeholder(self) -> None:
         log = self.query_one("#backtest_log", RichLog)
         log.clear()
-        log.write("Press 'Refresh backtest' to evaluate past recommendations.\nThis fetches live price data and may take 20–30 seconds.")
+        log.write(Text("📈 Backtest", style="bold #22c55e"))
+        log.write(Text("Press 'Refresh backtest' to evaluate past recommendations.", style="dim"))
+        log.write(Text("This fetches live price data via yfinance and may take 20–30 seconds.", style="dim italic"))
 
     async def _check_updates_async(self, *, startup: bool) -> None:
         log = self.query_one("#update_log", RichLog)
@@ -621,12 +724,14 @@ class TechStockTUI(App):
     def _write_bucket_table(self, log: RichLog, title: str, bucket: dict) -> None:
         rows = []
         for label, stats in bucket.items():
-            rows.append({
-                "bucket": label,
-                "n": stats.get("n", 0),
-                "avg_return_pct": f"{stats.get('avg_return_pct', 0):+.2f}%",
-                "hit_rate": f"{stats.get('hit_rate', 0):.0%}",
-            })
+            rows.append(
+                {
+                    "bucket": label,
+                    "n": stats.get("n", 0),
+                    "avg_return_pct": f"{stats.get('avg_return_pct', 0):+.2f}%",
+                    "hit_rate": f"{stats.get('hit_rate', 0):.0%}",
+                }
+            )
         self._write_rows_table(log, title, rows, ["bucket", "n", "avg_return_pct", "hit_rate"])
 
     def _load_editor_text(self) -> None:
