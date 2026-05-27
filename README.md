@@ -50,6 +50,18 @@
 
 ---
 
+## ✨ What's New in v1.18.0 (May 27, 2026)
+
+**Calibration, notifications, scheduling — the app finally tells you when it doesn't trust its own conviction labels, and runs itself.**
+
+- **🧠 Calibration sub-section in the Learning tab** — does conviction 8 actually win 80%? An Altair scatter compares stated probability (`conviction × 10%`) to realized hit rate per bucket with a 45° reference line; the Tk Desktop gets a parallel Treeview. Walk-forward rolling-window hit rate shows whether your edge is stable, improving, or decaying. Both fed into the Claude prompt: `conv 8: stated 80% / realized 60% → dampen by ~0.85×`.
+- **🔔 Native desktop notifications** — `report_complete`, `trailing_stop_breach`, `high_priority_action`, `thesis_force_exit` channels fire macOS Notification Center / Windows BurntToast / Linux libnotify pop-ups. Zero new pip deps. Settings-gated via `config/settings.json → notifications.channels`. 5-second dedup window. Every send logs via observability.
+- **⏰ Schedule tab** — one-click `install_schedule([(7,0,"morning"), (14,0,"afternoon")])` writes a launchd plist (macOS), Task Scheduler XML (Windows), or crontab line (Linux). No `sudo`. `current_schedule()` parses it back into the UI so you always see what's installed. Test-notification button for verification.
+- **3 bug fixes** found by the new tests: `api_key_search_paths` was returning 12 duplicates instead of 6 unique paths, `normalize_recommendation` left empty-string tickers blank, and notification backend errors could propagate to a report run that already succeeded.
+- **388 → 467 tests**. Six new test files: `test_backtester_calibration.py` (13), `test_notifications.py` (16), `test_scheduling.py` (16), `test_app_gui.py` (13), `test_main_pipeline.py` (12), `test_claude_analyst_passes.py` (22).
+
+Current local suite: `pytest -q` passes with 467 tests in ~1.5 s.
+
 ## ✨ What's New in v1.17.0 (May 27, 2026)
 
 **Observability + Portfolio Performance — the app can finally tell you *why* a number is stale and *how* the whole portfolio is trending.**

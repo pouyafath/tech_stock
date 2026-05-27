@@ -320,8 +320,13 @@ def _load_api_keys_from_file():
 
 
 def api_key_search_paths() -> list[Path]:
-    """Return user-facing API key file locations checked by the app."""
-    return [
+    """Return user-facing API key file locations checked by the app.
+
+    Deduplicated via ``_dedupe_paths`` — when invoked from inside the
+    project root, ``ROOT`` / ``Path.cwd()`` / ``SOURCE_ROOT`` resolve to
+    the same directory and the raw list contains 3× the same candidates.
+    """
+    raw = [
         ROOT / "API_KEYS.txt",
         ROOT / ".env",
         Path.cwd() / "API_KEYS.txt",
@@ -335,6 +340,7 @@ def api_key_search_paths() -> list[Path]:
         SOURCE_ROOT / "API_KEYS.txt",
         SOURCE_ROOT / ".env",
     ]
+    return _dedupe_paths(raw)
 
 
 def _dedupe_paths(paths: list[Path]) -> list[Path]:
@@ -1047,6 +1053,11 @@ def run(
     if open_report:
         open_file(report_path)
 
+    # v1.18: fire desktop notifications for high-priority signals — the user
+    # may not have the UI open when the run completes. Every call is best-
+    # effort and dedup-protected; failures never break the report run.
+    _maybe_fire_notifications(recommendation, session_type, report_path)
+
     return {
         "recommendation": recommendation,
         "usage": usage,
@@ -1058,6 +1069,62 @@ def run(
         "quality_warnings": recommendation.get("quality_warnings") or [],
         "source_degradation": enriched.get("degradation") or [],
     }
+
+
+def _maybe_fire_notifications(recommendation: dict, session_type: str, report_path: Path) -> None:
+    """Send native notifications for a completed report + any breach signals.
+
+    Called inside ``run()`` after the report is saved. Each channel is
+    gated by ``config/settings.json``'s ``notifications`` block — the
+    function is a no-op when the block is missing or ``enabled: false``.
+
+    Every individual ``send()`` is wrapped so a buggy notification backend
+    (or a misconfigured PowerShell host on Windows) cannot break the
+    report run that already succeeded. We use a late ``import`` + a local
+    helper so tests can monkeypatch ``src.notifications.send`` directly.
+    """
+
+    def _safe_send(title: str, message: str, *, channel: str) -> None:
+        try:
+            from src import notifications  # late import — keeps cold start fast
+
+            notifications.send(title, message, channel=channel)
+        except Exception:
+            # Best-effort — a notification failure must never propagate.
+            return
+
+    # 1) Report-complete: always a single message
+    actions = recommendation.get("priority_actions") or []
+    actionable = sum(1 for a in actions if (a.get("action") or "").upper() in {"BUY", "ADD", "TRIM", "SELL"})
+    summary = f"{len(actions)} priority actions · {actionable} actionable"
+    if recommendation.get("portfolio_health"):
+        ph = recommendation["portfolio_health"]
+        if ph.get("total_value_usd_equivalent"):
+            summary += f" · portfolio ${ph['total_value_usd_equivalent']:,.0f}"
+    _safe_send(f"tech_stock ({session_type}) ready", summary, channel="report_complete")
+
+    # 2) Trailing-stop breaches — already a list of dicts on the recommendation
+    breaches = recommendation.get("trailing_stop_breaches") or []
+    if breaches:
+        msg_lines = []
+        for b in breaches[:3]:
+            ticker = b.get("ticker", "?")
+            stop = b.get("stop_price")
+            current = b.get("current_price")
+            msg_lines.append(f"{ticker}: stop {stop} · now {current}")
+        body = "\n".join(msg_lines)
+        if len(breaches) > 3:
+            body += f"\n… + {len(breaches) - 3} more"
+        _safe_send(f"⛔ {len(breaches)} trailing-stop breach(es)", body, channel="trailing_stop_breach")
+
+    # 3) High-priority actionable count
+    high_priority = sum(1 for a in actions if (a.get("priority") or 99) <= 2)
+    if high_priority >= 3:
+        _safe_send(
+            "High-priority queue",
+            f"{high_priority} actions ranked priority ≤ 2 in this report.",
+            channel="high_priority_action",
+        )
 
 
 def main():

@@ -641,6 +641,10 @@ def learning_view() -> dict[str, Any]:
                                     model_hit}, 5: {...}, 20: {...}, 60: {...}},
         "sharpe_by_conviction": {conv: {n, avg_return_pct, hit_rate, sharpe,
                                         max_drawdown_pct, sizing_multiplier}},
+        "calibration":         {conv: {n, stated_pct, realized_pct, error_pp,
+                                       overconfident}},  # v1.18
+        "walk_forward":        [{window_start, window_end, n, hit_rate,
+                                 avg_return_pct, sharpe, ...}],  # v1.18
         "thesis_text_drift_alerts": list of {ticker, similarity, was_thesis,
                                              now_thesis},
         "errors": list of soft error strings (never raises),
@@ -655,6 +659,8 @@ def learning_view() -> dict[str, Any]:
         "thesis_verdicts": [],
         "edge_by_horizon": {},
         "sharpe_by_conviction": {},
+        "calibration": {},  # v1.18
+        "walk_forward": [],  # v1.18
         "thesis_text_drift_alerts": [],
         "errors": [],
     }
@@ -721,6 +727,10 @@ def learning_view() -> dict[str, Any]:
                     "sizing_multiplier": mults.get(int(conv), 1.0),
                 }
             out["sharpe_by_conviction"] = enriched
+            # v1.18: surface reliability + walk-forward so the Learning tab
+            # can show calibration scatter + stability bands.
+            out["calibration"] = backtest.get("reliability") or {}
+            out["walk_forward"] = backtest.get("walk_forward") or []
     except Exception as exc:  # noqa: BLE001
         out["errors"].append(f"sharpe_by_conviction: {exc}")
 

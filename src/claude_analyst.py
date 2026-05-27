@@ -447,9 +447,13 @@ def _normalize_time_horizon(value) -> str:
 def normalize_recommendation(recommendation: dict) -> dict:
     """Normalize model output before it is logged or rendered."""
     for rec in recommendation.get("recommendations", []) or []:
+        # ``rec.get("ticker")`` is falsy for None *or* empty string — both should
+        # collapse to the "UNKNOWN" sentinel. Using `setdefault` alone wouldn't
+        # catch the empty-string case because the key already exists (just blank).
         if rec.get("ticker"):
             rec["ticker"] = str(rec["ticker"]).upper()
-        rec.setdefault("ticker", "UNKNOWN")
+        else:
+            rec["ticker"] = "UNKNOWN"
         if rec.get("action") not in {"BUY", "SELL", "HOLD", "TRIM", "ADD"}:
             rec["action"] = "HOLD"
         rec.setdefault("conviction", 5)
@@ -988,6 +992,41 @@ def build_user_message(
             if sizing_mults:
                 lines.append(
                     "  ↳ Sizing multipliers (Sharpe-dampened): " + ", ".join(f"conv{k}={v:.2f}×" for k, v in sorted(sizing_mults.items()))
+                )
+
+            # v1.18: conviction calibration — only surface when meaningfully off.
+            # Below the 10-pp band we trust the conviction label as-is; above
+            # it the model gets a one-line nudge to dampen.
+            reliability = backtest_summary.get("reliability") or {}
+            mis_calibrated = [(c, b) for c, b in sorted(reliability.items()) if abs(b.get("error_pp", 0.0)) >= 10]
+            if mis_calibrated:
+                lines.append("  Conviction calibration (where stated vs realized disagree by ≥10pp):")
+                for conv, bucket in mis_calibrated:
+                    direction = "over-confident" if bucket["overconfident"] else "under-confident"
+                    nudge = "dampen by ~0.85×" if bucket["overconfident"] else "consider lifting conviction"
+                    lines.append(
+                        f"    conv {conv}: stated {bucket['stated_pct']:.0f}% / realized {bucket['realized_pct']:.0f}% "
+                        f"({bucket['error_pp']:+.1f}pp, {direction}) → {nudge}"
+                    )
+
+            # v1.18: walk-forward stability — does the user's edge look stable
+            # across rolling windows? If the most recent window is materially
+            # weaker than the all-time mean, surface a one-liner so Claude can
+            # weigh whether the current setup is degrading.
+            walk_forward = backtest_summary.get("walk_forward") or []
+            if len(walk_forward) >= 2:
+                recent = walk_forward[-1]
+                all_avg = sum(w.get("hit_rate", 0.0) for w in walk_forward) / len(walk_forward)
+                delta_pp = (recent.get("hit_rate", 0.0) - all_avg) * 100.0
+                trend = "stable"
+                if delta_pp <= -10:
+                    trend = "decaying — most recent window trails the all-time mean"
+                elif delta_pp >= 10:
+                    trend = "improving — most recent window leads the all-time mean"
+                lines.append(
+                    f"  Walk-forward stability: {len(walk_forward)} windows · "
+                    f"latest hit_rate {recent.get('hit_rate', 0):.0%} vs mean {all_avg:.0%} "
+                    f"({delta_pp:+.1f}pp, {trend})"
                 )
         by_ticker = backtest_summary.get("avg_return_by_ticker", {})
         if by_ticker:

@@ -341,6 +341,7 @@ class DesktopApp(tk.Tk):
         self.performance_tab = ttk.Frame(self.tabs)
         self.learning_tab = ttk.Frame(self.tabs)
         self.diagnostics_tab = ttk.Frame(self.tabs)
+        self.schedule_tab = ttk.Frame(self.tabs)
         self.editor_tab = ttk.Frame(self.tabs)
         self.health_tab = ttk.Frame(self.tabs)
         self.update_tab = ttk.Frame(self.tabs)
@@ -353,6 +354,7 @@ class DesktopApp(tk.Tk):
         self.tabs.add(self.performance_tab, text="Performance")
         self.tabs.add(self.learning_tab, text="Learning")
         self.tabs.add(self.diagnostics_tab, text="Diagnostics")
+        self.tabs.add(self.schedule_tab, text="Schedule")
         self.tabs.add(self.editor_tab, text="Config Editor")
         self.tabs.add(self.health_tab, text="API Checks")
         self.tabs.add(self.update_tab, text="Updates")
@@ -365,6 +367,7 @@ class DesktopApp(tk.Tk):
         self._build_performance_tab()
         self._build_learning_tab()
         self._build_diagnostics_tab()
+        self._build_schedule_tab()
         self._build_editor_tab()
         self._build_health_tab()
         self._build_update_tab()
@@ -416,6 +419,8 @@ class DesktopApp(tk.Tk):
             self.refresh_diagnostics_tab()
         elif tab_text == "Performance":
             self.refresh_performance_tab()
+        elif tab_text == "Schedule":
+            self.refresh_schedule_tab()
 
     def _refresh_active_tab(self) -> None:
         """⌘R handler — re-run the data-load for whichever tab is in front."""
@@ -432,6 +437,7 @@ class DesktopApp(tk.Tk):
             "Performance": self.refresh_performance_tab,
             "Learning": self.refresh_learning_tab,
             "Diagnostics": self.refresh_diagnostics_tab,
+            "Schedule": self.refresh_schedule_tab,
             "Config Editor": self.load_editor_file,
             "API Checks": self.start_connectivity_check,
             "Updates": lambda: self.start_update_check(startup=False),
@@ -845,6 +851,23 @@ class DesktopApp(tk.Tk):
         )
         self.learning_sizing_tree.pack(fill="x")
 
+        # v1.18: Calibration table — does conviction X actually win X*10%?
+        calibration_panel = self._panel(self.learning_tab, "Calibration (stated vs realized)")
+        calibration_panel.pack(fill="x", padx=16, pady=(0, 12))
+        self.learning_calibration_tree = self._make_tree(
+            calibration_panel,
+            ["conviction", "n", "stated_pct", "realized_pct", "error_pp", "verdict"],
+            [90, 70, 100, 110, 90, 160],
+            height=5,
+        )
+        self.learning_calibration_tree.pack(fill="x")
+        self.learning_walkforward_var = tk.StringVar(value="Walk-forward stability: not enough samples yet.")
+        ttk.Label(
+            calibration_panel,
+            textvariable=self.learning_walkforward_var,
+            style="Muted.TLabel",
+        ).pack(anchor="w", pady=(6, 0))
+
         # Use a paned window so the user can rebalance verdicts vs drift.
         body = ttk.PanedWindow(self.learning_tab, orient="horizontal")
         body.pack(fill="both", expand=True, padx=16, pady=(0, 16))
@@ -927,6 +950,36 @@ class DesktopApp(tk.Tk):
                 ]
             )
         self._replace_tree_rows(self.learning_sizing_tree, rows)
+
+        # — Calibration (v1.18) —
+        calibration_rows = []
+        for conv in sorted((view.get("calibration") or {}).keys()):
+            bucket = view["calibration"][conv]
+            calibration_rows.append(
+                [
+                    str(conv),
+                    str(bucket.get("n", 0)),
+                    f"{bucket.get('stated_pct', 0):.0f}%",
+                    f"{bucket.get('realized_pct', 0):.1f}%",
+                    f"{bucket.get('error_pp', 0):+.1f}",
+                    "over-confident" if bucket.get("overconfident") else "well-calibrated",
+                ]
+            )
+        self._replace_tree_rows(self.learning_calibration_tree, calibration_rows)
+
+        # — Walk-forward stability summary line —
+        walk = view.get("walk_forward") or []
+        if len(walk) >= 2:
+            recent_hr = walk[-1].get("hit_rate", 0.0)
+            mean_hr = sum(w.get("hit_rate", 0.0) for w in walk) / len(walk)
+            delta_pp = (recent_hr - mean_hr) * 100.0
+            self.learning_walkforward_var.set(
+                f"Walk-forward stability: {len(walk)} windows · latest hit-rate {recent_hr:.0%} vs mean {mean_hr:.0%} ({delta_pp:+.1f}pp)"
+            )
+        elif walk:
+            self.learning_walkforward_var.set(f"Walk-forward stability: {len(walk)} window · not enough to trend yet.")
+        else:
+            self.learning_walkforward_var.set("Walk-forward stability: needs ≥ 60 matured recommendations.")
 
         # — Verdict tree —
         verdict_rows = []
@@ -1170,6 +1223,163 @@ class DesktopApp(tk.Tk):
                 y = padding_y + usable_h * (1 - (value - ymin) / (ymax - ymin))
                 coords.extend([x, y])
             canvas.create_line(*coords, fill=colour, width=2, smooth=True)
+
+    # ── Schedule tab (v1.18) ────────────────────────────────────────────────
+    def _build_schedule_tab(self) -> None:
+        """Per-user scheduled-run installer (launchd / Task Scheduler / cron)."""
+        toolbar = ttk.Frame(self.schedule_tab)
+        toolbar.pack(fill="x", padx=16, pady=(16, 8))
+        ttk.Button(toolbar, text="Refresh", command=self.refresh_schedule_tab).pack(side="left")
+        ttk.Button(toolbar, text="Send test notification", command=self._send_test_notification).pack(side="left", padx=(8, 0))
+        self.schedule_status = tk.StringVar(value="Open this tab to inspect or install the schedule.")
+        ttk.Label(toolbar, textvariable=self.schedule_status, style="Muted.TLabel").pack(side="left", padx=14)
+
+        current_panel = self._panel(self.schedule_tab, "Current schedule")
+        current_panel.pack(fill="x", padx=16, pady=(0, 12))
+        self.schedule_current_tree = self._make_tree(
+            current_panel,
+            ["hour", "minute", "session_type"],
+            [80, 80, 140],
+            height=4,
+        )
+        self.schedule_current_tree.pack(fill="x")
+        self.schedule_path_var = tk.StringVar(value="Backend: — · file: —")
+        ttk.Label(current_panel, textvariable=self.schedule_path_var, style="Muted.TLabel").pack(anchor="w", pady=(6, 0))
+        button_row = ttk.Frame(current_panel)
+        button_row.pack(fill="x", pady=(8, 0))
+        ttk.Button(button_row, text="Uninstall schedule", command=self._uninstall_schedule_clicked).pack(side="left")
+
+        # Slot pickers
+        new_panel = self._panel(self.schedule_tab, "New schedule")
+        new_panel.pack(fill="x", padx=16, pady=(0, 12))
+        self.schedule_slots: list[dict] = []  # filled below; each {enabled, hour, minute, session}
+        grid = ttk.Frame(new_panel)
+        grid.pack(fill="x")
+        for col, defaults in enumerate(
+            [
+                {"label": "Morning", "enabled": True, "hour": 7, "minute": 0, "session": "morning"},
+                {"label": "Midday", "enabled": False, "hour": 11, "minute": 0, "session": "morning"},
+                {"label": "Afternoon", "enabled": True, "hour": 14, "minute": 0, "session": "afternoon"},
+            ]
+        ):
+            cell = ttk.Frame(grid, padding=8)
+            cell.grid(row=0, column=col, sticky="ew", padx=4)
+            grid.columnconfigure(col, weight=1, uniform="schedule_slots")
+            enabled = tk.BooleanVar(value=defaults["enabled"])
+            hour = tk.IntVar(value=defaults["hour"])
+            minute = tk.IntVar(value=defaults["minute"])
+            ttk.Checkbutton(cell, text=f"{defaults['label']} run", variable=enabled).pack(anchor="w")
+            time_row = ttk.Frame(cell)
+            time_row.pack(fill="x", pady=(6, 0))
+            ttk.Label(time_row, text="Hour", style="Muted.TLabel").pack(side="left")
+            ttk.Spinbox(time_row, from_=0, to=23, textvariable=hour, width=4).pack(side="left", padx=4)
+            ttk.Label(time_row, text="Minute", style="Muted.TLabel").pack(side="left")
+            ttk.Spinbox(time_row, from_=0, to=59, textvariable=minute, width=4).pack(side="left", padx=4)
+            self.schedule_slots.append({"enabled": enabled, "hour": hour, "minute": minute, "session": defaults["session"]})
+
+        action_row = ttk.Frame(new_panel)
+        action_row.pack(fill="x", pady=(10, 0))
+        ttk.Button(action_row, text="Install schedule", command=self._install_schedule_clicked).pack(side="left")
+        ttk.Label(action_row, text="No sudo required.", style="Muted.TLabel").pack(side="left", padx=14)
+
+        preview_panel = self._panel(self.schedule_tab, "Preview (artefact body)")
+        preview_panel.pack(fill="both", expand=True, padx=16, pady=(0, 16))
+        self.schedule_preview_text = tk.Text(
+            preview_panel,
+            wrap="none",
+            bg=self.table_bg,
+            fg=self.text,
+            insertbackground=self.text,
+            relief="flat",
+        )
+        self.schedule_preview_text.pack(fill="both", expand=True)
+        self.schedule_preview_text.configure(state="disabled")
+
+    def _selected_schedule_times(self) -> list:
+        from src.scheduling import ScheduleTime
+
+        out = []
+        for slot in self.schedule_slots:
+            if not slot["enabled"].get():
+                continue
+            out.append(
+                ScheduleTime(
+                    hour=int(slot["hour"].get()),
+                    minute=int(slot["minute"].get()),
+                    session_type=slot["session"],
+                )
+            )
+        return out
+
+    def refresh_schedule_tab(self) -> None:
+        from src.scheduling import current_schedule, preview_schedule
+
+        try:
+            current = current_schedule()
+        except Exception as exc:  # noqa: BLE001
+            self.schedule_status.set(f"Could not inspect: {exc}")
+            return
+
+        if current.installed:
+            rows = [[f"{t.hour:02d}", f"{t.minute:02d}", t.session_type] for t in current.times]
+            self._replace_tree_rows(self.schedule_current_tree, rows)
+            self.schedule_path_var.set(f"Backend: {current.backend} · file: {current.path}")
+            self.schedule_status.set(f"Schedule installed via {current.backend}.")
+        else:
+            self._replace_tree_rows(self.schedule_current_tree, [])
+            self.schedule_path_var.set(f"Backend: {current.backend} · no schedule installed.")
+            self.schedule_status.set("No schedule installed.")
+
+        # Preview using the live picker values
+        times = self._selected_schedule_times()
+        if times:
+            backend, body = preview_schedule(times)
+            preview = f"# {backend} artefact preview\n\n{body}"
+        else:
+            preview = "Enable at least one slot to preview the schedule."
+        self.schedule_preview_text.configure(state="normal")
+        self.schedule_preview_text.delete("1.0", "end")
+        self.schedule_preview_text.insert("1.0", preview)
+        self.schedule_preview_text.configure(state="disabled")
+
+    def _install_schedule_clicked(self) -> None:
+        from src.scheduling import install_schedule
+
+        times = self._selected_schedule_times()
+        if not times:
+            messagebox.showwarning("No slots selected", "Enable at least one slot before installing.")
+            return
+        result = install_schedule(times)
+        if result.ok:
+            messagebox.showinfo("Schedule installed", f"{result.message}\n\nBackend: {result.backend}\n{result.path}")
+        else:
+            messagebox.showerror("Install failed", result.message + (f"\n\n{result.error}" if result.error else ""))
+        self.refresh_schedule_tab()
+
+    def _uninstall_schedule_clicked(self) -> None:
+        from src.scheduling import uninstall_schedule
+
+        result = uninstall_schedule()
+        if result.ok:
+            messagebox.showinfo("Schedule removed", result.message)
+        else:
+            messagebox.showerror("Uninstall failed", result.message)
+        self.refresh_schedule_tab()
+
+    def _send_test_notification(self) -> None:
+        from src.notifications import send
+
+        result = send(
+            "tech_stock test",
+            "If you see this, native notifications are working.",
+            channel="general",
+        )
+        if result.sent:
+            self.schedule_status.set(f"Test notification sent via {result.backend}.")
+        elif result.deduped:
+            self.schedule_status.set("Dedup window suppressed — try again in a few seconds.")
+        else:
+            self.schedule_status.set(f"Notification failed: {result.error or 'no backend'}")
 
     # ── Diagnostics tab ─────────────────────────────────────────────────────
     def _build_diagnostics_tab(self) -> None:

@@ -295,6 +295,119 @@ def _avg_and_hit_rate(rows: list[dict]) -> dict:
     }
 
 
+def reliability_diagram(results: list[dict]) -> dict[int, dict]:
+    """Conviction-decile calibration check (v1.18).
+
+    For each conviction bucket ``c``, compare the *stated* probability that
+    we'll hit (interpreted as ``c × 10%``, so conviction 8 → 80%) against
+    the *realized* hit rate of recommendations at that conviction.
+
+    Returns:
+      {
+        6: {n, stated_pct, realized_hit_rate, error_pp, overconfident,
+             avg_actual_pct},
+        7: {...}, 8: {...}, 9: {...}, 10: {...},
+      }
+
+    ``error_pp`` is realized − stated in percentage points.  Negative
+    values mean the model is over-confident at that bucket (claimed 80%
+    win, got 60%).  ``overconfident`` is a bool flag for ``error_pp < 0``.
+
+    Buckets with fewer than 3 samples are omitted — too noisy to read.
+    """
+    out: dict[int, dict] = {}
+    for conv in CONVICTION_BUCKETS:
+        rows = [r for r in results if r.get("conviction") == conv]
+        if len(rows) < 3:
+            continue
+        n = len(rows)
+        hits = sum(1 for r in rows if r.get("hit"))
+        realized = hits / n
+        stated = conv / 10.0  # interpret conviction X as P(hit) = X/10
+        error_pp = (realized - stated) * 100.0
+        avg_actual = sum(r["actual_pct"] for r in rows) / n if rows else 0.0
+        out[int(conv)] = {
+            "n": n,
+            "stated_pct": round(stated * 100.0, 1),
+            "realized_hit_rate": round(realized, 3),
+            "realized_pct": round(realized * 100.0, 1),
+            "error_pp": round(error_pp, 1),
+            "overconfident": bool(error_pp < 0),
+            "avg_actual_pct": round(avg_actual, 2),
+        }
+    return out
+
+
+def evaluate_rolling_window(
+    results: list[dict],
+    *,
+    window_size: int = 60,
+    step: int = 10,
+) -> list[dict]:
+    """Walk-forward evaluation (v1.18).
+
+    Sort ``results`` by ``session_date``, slide a window of ``window_size``
+    samples over them in increments of ``step``, and compute per-window
+    summary stats.  Lets the UI show the *stability* of the user's edge
+    over time — is conviction 8 consistently 70% across the last year, or
+    is it deteriorating?
+
+    Returns a list of dicts ordered oldest → newest:
+      {
+        "window_start": "YYYY-MM-DD",    — session_date of first row
+        "window_end":   "YYYY-MM-DD",    — session_date of last row
+        "n":            int,
+        "hit_rate":     float,
+        "avg_return_pct": float,
+        "sharpe":       float,
+        "max_drawdown_pct": float,
+        "stdev_pct":    float,
+        "sizing_multiplier_avg": float,  — mean of per-conv multipliers
+      }
+
+    Returns ``[]`` if there are fewer than ``window_size`` matured rows.
+    """
+    if not results or window_size <= 1 or step < 1:
+        return []
+    ordered = sorted(results, key=lambda r: (r.get("session_date") or "", r.get("ticker") or ""))
+    if len(ordered) < window_size:
+        return []
+
+    out: list[dict] = []
+    for start in range(0, len(ordered) - window_size + 1, step):
+        window = ordered[start : start + window_size]
+        stats = _avg_and_hit_rate(window)
+        # Per-conviction multipliers within the window — same formula as
+        # summarize() but isolated to this sample so the walk-forward
+        # caller can see how the multiplier itself evolves over time.
+        window_mults: list[float] = []
+        for conv in CONVICTION_BUCKETS:
+            conv_rows = [r for r in window if r.get("conviction") == conv]
+            if len(conv_rows) < 3:
+                continue
+            conv_stats = _avg_and_hit_rate(conv_rows)
+            hr = float(conv_stats.get("hit_rate", 0.0))
+            avg = float(conv_stats.get("avg_return_pct", 0.0))
+            sharpe = float(conv_stats.get("sharpe", 1.0))
+            base = hr * (1.0 + avg / 10.0)
+            sharpe_adj = max(0.5, min(0.7 + 0.3 * sharpe, 1.2))
+            window_mults.append(max(0.4, min(base * sharpe_adj, 1.4)))
+        out.append(
+            {
+                "window_start": window[0].get("session_date"),
+                "window_end": window[-1].get("session_date"),
+                "n": stats["n"],
+                "hit_rate": stats["hit_rate"],
+                "avg_return_pct": stats["avg_return_pct"],
+                "sharpe": stats["sharpe"],
+                "max_drawdown_pct": stats["max_drawdown_pct"],
+                "stdev_pct": stats["stdev_pct"],
+                "sizing_multiplier_avg": round(sum(window_mults) / len(window_mults), 3) if window_mults else 1.0,
+            }
+        )
+    return out
+
+
 def summarize(results: list[dict]) -> dict:
     """
     Summarize evaluation results into per-action and per-conviction stats.
@@ -305,6 +418,8 @@ def summarize(results: list[dict]) -> dict:
         "avg_return_by_action": {ACTION: {n, avg_return_pct, hit_rate}},
         "avg_return_by_conviction": {6: {...}, 7: {...}, ...},
         "overall": {n, avg_return_pct, hit_rate},
+        "reliability":  {6: {...}, ...}    — v1.18 calibration check
+        "walk_forward": [{window_start, window_end, ...}, ...] — v1.18 stability
       }
     """
     if not results:
@@ -315,6 +430,8 @@ def summarize(results: list[dict]) -> dict:
             "avg_return_by_ticker": {},
             "recent_realized_examples": [],
             "overall": {"n": 0, "avg_return_pct": 0.0, "hit_rate": 0.0},
+            "reliability": {},
+            "walk_forward": [],
         }
 
     by_action = {}
@@ -384,6 +501,9 @@ def summarize(results: list[dict]) -> dict:
         "sizing_multipliers_by_conviction": sizing_multipliers,
         "recent_realized_examples": recent_examples,
         "overall": _avg_and_hit_rate(results),
+        # v1.18: calibration check + walk-forward stability
+        "reliability": reliability_diagram(results),
+        "walk_forward": evaluate_rolling_window(results),
     }
 
 

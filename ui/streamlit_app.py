@@ -391,6 +391,7 @@ _html(
     tab_journal,
     tab_learning,
     tab_diagnostics,
+    tab_schedule,
     tab_editor,
 ) = st.tabs(
     [
@@ -404,6 +405,7 @@ _html(
         "📓 Journal",
         "🧠 Learning",
         "🩺 Diagnostics",
+        "⏰ Schedule",
         "⚙️ Editor",
     ]
 )
@@ -1395,6 +1397,108 @@ def _render_learning() -> None:
         ]
         st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
 
+    # ── Calibration & stability (v1.18) ───────────────────────────────────
+    st.markdown("### Calibration & stability")
+    st.caption(
+        "Does conviction X actually win X×10% of the time? The scatter "
+        "compares stated probability (conviction × 10) to the realized hit "
+        "rate per bucket; the diagonal is perfect calibration. The line "
+        "chart below shows hit-rate stability across rolling windows."
+    )
+    calibration = view.get("calibration") or {}
+    if not calibration:
+        _html(
+            empty_state(
+                "Not enough mature recommendations yet",
+                "Each conviction bucket needs ≥ 3 matured samples before calibration is meaningful.",
+            )
+        )
+    else:
+        # Scatter + reference diagonal — use a small Altair spec so we can
+        # add the 45° line that the bar chart can't.
+        cal_rows = [
+            {
+                "conviction": conv,
+                "stated_pct": bucket.get("stated_pct"),
+                "realized_pct": bucket.get("realized_pct"),
+                "error_pp": bucket.get("error_pp"),
+                "n": bucket.get("n"),
+                "overconfident": bucket.get("overconfident"),
+            }
+            for conv, bucket in sorted(calibration.items())
+        ]
+        try:
+            import altair as alt
+
+            cal_df = pd.DataFrame(cal_rows)
+            # Diagonal reference (stated == realized)
+            diagonal = pd.DataFrame({"stated_pct": [0, 100], "realized_pct": [0, 100]})
+            chart = (
+                alt.Chart(cal_df)
+                .mark_circle(size=160)
+                .encode(
+                    x=alt.X("stated_pct:Q", scale=alt.Scale(domain=[40, 100]), title="Stated probability (conv × 10)"),
+                    y=alt.Y("realized_pct:Q", scale=alt.Scale(domain=[0, 100]), title="Realized hit rate %"),
+                    color=alt.condition(
+                        alt.datum.overconfident,
+                        alt.value(PALETTE.danger),
+                        alt.value(PALETTE.accent),
+                    ),
+                    tooltip=["conviction", "stated_pct", "realized_pct", "error_pp", "n"],
+                )
+            )
+            diag = (
+                alt.Chart(diagonal)
+                .mark_line(strokeDash=[4, 4], color=PALETTE.muted, opacity=0.6)
+                .encode(x="stated_pct:Q", y="realized_pct:Q")
+            )
+            st.altair_chart(diag + chart, use_container_width=True)
+        except Exception:
+            # Altair shouldn't fail, but if it does fall back to a table.
+            st.dataframe(pd.DataFrame(cal_rows), hide_index=True, width="stretch")
+
+        # Detail table
+        with st.expander("Per-bucket detail"):
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "conviction": conv,
+                            "n": bucket.get("n"),
+                            "stated %": f"{bucket.get('stated_pct'):.0f}",
+                            "realized %": f"{bucket.get('realized_pct'):.1f}",
+                            "error_pp": f"{bucket.get('error_pp'):+.1f}",
+                            "avg actual %": f"{bucket.get('avg_actual_pct'):+.2f}",
+                            "verdict": "over-confident" if bucket.get("overconfident") else "well-calibrated / under",
+                        }
+                        for conv, bucket in sorted(calibration.items())
+                    ]
+                ),
+                hide_index=True,
+                width="stretch",
+            )
+
+    # Walk-forward stability line chart
+    walk = view.get("walk_forward") or []
+    if walk:
+        st.caption(f"**Walk-forward stability** — {len(walk)} rolling windows · hit-rate over time")
+        wf_df = pd.DataFrame(
+            [{"window_end": w["window_end"], "hit_rate %": w["hit_rate"] * 100.0, "sharpe": w["sharpe"]} for w in walk]
+        ).set_index("window_end")
+        st.line_chart(wf_df[["hit_rate %"]], color=PALETTE.accent)
+        if len(walk) >= 2:
+            recent = walk[-1]["hit_rate"]
+            mean_hr = sum(w["hit_rate"] for w in walk) / len(walk)
+            delta_pp = (recent - mean_hr) * 100.0
+            tone = PALETTE.danger if delta_pp <= -10 else PALETTE.accent if delta_pp >= 10 else PALETTE.muted
+            _html(
+                f"<div style='color:{PALETTE.muted};font-size:0.85rem;'>"
+                f"Latest window: <strong style='color:{tone};'>{recent:.0%}</strong> "
+                f"vs all-window mean {mean_hr:.0%} ({delta_pp:+.1f}pp)</div>"
+            )
+    elif calibration:
+        st.caption("Walk-forward stability needs ≥ 60 matured recommendations — accumulating.")
+
     # ── Thesis verdict heat-map ───────────────────────────────────────────
     st.markdown("### Active thesis verdicts")
     verdicts = view.get("thesis_verdicts") or []
@@ -1602,6 +1706,111 @@ def _render_diagnostics() -> None:
 
 with tab_diagnostics:
     _render_diagnostics()
+
+
+# ─── Schedule (v1.18) ──────────────────────────────────────────────────────
+
+
+def _render_schedule() -> None:
+    from src.notifications import send as _send_notify
+    from src.scheduling import (
+        ScheduleTime,
+        current_schedule,
+        install_schedule,
+        preview_schedule,
+        uninstall_schedule,
+    )
+
+    st.subheader("Scheduled runs")
+    st.caption(
+        "Install a per-user OS schedule so tech_stock runs itself at the times "
+        "you pick. macOS uses launchd; Windows uses Task Scheduler; Linux uses "
+        "your crontab. No sudo required."
+    )
+
+    st.markdown("### Current schedule")
+    current = current_schedule()
+    if current.installed:
+        rows = [{"hour": f"{t.hour:02d}", "minute": f"{t.minute:02d}", "session_type": t.session_type} for t in current.times]
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        st.caption(f"Backend: `{current.backend}` · file: `{current.path}`")
+        if st.button("🗑 Uninstall schedule", key="schedule_uninstall"):
+            result = uninstall_schedule()
+            if result.ok:
+                _toast("Schedule uninstalled", icon="⏰")
+                st.success(result.message)
+            else:
+                st.error(result.message)
+            st.rerun()
+    else:
+        _html(empty_state("No schedule installed", "Pick times below and click Install to start."))
+
+    st.markdown("### New schedule")
+    col_morn, col_noon, col_aft = st.columns(3)
+    with col_morn:
+        enable_morning = st.checkbox("Morning run", value=True, key="sched_morn_en")
+        morn_hour = st.number_input("Hour", min_value=0, max_value=23, value=7, key="sched_morn_h")
+        morn_min = st.number_input("Minute", min_value=0, max_value=59, value=0, key="sched_morn_m")
+    with col_noon:
+        enable_midday = st.checkbox("Midday run", value=False, key="sched_mid_en")
+        mid_hour = st.number_input("Hour", min_value=0, max_value=23, value=11, key="sched_mid_h")
+        mid_min = st.number_input("Minute", min_value=0, max_value=59, value=0, key="sched_mid_m")
+    with col_aft:
+        enable_afternoon = st.checkbox("Afternoon run", value=True, key="sched_aft_en")
+        aft_hour = st.number_input("Hour", min_value=0, max_value=23, value=14, key="sched_aft_h")
+        aft_min = st.number_input("Minute", min_value=0, max_value=59, value=0, key="sched_aft_m")
+
+    times: list[ScheduleTime] = []
+    if enable_morning:
+        times.append(ScheduleTime(hour=int(morn_hour), minute=int(morn_min), session_type="morning"))
+    if enable_midday:
+        times.append(ScheduleTime(hour=int(mid_hour), minute=int(mid_min), session_type="morning"))
+    if enable_afternoon:
+        times.append(ScheduleTime(hour=int(aft_hour), minute=int(aft_min), session_type="afternoon"))
+
+    if times:
+        backend, body = preview_schedule(times)
+        with st.expander(f"Preview ({backend} artefact)"):
+            st.code(body, language="xml" if "xml" in backend or backend == "launchd" else "bash")
+    else:
+        st.caption("Enable at least one slot to preview the schedule.")
+
+    col_install, col_test = st.columns(2)
+    with col_install:
+        if st.button("✓ Install schedule", type="primary", width="stretch", disabled=not times, key="schedule_install"):
+            result = install_schedule(times)
+            if result.ok:
+                _toast("Schedule installed", icon="⏰")
+                st.success(f"{result.message} (backend: {result.backend})")
+            else:
+                st.error(result.message or "Install failed.")
+                if result.error:
+                    st.caption(f"Detail: {result.error}")
+            st.rerun()
+    with col_test:
+        if st.button("🔔 Send test notification", width="stretch", key="schedule_test_notify"):
+            res = _send_notify(
+                "tech_stock test",
+                "If you see this, native notifications are working.",
+                channel="general",
+            )
+            if res.sent:
+                st.success(f"Sent via {res.backend}.")
+            elif res.deduped:
+                st.info("Suppressed by dedup window; try again in a few seconds.")
+            else:
+                st.warning(f"Send failed: {res.error or 'no backend available'}")
+
+    st.markdown("### Notification channels")
+    st.caption(
+        "Channels are controlled by `config/settings.json` → `notifications.channels`. "
+        "Edit them on the Editor tab. Defaults: report_complete, trailing_stop_breach, "
+        "thesis_force_exit, high_priority_action are all ON."
+    )
+
+
+with tab_schedule:
+    _render_schedule()
 
 
 # ─── Editor ────────────────────────────────────────────────────────────────

@@ -4,6 +4,48 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.18.0] — 2026-05-27
+
+### Added — Calibration & walk-forward backtest
+
+- **`reliability_diagram()` in `src/backtester.py`** — bins evaluated recommendations by conviction (6–10) and compares the *stated* probability (`conviction × 10%`) against the *realized* hit rate. Returns `{conviction: {n, stated_pct, realized_hit_rate, error_pp, overconfident, avg_actual_pct}}` for any bucket with ≥ 3 samples.
+- **`evaluate_rolling_window()` in `src/backtester.py`** — walk-forward stability check. Slides a window over the time-sorted results and emits per-window dicts with hit rate, average return, Sharpe, max-DD, stdev, and an in-window sizing multiplier. Window/step user-tunable; gracefully returns `[]` for thin datasets.
+- **`summarize()` now exposes `reliability` + `walk_forward` keys** — additive; existing consumers unaffected.
+- **Claude prompt enrichment (`src/claude_analyst.py`)** — track-record block adds a `Conviction calibration` section for any decile where `abs(error_pp) ≥ 10`, with a per-bucket dampening hint (`conv 8: stated 80% / realized 60% (-20pp, over-confident) → dampen by ~0.85×`), plus a one-line walk-forward stability summary.
+- **Learning tab Calibration sub-section** — Streamlit gets an Altair scatter (stated vs realized hit-rate with a 45° reference) plus a rolling-window hit-rate line chart. Desktop gets a Treeview Calibration row group + one-line stability summary.
+
+### Added — Native notifications
+
+- **New `src/notifications.py`** — cross-platform `send(title, message, channel)`. macOS via `osascript`, Linux via `notify-send`, Windows via PowerShell BurntToast (with MessageBox fallback). Zero new pip deps. Settings-gated (`config/settings.json → notifications.channels.{report_complete, trailing_stop_breach, thesis_force_exit, high_priority_action}`). 5-second dedup window. Every send logs via observability.
+- **`send_many()`** collapses long batches (> 5) into 3 individuals + a single summary line so the user isn't flooded.
+- **Wired into `main.run()`** — every report completion fires a `report_complete` notification; trailing-stop breaches fire `trailing_stop_breach`; ≥ 3 priority-≤2 actions fire `high_priority_action`. Each call is wrapped so a backend failure never breaks the report run.
+
+### Added — Schedule installer
+
+- **New `src/scheduling.py`** — per-user scheduled-run installer. `install_schedule(times)` writes a launchd plist (macOS), Task Scheduler XML (Windows), or crontab line (Linux). `uninstall_schedule()` removes it cleanly. `current_schedule()` parses the installed artefact back into `ScheduleTime` objects so the UI shows live state. `preview_schedule()` returns the artefact body without writing.
+- **No `sudo`, no root crontab** — macOS uses `~/Library/LaunchAgents/com.techstock.daily.plist`, Linux edits the user crontab, Windows uses `schtasks` per-user.
+- **⏰ Schedule tab in Streamlit + Desktop** — three slot pickers (morning / midday / afternoon), live preview pane, install / uninstall / test-notification buttons, current-state table.
+
+### Fixed
+
+- **`main.api_key_search_paths()` was returning 12 paths with 6 duplicates** — when invoked from inside the project root, `ROOT`, `Path.cwd()`, and `SOURCE_ROOT` all resolve to the same directory. Now wraps the raw list with the existing `_dedupe_paths()` helper.
+- **`normalize_recommendation` no longer leaves empty-string tickers** — empty string was bypassing both `upper()` and the `setdefault("ticker", "UNKNOWN")` fallback. Empty / None now collapse to the `UNKNOWN` sentinel.
+- **`_maybe_fire_notifications` no longer propagates notification backend errors** — every `send()` call inside the post-report flow is wrapped so a buggy PowerShell host or AppleScript permission denial can't break a report run that already succeeded.
+
+### Tests
+
+- **467 passing** (was 388). 79 new tests across:
+  - `tests/test_backtester_calibration.py` (13): reliability mapping, walk-forward windowing, edge cases.
+  - `tests/test_notifications.py` (16): argv escaping, dispatch routing, dedup window, settings gating, subprocess-error handling, batch collapsing.
+  - `tests/test_scheduling.py` (16): launchd plist / task scheduler XML / cron line builders, round-trip parse, install→inspect→uninstall, no-op + idempotent paths, quoting helpers.
+  - `tests/test_app_gui.py` (13): `_self_command` dev vs frozen, `_find_free_port` walk, `_tail`, `_open_path_in_finder` per-platform, `_latest_report_summary` empty + populated, PALETTE wiring.
+  - `tests/test_main_pipeline.py` (12): bounded `find_csv_by_date`, `_dedupe_paths`-aware `api_key_search_paths`, `ensure_workspace` idempotence, `validate_environment` exit codes, `_maybe_fire_notifications` channel routing + error swallowing.
+  - `tests/test_claude_analyst_passes.py` (22): ticker normalisation, action fallback, risk-controls dict shape, price-target swap, time-horizon canonicalisation, HOLD-tier defaults, entry/exit-plan auto-fill.
+
+### Version bumped: 1.17.0 → 1.18.0
+
+---
+
 ## [1.17.0] — 2026-05-27
 
 ### Added — Observability
