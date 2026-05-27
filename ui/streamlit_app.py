@@ -231,6 +231,131 @@ st.set_page_config(
 _html(STREAMLIT_CSS)
 
 
+# ── First-run wizard (v1.19) ───────────────────────────────────────────────
+
+
+def _render_first_run_wizard() -> bool:
+    """Render the inline wizard if onboarding is incomplete. Returns True when
+    the wizard short-circuited the rest of the page (so the caller knows not
+    to render the tabs)."""
+    from src.onboarding import (
+        advance as _advance,
+        current_state as _onboarding_state,
+        is_demo_mode_active as _demo_active,
+        needs_onboarding as _needs,
+        stage_guidance as _guidance,
+        reset_onboarding as _reset,
+    )
+
+    if not _needs() or _demo_active():
+        return False
+
+    state = _onboarding_state()
+    guide = _guidance(state.stage)
+
+    with st.container(border=True):
+        _html(
+            f"<div style='display:flex;align-items:center;gap:14px;'>"
+            f"<div style='font-size:2rem'>🚀</div>"
+            f"<div><div style='font-size:1.3rem;font-weight:700;color:{PALETTE.text_strong}'>{guide.title}</div>"
+            f"<div style='color:{PALETTE.muted};font-size:0.85rem'>Step {len(state.completed) + 1} of {6}</div></div>"
+            "</div>"
+        )
+        st.write(guide.body)
+        if guide.external_url:
+            st.markdown(f"🔗 [{guide.external_url}]({guide.external_url})")
+        if guide.helper_text:
+            st.caption(guide.helper_text)
+
+        # Stage-specific input widgets
+        if state.stage == "api_key":
+            api_value = st.text_input(
+                "Paste your Anthropic API key",
+                type="password",
+                key="onboarding_api_key_value",
+                placeholder="sk-ant-…",
+            )
+            if api_value and api_value.startswith("sk-"):
+                save_api_key("ANTHROPIC_API_KEY", api_value)
+                st.success("✓ Key saved to your config/.env file.")
+        elif state.stage == "budgets":
+            col_a, col_b, col_c = st.columns(3)
+            with col_a:
+                monthly = st.number_input(
+                    "Claude monthly cap (USD)",
+                    min_value=1.0,
+                    value=10.0,
+                    step=1.0,
+                    key="onboarding_monthly_usd",
+                    help="We pause runs when you hit this. Override available anytime.",
+                )
+            with col_b:
+                usd_budget = st.number_input(
+                    "USD position budget per rec",
+                    min_value=0.0,
+                    value=500.0,
+                    step=50.0,
+                    key="onboarding_usd_budget",
+                )
+            with col_c:
+                cad_budget = st.number_input(
+                    "CAD position budget per rec",
+                    min_value=0.0,
+                    value=500.0,
+                    step=50.0,
+                    key="onboarding_cad_budget",
+                )
+            # Persist on every keystroke; cheap.
+            try:
+                from src.config import load_settings
+
+                settings = load_settings()
+                settings["monthly_budget_usd"] = float(monthly)
+                settings["budget_usd"] = float(usd_budget)
+                settings["budget_cad"] = float(cad_budget)
+                (ROOT / "config" / "settings.json").write_text(json.dumps(settings, indent=2), encoding="utf-8")
+            except Exception:
+                pass
+
+        col_primary, col_secondary = st.columns([2, 2])
+        with col_primary:
+            if st.button(f"➡ {guide.primary_action}", type="primary", width="stretch", key=f"onb_primary_{state.stage}"):
+                _advance(current=state.stage)
+                st.rerun()
+        with col_secondary:
+            if guide.secondary_action:
+                if st.button(guide.secondary_action, width="stretch", key=f"onb_secondary_{state.stage}"):
+                    # 'Try demo' is the welcome-stage secondary action — short-
+                    # circuit to demo mode rather than walking the wizard.  We
+                    # inline st.toast here because the ``_toast`` queue helper
+                    # is defined later in the file, after the wizard call.
+                    if state.stage == "welcome":
+                        os.environ["TECH_STOCK_DEMO_MODE"] = "1"
+                        st.toast("Demo mode on — using bundled sample data.", icon="🎬")
+                    _advance(current=state.stage, skip_demo=True)
+                    st.rerun()
+
+        # Tiny escape hatch: power users / re-installs can skip the wizard.
+        with st.expander("Skip the wizard for now"):
+            st.caption(
+                "You can complete onboarding later. We'll keep checking until all stages are stamped. Or click here to mark setup done now."
+            )
+            if st.button("Mark setup complete (skip remaining steps)", key="onb_force_done"):
+                # Walk through every remaining stage in one shot.
+                while _onboarding_state().stage != "done":
+                    _advance()
+                st.rerun()
+            if st.button("Reset wizard state (debug)", key="onb_reset"):
+                _reset()
+                st.rerun()
+    return True
+
+
+if _render_first_run_wizard():
+    # Wizard rendered — stop here so the rest of the page doesn't draw.
+    st.stop()
+
+
 # ── Session-state warm boot ────────────────────────────────────────────────
 
 if "boot_summary" not in st.session_state:
@@ -1702,6 +1827,98 @@ def _render_diagnostics() -> None:
         rotated = view.get("rotated_path")
         if rotated:
             st.write(f"Rotated log: `{rotated}`")
+
+    # ── v1.19: Spend sub-section ──────────────────────────────────────────
+    st.markdown("### 💰 Spend (Anthropic API)")
+    from src.cost_tracker import check_budget as _check_budget
+    from src.cost_tracker import clear_cost_log as _clear_cost
+    from src.cost_tracker import spend_summary as _spend
+
+    spend = _spend(lookback_days=30)
+    budget = _check_budget(expected_cost_usd=0.0)
+
+    col_total, col_mtd, col_proj, col_runs = st.columns(4)
+    col_total.metric("Total all-time", _format_currency(spend.total_usd))
+    col_mtd.metric("Month-to-date", _format_currency(spend.month_to_date_usd))
+    col_proj.metric("Projected monthly", _format_currency(spend.projected_monthly_usd))
+    col_runs.metric("Runs (30d)", spend.last_30d_runs)
+
+    if budget.budget_usd > 0:
+        used_pct = (spend.month_to_date_usd / budget.budget_usd) * 100.0
+        tone = PALETTE.danger if used_pct >= 100 else PALETTE.warn if used_pct >= 80 else PALETTE.accent
+        _html(
+            f"<div style='margin:6px 0 14px 0;color:{PALETTE.muted};font-size:0.9rem;'>"
+            f"<strong style='color:{tone};'>{used_pct:.0f}%</strong> of "
+            f"<strong>${budget.budget_usd:.2f}</strong> monthly cap used. {budget.message}"
+            "</div>"
+        )
+    else:
+        st.caption(
+            "No monthly budget cap set. Add a `monthly_budget_usd` field to "
+            "`config/settings.json` (or use the wizard) to enable soft warnings + "
+            "hard blocks."
+        )
+
+    if spend.daily_series:
+        df_spend = pd.DataFrame(spend.daily_series).set_index("date")
+        st.line_chart(df_spend["cost_usd"], color=PALETTE.accent)
+    else:
+        _html(empty_state("No runs logged yet", "Spend appears here after your first report run."))
+
+    # ── v1.19: Privacy card ───────────────────────────────────────────────
+    st.markdown("### 🔒 Privacy")
+    with st.container(border=True):
+        _html(
+            f"<div style='color:{PALETTE.text};font-size:0.92rem;line-height:1.5;'>"
+            "<strong>What gets sent to Anthropic:</strong> ticker symbols, your "
+            "thesis text, recent activity summary, and configured prompt "
+            "structure. No PII, no account numbers, no personal financial data "
+            "beyond the symbols you hold.<br><br>"
+            "<strong>What stays local:</strong> the raw Wealthsimple CSV, all "
+            "recommendation logs, the decision journal, API keys, and the "
+            "diagnostics log. Everything lives in your workspace folder.<br><br>"
+            "<strong>What gets sent to yfinance / Finnhub / Polygon / Alpha "
+            "Vantage / FRED / CoinGecko:</strong> only ticker symbols.<br>"
+            "</div>"
+        )
+        col_export, col_delete = st.columns(2)
+        with col_export:
+            st.caption("Export everything to a zip: use the existing 'Open workspace' button in the native launcher.")
+        with col_delete:
+            confirm = st.checkbox(
+                "I understand this deletes my reports, logs, cost history, and journal entries.",
+                key="privacy_delete_confirm",
+            )
+            if st.button(
+                "🗑 Delete all local data",
+                disabled=not confirm,
+                key="privacy_delete_button",
+            ):
+                deleted = []
+                for relpath in [
+                    "data/recommendations_log",
+                    "data/reports",
+                    "data/decision_journal.json",
+                    "data/thesis_log.json",
+                    "cache",
+                ]:
+                    target = ROOT / relpath
+                    if not target.exists():
+                        continue
+                    try:
+                        if target.is_dir():
+                            import shutil as _sh
+
+                            _sh.rmtree(target)
+                        else:
+                            target.unlink()
+                        deleted.append(relpath)
+                    except OSError:
+                        pass
+                _clear_cost()
+                deleted.append("cost_log.jsonl")
+                _toast("Local data deleted", icon="🗑")
+                st.success(f"Deleted: {', '.join(deleted) or 'nothing to delete'}")
 
 
 with tab_diagnostics:

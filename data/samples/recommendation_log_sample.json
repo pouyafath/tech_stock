@@ -1,0 +1,85 @@
+{
+  "_demo": true,
+  "_note": "Bundled sample. Demo mode shows this instead of calling Claude.",
+  "session_summary": "Sample portfolio — 5 positions, ~$11k USD. Tech-heavy (NVDA, MSFT, GOOG), broad-market core (VOO), one Canadian e-commerce position (SHOP.TO). Demo report: tilts BUY on dip into VOO, HOLD-watch on NVDA after run-up, TRIM 25% MSFT to lock in gains.",
+  "portfolio_health": {
+    "total_value_usd_equivalent": 11451,
+    "overall_pnl_pct": 35.4,
+    "concentration_risk": "moderate",
+    "cash_deployment": "fully invested",
+    "risk_dashboard": {
+      "total_value_usd": 11451.62,
+      "annualized_volatility_pct": 24.8,
+      "max_drawdown_estimate_pct": -10.5,
+      "beta": {"SPY": 1.18, "QQQ": 1.04, "SMH": 0.71},
+      "top3_concentration_pct": 56.2,
+      "correlated_pairs": [{"pair": "MSFT/GOOG", "correlation": 0.82}]
+    }
+  },
+  "priority_actions": [
+    {"order": 1, "ticker": "MSFT", "action": "TRIM", "priority": 1, "rationale": "Up 65% on entry; trim 25% to lock in gains and reduce concentration."},
+    {"order": 2, "ticker": "VOO", "action": "ADD", "priority": 2, "rationale": "On a 3% pullback this week; add $400 USD to widen the broad-market core."},
+    {"order": 3, "ticker": "NVDA", "action": "HOLD", "priority": 3, "rationale": "Up 75% on entry. RSI 78 (overbought). Hold-watch through next earnings."}
+  ],
+  "recommendations": [
+    {
+      "ticker": "NVDA",
+      "action": "HOLD",
+      "conviction": 7,
+      "thesis": "AI tailwind intact; Q1 beat solid. RSI 78 flags overbought — wait for pullback before adding.",
+      "net_expected_pct": 4.2,
+      "time_horizon": "1-3 months",
+      "hold_tier": "watch",
+      "risk_controls": {"entry_zone_low_pct": -4, "entry_zone_high_pct": -1, "stop_loss_pct": -12, "take_profit_pct": 20}
+    },
+    {
+      "ticker": "MSFT",
+      "action": "TRIM",
+      "conviction": 8,
+      "thesis": "Trim 25% to lock in 65% gain and rebalance concentration. Core position retained.",
+      "net_expected_pct": -1.5,
+      "time_horizon": "1-3 trading days",
+      "action_fraction": 0.25,
+      "risk_controls": {"stop_loss_pct": -8, "take_profit_pct": 15}
+    },
+    {
+      "ticker": "VOO",
+      "action": "ADD",
+      "conviction": 8,
+      "thesis": "Broad-market core on a 3% pullback. Add $400 USD on confirmation above 547.",
+      "net_expected_pct": 5.8,
+      "time_horizon": "3-6 months",
+      "invest_amount_usd": 400,
+      "risk_controls": {"entry_zone_low_pct": 0, "entry_zone_high_pct": 2, "stop_loss_pct": -7, "take_profit_pct": 12}
+    },
+    {
+      "ticker": "GOOG",
+      "action": "HOLD",
+      "conviction": 6,
+      "thesis": "Small position, decent fundamentals. Add on dip below 175.",
+      "net_expected_pct": 3.5,
+      "time_horizon": "3-6 months",
+      "hold_tier": "add_on_dip"
+    },
+    {
+      "ticker": "SHOP.TO",
+      "action": "HOLD",
+      "conviction": 7,
+      "thesis": "Canadian e-commerce, weathering ad-spend slowdown. Hold through next quarter for guidance.",
+      "net_expected_pct": 6.2,
+      "time_horizon": "3-6 months",
+      "hold_tier": "keep"
+    }
+  ],
+  "hedge_suggestions": [],
+  "quality_warnings": [],
+  "trailing_stop_breaches": [],
+  "drift_vs_previous": [],
+  "usage_summary": {
+    "model": "demo-cached",
+    "cost_usd": 0.0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "total_tokens": 0
+  }
+}

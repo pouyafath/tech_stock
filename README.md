@@ -50,6 +50,20 @@
 
 ---
 
+## ✨ What's New in v1.19.0 (May 27, 2026)
+
+**Productisation — any Wealthsimple account holder can now install + use this, not just developers.**
+
+- **🚀 First-run wizard** — six guided stages (Welcome → Anthropic API key → budgets → Wealthsimple CSV walkthrough → first run / demo → done). State is stamped to `config/settings.json` so a mid-wizard crash resumes where you left off. Streamlit short-circuits the dashboard until setup is complete; existing users are bypassed automatically (the `onboarding` block isn't present in their settings.json).
+- **🎬 Demo mode** — bundled `data/samples/` ships a realistic 5-position Wealthsimple holdings CSV + a cached Claude recommendation log. New users click "Try demo" on the launcher (or skip the wizard) to see a full report instantly with **zero setup, zero API key, zero cost**.
+- **💰 Spend tracker + monthly budget cap** — every run appends to `data/cost_log.jsonl`. New Spend sub-section in the Diagnostics tab shows total / MTD / projected monthly + a 30-day chart. `settings.json → monthly_budget_usd` soft-warns at 80%, hard-blocks at 100% (override via `ALLOW_OVERAGE=1`). Default is 0 (no cap) — opt-in.
+- **🔒 Privacy card** — clear explainer of what gets sent to Anthropic vs what stays local. Confirmation-gated "Delete all local data" button wipes reports / logs / journal / cache / thesis log / cost log in one go.
+- **🪟 Windows installer parity** — `installer_windows.iss` now consumes a real version from `src/version.py`, registers a per-user CSV file association so double-clicking a holdings export opens the app, adds a Start-Menu group with a separate "tech_stock (Demo mode)" shortcut, ships the samples component, includes optional Authenticode signing.
+- **🐧 Linux AppImage** — new `build_linux.sh` produces a portable AppImage (or tarball fallback) with a proper `.desktop` entry under `Categories=Finance;Office;`.
+- **467 → 515 tests**. Three new test files cover the wizard state machine, the cost tracker + budget enforcement, and static checks on the Windows / Linux installer artefacts.
+
+Current local suite: `pytest -q` passes with 515 tests in ~2 s.
+
 ## ✨ What's New in v1.18.0 (May 27, 2026)
 
 **Calibration, notifications, scheduling — the app finally tells you when it doesn't trust its own conviction labels, and runs itself.**

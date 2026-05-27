@@ -919,6 +919,29 @@ def run(
             )
 
     display_model = model_name or settings.get("claude_model", "claude-sonnet-4-6")
+
+    # v1.19: monthly budget cap.  Soft-warn at 80% of the configured
+    # ``monthly_budget_usd``; hard-block at 100% unless the user explicitly
+    # overrides via ``ALLOW_OVERAGE=1`` (or sets monthly_budget_usd=0).
+    # ~$0.22 is the typical Sonnet cost; Opus is ~$0.45.
+    try:
+        from src.cost_tracker import check_budget, is_overage_allowed
+
+        expected = 0.45 if "opus" in display_model else 0.22
+        budget = check_budget(expected_cost_usd=expected)
+        if budget.soft_warn:
+            print(f"{C.YELLOW}[tech_stock] ⚠️  {budget.message}{C.RESET}")
+        elif budget.hard_block and not is_overage_allowed():
+            print(f"{C.RED}[tech_stock] ⛔ {budget.message}{C.RESET}")
+            sys.exit(1)
+        elif budget.hard_block:
+            print(f"{C.YELLOW}[tech_stock] OVERRIDE — {budget.message}{C.RESET}")
+    except SystemExit:
+        raise
+    except Exception:
+        # Budget enforcement must not break the report path
+        pass
+
     print(f"{C.DIM}[tech_stock] Calling Claude ({display_model}) for recommendations...{C.RESET}")
 
     try:
@@ -1057,6 +1080,26 @@ def run(
     # may not have the UI open when the run completes. Every call is best-
     # effort and dedup-protected; failures never break the report run.
     _maybe_fire_notifications(recommendation, session_type, report_path)
+
+    # v1.19: record this run's Claude spend so the Spend tab can chart it
+    # and the next budget check can read accurate month-to-date totals.
+    try:
+        from src.cost_tracker import record_run
+
+        record_run(
+            model=display_model,
+            cost_usd=float(usage.get("cost_usd", 0) or 0),
+            input_tokens=int(usage.get("input_tokens", 0) or 0),
+            output_tokens=int(usage.get("output_tokens", 0) or 0),
+            session_type=session_type,
+            extra={
+                "passes": usage.get("passes"),
+                "cache_hit": usage.get("cache_hit"),
+                "report_file": report_path.name,
+            },
+        )
+    except Exception:
+        pass
 
     return {
         "recommendation": recommendation,

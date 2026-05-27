@@ -632,6 +632,24 @@ def _show_launcher() -> None:
         quick_row,
         "🔄 Refresh activity",
         command=_refresh_recent_activity,
+    ).pack(side="left", padx=(0, 18))
+
+    # v1.19: Demo mode — launch Streamlit with TECH_STOCK_DEMO_MODE=1 so the
+    # user can see the full UI flow without an Anthropic API key or any setup.
+    def _launch_demo() -> None:
+        status_var.set("Starting Streamlit in demo mode …")
+        os.environ["TECH_STOCK_DEMO_MODE"] = "1"
+        # Reuse the existing Streamlit dispatch path — it picks up the env var.
+        try:
+            launch("streamlit")
+        except NameError:
+            # Older launcher builds: just spawn directly.
+            _spawn_logged("--streamlit", "streamlit.log", env={"TECH_STOCK_DEMO_MODE": "1"})
+
+    _styled_link(
+        quick_row,
+        "🎬 Try demo",
+        command=_launch_demo,
     ).pack(side="left")
 
     # ── Footer ────────────────────────────────────────────────────────────────

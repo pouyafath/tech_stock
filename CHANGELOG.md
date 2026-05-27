@@ -4,6 +4,43 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.19.0] — 2026-05-27
+
+### Added — Productisation
+
+The app is now installable + usable by any Wealthsimple account holder, not just developers.
+
+#### First-run wizard + demo mode
+
+- **New `src/onboarding.py`** — state machine over six stages (`welcome` → `api_key` → `budgets` → `csv_walkthrough` → `first_run` → `done`). State stamped into `config/settings.json` under an `onboarding` block, so it survives restarts mid-wizard. Public API: `current_state()`, `advance()`, `reset_onboarding()`, `needs_onboarding()`, `stage_guidance()`, `demo_snapshot()`, `is_demo_mode_active()`. `TECH_STOCK_SKIP_ONBOARDING=1` env var bypasses for headless / existing-user runs.
+- **Inline wizard in `ui/streamlit_app.py`** — short-circuits the page render when `needs_onboarding()` is True. Steps render with title / body / external link / primary + secondary action. API-key paste flow drops the key into `config/.env`; budget step persists to `settings.json`.
+- **Demo mode** — `data/samples/holdings-report-sample.csv` (5 realistic Wealthsimple-style positions), `activities-export-sample.csv`, and `recommendation_log_sample.json` (cached Claude response with `_demo: true` flag). The launcher's new "🎬 Try demo" link fires Streamlit with `TECH_STOCK_DEMO_MODE=1` so a brand-new user sees a complete report without an API key, without a CSV, without spending a cent.
+
+#### Cost transparency + monthly budget caps
+
+- **New `src/cost_tracker.py`** — JSONL log at `data/cost_log.jsonl`, one record per run. Public API: `record_run()`, `spend_summary()`, `check_budget()`, `is_overage_allowed()`, `clear_cost_log()`. Aggregates total / last-7-day / last-30-day / month-to-date / projected-monthly. Daily series for the Spend chart.
+- **`main.run()` enforces the budget** — pre-run `check_budget` reads `monthly_budget_usd` from settings; soft-warns at 80%, hard-blocks at 100% unless `ALLOW_OVERAGE=1`. Default is 0 (no cap) so existing users see no change until they opt in.
+- **`main.run()` records every run** — post-run hook appends model, cost, tokens, session_type, report filename to the cost log.
+- **Spend sub-section in the Diagnostics tab** — total / MTD / projected / runs metrics, a 30-day daily-spend line chart, and a budget-usage bar with colour-coded threshold tone (green < 80%, amber 80-100%, red ≥ 100%).
+- **Privacy card in the Diagnostics tab** — explains what gets sent to Anthropic vs what stays local, lists each enrichment source, and a confirmation-gated "🗑 Delete all local data" button that wipes reports / logs / journal / cache / thesis-log / cost log atomically.
+
+#### Bundled installer parity (Windows + Linux)
+
+- **`installer_windows.iss` v1.19** — the hard-coded `AppVersion=1.0.0` is gone; the script now consumes `#define AppVersion` injected at build time. Adds: per-user CSV file association (HKCU registry entries with a `tech_stock.holdings_csv` ProgId + `--import-csv "%1"` open command), Start-Menu group with a separate "tech_stock (Demo mode)" shortcut (`--demo`), optional desktop shortcut task, optional CSV-association task, samples component, full version metadata, AppId GUID so Windows treats upgrades as upgrades rather than fresh installs.
+- **`build_windows.bat`** — now parses `APP_VERSION` from `src/version.py` and passes it to `iscc /DAppVersion=…`, so the installer always carries the real version. Adds a `SIGN_PFX_PATH` / `SIGN_PFX_PASSWORD` code-signing hook that fires `signtool` against the produced `tech_stock_setup.exe` when credentials are present.
+- **New `build_linux.sh`** — composes a freedesktop AppDir layout (`AppRun` script, `tech_stock.desktop` with `Categories=Finance;Office;`, 256×256 icon), runs `appimagetool` to produce `dist/tech_stock-x86_64.AppImage` when available, falls back to a tarball when not. Reads the version from `src/version.py` like the other build scripts.
+
+### Tests
+
+- **515 passing** (was 467). 48 new tests across:
+  - `tests/test_onboarding.py` (16): state machine progression, env-skip override, stage-guidance shape, demo-snapshot file presence, sample CSV column validation, sample JSON shape.
+  - `tests/test_cost_tracker.py` (13): round-trip, aggregation, corrupt-line tolerance, budget no-cap / soft-warn / hard-block, overage env-var, clear path, projection math, daily-series grouping.
+  - `tests/test_installer_artefacts.py` (13): Inno Setup version-macro plumbing, CSV registry plumbing, Start-Menu + demo-mode + samples components, version-injection from the .bat, `signtool` hook, build_linux.sh executable + reads version + emits AppImage / tarball / desktop entry + macOS spec regression guard.
+
+### Version bumped: 1.18.0 → 1.19.0
+
+---
+
 ## [1.18.0] — 2026-05-27
 
 ### Added — Calibration & walk-forward backtest
