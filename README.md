@@ -50,6 +50,17 @@
 
 ---
 
+## ✨ What's New in v1.17.0 (May 27, 2026)
+
+**Observability + Portfolio Performance — the app can finally tell you *why* a number is stale and *how* the whole portfolio is trending.**
+
+- **🩺 Diagnostics tab (Streamlit + Desktop)** — per-source API health (`ok` / `degraded` / `down` / `idle`), recent error events, copy-to-clipboard support bundle with API keys / Bearer tokens / emails scrubbed. Powered by a new `src/observability.py` structured-log layer; the 17 silent `except Exception:` swallows in the 7 API client modules now record one JSON line each to `user_workspace()/logs/diagnostics.jsonl` (5 MB size-based rotation).
+- **💹 Performance tab (Streamlit + Desktop)** — portfolio time-series rebuilt from your recommendation-log snapshots: cumulative return vs SPY (line chart), rolling 30-session Sharpe, drawdown from peak, sector contribution waterfall, return distribution histogram. Headline metrics: cumulative / annualized / volatility / Sharpe / max-DD / SPY beta + alpha. SPY benchmark cached for 4 hours via yfinance.
+- **`HEALTH_META` + `health_badge()` + `degradation_pill()`** added to `ui_theme.py` — colour-coded health pills (XSS-escaped) any panel can use inline.
+- **333 → 375 tests** — `test_observability.py` (15), `test_performance_history.py` (16), `test_diagnostics_view.py` (11). Covers log rotation, redaction, threshold mapping, Sharpe / max-DD math, SPY-disabled paths, lookback windows.
+
+Current local suite: `pytest -q` passes with 375 tests in ~1 s.
+
 ## ✨ What's New in v1.16.0 (May 26, 2026)
 
 **Close the learning loop — Claude now sees what the app has learned about your trading style.**

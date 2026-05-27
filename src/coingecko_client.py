@@ -28,6 +28,7 @@ from tenacity import (
 
 from src.cache import cached
 from src.config import load_settings
+from src.observability import log_event
 
 BASE_URL = "https://api.coingecko.com/api/v3"
 PRO_BASE_URL = "https://pro-api.coingecko.com/api/v3"
@@ -67,12 +68,21 @@ def _request(endpoint: str, params: dict | None = None) -> dict | list | None:
         timeout=12,
     )
     if r.status_code == 429:
+        log_event("coingecko", "warning", "rate_limited", "CoinGecko returned 429", {"endpoint": endpoint})
         raise requests.RequestException("CoinGecko rate limit")
     if r.status_code >= 400:
+        log_event(
+            "coingecko",
+            "error",
+            f"http_{r.status_code}",
+            f"CoinGecko {endpoint} returned {r.status_code}",
+            {"endpoint": endpoint, "status": r.status_code},
+        )
         return None
     try:
         return r.json()
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log_event("coingecko", "error", "json_decode", f"CoinGecko JSON decode failed: {exc}", {"endpoint": endpoint})
         return None
 
 
@@ -112,8 +122,8 @@ def _fetch_crypto_context() -> dict | None:
         fg_data = (fg.get("data") or [{}])[0]
         fear_greed = int(fg_data.get("value", 0))
         fear_label = fg_data.get("value_classification", "")
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        log_event("alternative_me", "warning", "fear_greed_failed", f"Fear & Greed fetch failed: {exc}", {})
 
     # Risk-on/off interpretation
     risk_signal = "NEUTRAL"
@@ -162,7 +172,8 @@ def crypto_context() -> dict | None:
             loader=_fetch_crypto_context,
             enabled=settings.get("cache_enabled", True),
         )
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log_event("coingecko", "error", "context_failed", f"crypto_context() failed: {exc}", {})
         return None
 
 

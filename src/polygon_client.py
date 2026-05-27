@@ -30,6 +30,7 @@ from tenacity import (
 
 from src.cache import cached
 from src.config import load_settings
+from src.observability import log_event
 
 BASE_URL = "https://api.polygon.io"
 
@@ -51,14 +52,30 @@ def _request(endpoint: str, params: dict | None = None) -> dict | None:
     params = {**(params or {}), "apiKey": key}
     r = requests.get(f"{BASE_URL}{endpoint}", params=params, timeout=12)
     if r.status_code == 403:
+        log_event("polygon", "info", "paid_only", "Polygon endpoint requires paid tier", {"endpoint": endpoint})
         return None  # paid-only endpoint — silently skip
     if r.status_code == 429:
+        log_event("polygon", "warning", "rate_limited", "Polygon returned 429", {"endpoint": endpoint})
         raise requests.RequestException("Polygon rate limit")
     if r.status_code >= 400:
+        log_event(
+            "polygon",
+            "error",
+            f"http_{r.status_code}",
+            f"Polygon {endpoint} returned HTTP {r.status_code}",
+            {"endpoint": endpoint, "status": r.status_code},
+        )
         return None
     try:
         return r.json()
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log_event(
+            "polygon",
+            "error",
+            "json_decode",
+            f"Polygon JSON decode failed: {exc}",
+            {"endpoint": endpoint},
+        )
         return None
 
 
@@ -157,7 +174,8 @@ def stock_snapshot(ticker: str) -> dict | None:
             loader=lambda: _fetch_stock_snapshot(ticker),
             enabled=settings.get("cache_enabled", True),
         )
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log_event("polygon", "error", "snapshot_failed", f"stock_snapshot({ticker}) failed: {exc}", {"ticker": ticker})
         return None
 
 

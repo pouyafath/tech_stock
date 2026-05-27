@@ -4,6 +4,33 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.17.0] — 2026-05-27
+
+### Added — Observability
+
+- **New `src/observability.py`** — structured-log layer. Public API: `log_event(source, level, code, message, context=None)`, `success_rate(source, hours=24)`, `recent_errors(limit=50)`, `source_summary(hours=24)`, `support_bundle(limit=500)`, `clear_diagnostics()`. JSON-lines on disk at `user_workspace()/logs/diagnostics.jsonl`. Thread-safe writer. Size-based rotation to `.jsonl.1` at 5 MB. Never raises — observability must not break the caller.
+- **Redaction** — API keys (`sk-…`), hex tokens (32+ chars), `Authorization: Bearer …`, and email addresses are scrubbed from every record before write. Support bundles are safe to paste into public bug reports.
+- **API clients now log instead of swallowing** — replaced 17 silent `except Exception:` blocks in `finnhub_client.py`, `polygon_client.py`, `alpha_vantage_client.py`, `twelve_data_client.py`, `fred_client.py`, `coingecko_client.py`, and `cache.py` with `log_event()` calls. Graceful degradation (callers still get `None`) is preserved.
+- **🩺 Diagnostics tab in Streamlit + Desktop** — per-source health table (ok / degraded / down / idle based on success rate over the selected time window), recent error events, redacted support bundle with copy-to-clipboard, log-file path, "Open log folder" reveal-in-Finder action.
+- **`HEALTH_META` + `health_badge()` + `degradation_pill()` in `ui_theme.py`** — colour-coded health pills using the same palette as everything else; safe to interpolate inline (XSS-escaped).
+- **`diagnostics_view()` + `diagnostics_support_bundle()` + `degradation_health()` in `ui_support.py`** — UI-facing aggregators.
+
+### Added — Portfolio Performance
+
+- **New `src/performance_history.py`** — rebuilds a portfolio time-series from `data/recommendations_log/*.json` snapshots. Computes cumulative return, annualized return, annualized volatility, Sharpe (rf=0), max drawdown, rolling 30-session Sharpe, rolling drawdown from peak, sector contribution waterfall (start_usd → end_usd → delta_usd), and a 0.5%-bucketed return distribution histogram. SPY benchmark fetched from yfinance (cached 4h) with OLS-derived beta and annualised alpha.
+- **💹 Performance tab in Streamlit + Desktop** — headline metric strip, portfolio-vs-SPY rebased line chart, rolling Sharpe + drawdown panels, sector waterfall, return distribution. Streamlit uses `st.line_chart` / `st.area_chart` / `st.bar_chart` with palette colours. Desktop draws a sparkline on a Tk Canvas (matplotlib is intentionally excluded from the PyInstaller bundle) plus Treeview tables. Lookback selector (All time / 30 / 90 / 365 days). Optional SPY toggle so users without yfinance can still use the tab.
+
+### Tests
+
+- **375 passing** (was 333). 42 new tests:
+  - `tests/test_observability.py` (15): round-trip, level normalisation, redaction patterns (API keys, hex tokens, Bearer tokens, emails), context recursion, source/level filters, success-rate fractions, code bucketing, support bundle JSON validity, rotation, clear.
+  - `tests/test_performance_history.py` (16): pure math helpers (`_pct_changes`, `_max_drawdown_pct`, `_linear_regression`), snapshot loader filename parsing and ordering, value/zero filtering, sector buckets, `not_ready` states, cumulative return, SPY-disabled path, lookback window filter, sector waterfall, return-distribution bucketing.
+  - `tests/test_diagnostics_view.py` (11): view shape, health threshold mapping (ok ≥ 0.95, degraded 0.50–0.94, down < 0.50, idle = no traffic), `degradation_health` healthy/unhealthy/idle, redacted support bundle, `health_badge` palette wiring, `degradation_pill` empty-when-ok, XSS escaping.
+
+### Version bumped: 1.16.0 → 1.17.0
+
+---
+
 ## [1.16.0] — 2026-05-26
 
 ### Added — Close the learning loop

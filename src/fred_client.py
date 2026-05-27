@@ -35,6 +35,7 @@ from tenacity import (
 
 from src.cache import cached
 from src.config import load_settings
+from src.observability import log_event
 
 BASE_URL = "https://api.stlouisfed.org/fred"
 
@@ -129,6 +130,7 @@ def _fetch_series_latest(series_id: str) -> float | None:
         timeout=10,
     )
     if r.status_code >= 400:
+        log_event("fred", "error", f"http_{r.status_code}", f"FRED series fetch returned {r.status_code}", {"status": r.status_code})
         return None
     try:
         obs = r.json().get("observations") or []
@@ -138,7 +140,8 @@ def _fetch_series_latest(series_id: str) -> float | None:
         if val in (".", "", None):
             return None
         return round(float(val), 3)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log_event("fred", "error", "parse_failed", f"FRED series parse failed: {exc}", {})
         return None
 
 
@@ -162,6 +165,7 @@ def _fetch_cpi_yoy() -> float | None:
         timeout=10,
     )
     if r.status_code >= 400:
+        log_event("fred", "error", f"http_{r.status_code}", f"FRED CPI fetch returned {r.status_code}", {"status": r.status_code})
         return None
     try:
         obs = [o for o in r.json().get("observations", []) if o.get("value") not in (".", "", None)]
@@ -170,7 +174,8 @@ def _fetch_cpi_yoy() -> float | None:
         latest = float(obs[0]["value"])
         year_ago = float(obs[12]["value"])
         return round((latest - year_ago) / year_ago * 100, 2)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log_event("fred", "error", "cpi_parse_failed", f"FRED CPI parse failed: {exc}", {})
         return None
 
 
@@ -252,7 +257,8 @@ def macro_context() -> dict | None:
             loader=_fetch_macro_context,
             enabled=settings.get("cache_enabled", True),
         )
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log_event("fred", "error", "macro_context_failed", f"macro_context() failed: {exc}", {})
         return None
 
 
@@ -279,7 +285,8 @@ def live_cad_per_usd() -> float | None:
             loader=lambda: _fetch_series_latest(FX_SERIES),
             enabled=settings.get("cache_enabled", True),
         )
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log_event("fred", "error", "cad_fx_failed", f"live_cad_per_usd() failed: {exc}", {})
         return None
 
 

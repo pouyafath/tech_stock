@@ -41,6 +41,8 @@ from src.ui_support import (  # noqa: E402
     default_run_settings,
     decision_journal_view,
     decision_scorecard_summary,
+    diagnostics_view,
+    diagnostics_support_bundle,
     find_default_csvs,
     latest_log_summary,
     latest_report,
@@ -59,6 +61,7 @@ from src.ui_support import (  # noqa: E402
     validate_json_text,
     write_editable_json,
 )
+from src.performance_history import portfolio_performance_summary  # noqa: E402
 from src.ui_theme import (  # noqa: E402
     PALETTE,
     STREAMLIT_CSS,
@@ -66,6 +69,7 @@ from src.ui_theme import (  # noqa: E402
     action_card,
     conviction_bar,
     empty_state,
+    health_badge,
     hero,
     readiness_badge,
     severity_badge,
@@ -382,9 +386,11 @@ _html(
     tab_report,
     tab_run,
     tab_history,
+    tab_performance,
     tab_backtest,
     tab_journal,
     tab_learning,
+    tab_diagnostics,
     tab_editor,
 ) = st.tabs(
     [
@@ -393,9 +399,11 @@ _html(
         "📝 Today's Report",
         "▶️ Run Report",
         "📚 History",
+        "💹 Performance",
         "📈 Backtest",
         "📓 Journal",
         "🧠 Learning",
+        "🩺 Diagnostics",
         "⚙️ Editor",
     ]
 )
@@ -961,6 +969,163 @@ with tab_history:
                     st.markdown(read_text_file(selected_report))
 
 
+# ─── Performance ──────────────────────────────────────────────────────────
+
+
+def _render_performance() -> None:
+    st.subheader("Portfolio Performance")
+    st.caption(
+        "Time-series rebuilt from your recommendation-log snapshots. Each session "
+        "becomes one data point; SPY benchmark is fetched from yfinance (cached 4h)."
+    )
+
+    col_lookback, col_spy, col_refresh = st.columns([2, 2, 1])
+    with col_lookback:
+        lookback_label = st.selectbox(
+            "Lookback",
+            options=["All time", "Last 30 days", "Last 90 days", "Last 365 days"],
+            index=0,
+            key="perf_lookback",
+        )
+    with col_spy:
+        fetch_spy = st.checkbox(
+            "Compare vs SPY",
+            value=True,
+            help="Uncheck to skip the yfinance call (~1-2 s on cold cache).",
+            key="perf_fetch_spy",
+        )
+    with col_refresh:
+        st.markdown("&nbsp;")
+        if st.button("🔄 Refresh", width="stretch", key="perf_refresh"):
+            for key in list(st.session_state):
+                if key.startswith("perf_view_cache_"):
+                    del st.session_state[key]
+            _toast("Performance recomputed", icon="💹")
+
+    lookback_days = {"Last 30 days": 30, "Last 90 days": 90, "Last 365 days": 365}.get(lookback_label)
+    cache_key = f"perf_view_cache_{lookback_label}_{fetch_spy}"
+    if cache_key not in st.session_state:
+        with st.spinner("Computing performance…"):
+            st.session_state[cache_key] = portfolio_performance_summary(
+                lookback_days=lookback_days,
+                fetch_spy=fetch_spy,
+            )
+    view = st.session_state[cache_key]
+
+    if not view.get("ready"):
+        _html(empty_state("Performance not ready", view.get("reason") or "Need at least 2 recommendation logs."))
+        return
+
+    # ── Headline metrics ──────────────────────────────────────────────────
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric(
+        "Cumulative return",
+        _format_pct(view["cumulative_return_pct"], signed=True, digits=2),
+        help=f"Over {view['n_snapshots']} sessions · {view['first_ts']} → {view['last_ts']}",
+    )
+    col2.metric(
+        "Annualized return",
+        _format_pct(view["annualized_return_pct"], signed=True, digits=1),
+        help="Mean session return × sessions/year (your cadence)",
+    )
+    col3.metric(
+        "Volatility (ann.)",
+        _format_pct(view["annualized_volatility_pct"], digits=1),
+        help="Standard deviation of session returns × √sessions_per_year",
+    )
+    col4.metric(
+        "Sharpe",
+        f"{view['sharpe']:.2f}",
+        help="Annualized return / annualized volatility (rf=0)",
+    )
+    col5.metric(
+        "Max drawdown",
+        _format_pct(view["max_drawdown_pct"], signed=True, digits=1),
+        help="Worst peak-to-trough on the cumulative value series",
+    )
+
+    spy = view.get("spy") or {}
+    if spy.get("available"):
+        col_a, col_b, col_c = st.columns(3)
+        col_a.metric("SPY cumulative", _format_pct(spy.get("cumulative_return_pct"), signed=True, digits=2))
+        col_b.metric("Beta vs SPY", f"{spy.get('beta'):.2f}" if spy.get("beta") is not None else "—")
+        col_c.metric(
+            "Alpha (ann.)",
+            _format_pct(spy.get("alpha_annualized_pct"), signed=True, digits=2),
+            help="Intercept of session-return regression vs SPY × sessions/year",
+        )
+
+    # ── Cumulative-value line chart ───────────────────────────────────────
+    st.markdown("### Portfolio value over time")
+    iso_dates = view["iso_dates"]
+    values = view["values_usd"]
+    initial = values[0]
+
+    # Rebased values (start = 100) so portfolio + SPY share a scale.
+    portfolio_indexed = [v / initial * 100.0 for v in values]
+    chart_rows = [{"date": d, "Portfolio": p} for d, p in zip(iso_dates, portfolio_indexed)]
+    if spy.get("available") and spy.get("values"):
+        spy_vals = spy["values"]
+        spy_initial = spy_vals[0]
+        for row, sv in zip(chart_rows, spy_vals):
+            row["SPY"] = sv / spy_initial * 100.0
+    chart_df = pd.DataFrame(chart_rows).set_index("date")
+    st.line_chart(chart_df, color=[PALETTE.accent, PALETTE.info])
+
+    # ── Rolling Sharpe + drawdown ─────────────────────────────────────────
+    st.markdown("### Rolling metrics")
+    col_l, col_r = st.columns(2)
+    with col_l:
+        st.caption(f"Rolling {view['rolling_window_sessions']}-session Sharpe")
+        # rolling_sharpe is aligned with session_returns (length = n_snapshots - 1)
+        rolling = view["rolling_sharpe"]
+        rolling_dates = iso_dates[1 : 1 + len(rolling)]
+        rolling_df = pd.DataFrame([{"date": d, "Sharpe": r} for d, r in zip(rolling_dates, rolling) if r is not None])
+        if not rolling_df.empty:
+            st.line_chart(rolling_df.set_index("date"), color=PALETTE.warn)
+        else:
+            _html(empty_state("Not enough sessions yet", "Rolling Sharpe needs ~30 sessions to warm up."))
+    with col_r:
+        st.caption("Drawdown from running peak")
+        dd_df = pd.DataFrame({"date": iso_dates, "Drawdown %": view["rolling_drawdown_pct"]}).set_index("date")
+        st.area_chart(dd_df, color=PALETTE.danger)
+
+    # ── Sector contribution waterfall ─────────────────────────────────────
+    st.markdown("### Sector contribution (USD change first → last)")
+    sector_rows = view.get("sector_waterfall") or []
+    if not sector_rows:
+        _html(empty_state("No sector data", "Recommendation logs didn't carry sector tags for this window."))
+    else:
+        df = pd.DataFrame(sector_rows)
+        st.bar_chart(df.set_index("sector")["delta_usd"], color=PALETTE.accent)
+        with st.expander("Detail"):
+            st.dataframe(df, hide_index=True, width="stretch")
+
+    # ── Return distribution ───────────────────────────────────────────────
+    st.markdown("### Session return distribution")
+    dist = view.get("return_distribution") or {}
+    if dist:
+        # Sort buckets numerically — keep ≤-5%, … neutral … , ≥+5% extremes at edges.
+        def _bucket_sort_key(label: str) -> tuple:
+            if label.startswith("≤"):
+                return (-999.0,)
+            if label.startswith("≥"):
+                return (999.0,)
+            try:
+                lower = float(label.split(" ")[0])
+                return (lower,)
+            except ValueError:
+                return (0.0,)
+
+        ordered = sorted(dist.items(), key=lambda kv: _bucket_sort_key(kv[0]))
+        dist_df = pd.DataFrame([{"return_bucket": k, "count": v} for k, v in ordered])
+        st.bar_chart(dist_df.set_index("return_bucket"), color=PALETTE.info)
+
+
+with tab_performance:
+    _render_performance()
+
+
 # ─── Backtest ──────────────────────────────────────────────────────────────
 
 with tab_backtest:
@@ -1314,6 +1479,129 @@ VERDICT_COLOR_LOOKUP = {
 
 with tab_learning:
     _render_learning()
+
+
+# ─── Diagnostics ───────────────────────────────────────────────────────────
+
+
+def _render_diagnostics() -> None:
+    st.subheader("Diagnostics")
+    st.caption(
+        "Per-source API health, recent errors, and a redacted support bundle. "
+        "Powered by `src/observability.py` — every API client now logs degradations "
+        "to `logs/diagnostics.jsonl` instead of swallowing them silently."
+    )
+
+    col_window, col_refresh = st.columns([3, 1])
+    with col_window:
+        window = st.selectbox(
+            "Time window",
+            options=[1, 6, 24, 72, 168],
+            format_func=lambda h: f"Last {h}h" if h < 24 else f"Last {h // 24}d",
+            index=2,
+            key="diag_window_hours",
+        )
+    with col_refresh:
+        st.markdown("&nbsp;")  # vertical alignment with the selectbox
+        if st.button("🔄 Refresh", width="stretch", key="diag_refresh"):
+            st.session_state.pop("diag_view_cache", None)
+            _toast("Diagnostics refreshed", icon="🩺")
+
+    cache_key = f"diag_view_cache_{window}"
+    if cache_key not in st.session_state:
+        st.session_state[cache_key] = diagnostics_view(hours=int(window))
+    view = st.session_state[cache_key]
+
+    sources = view.get("sources") or {}
+    if not sources:
+        _html(
+            empty_state(
+                "No events logged yet",
+                "Generate a report (or run any enrichment) to populate the diagnostics log.",
+            )
+        )
+    else:
+        col_total, col_ok, col_degr, col_down = st.columns(4)
+        col_total.metric("Sources tracked", len(sources))
+        ok = sum(1 for b in sources.values() if b.get("health") == "ok")
+        degr = sum(1 for b in sources.values() if b.get("health") == "degraded")
+        down = sum(1 for b in sources.values() if b.get("health") == "down")
+        col_ok.metric("OK", ok)
+        col_degr.metric("Degraded", degr)
+        col_down.metric("Down", down)
+
+        st.markdown("### Sources")
+        for source_name, bucket in sorted(sources.items()):
+            health = bucket.get("health") or "idle"
+            rate = bucket.get("success_rate")
+            rate_str = "n/a" if rate is None else f"{rate:.0%}"
+            with st.container(border=True):
+                head_col, body_col = st.columns([3, 5])
+                with head_col:
+                    _html(
+                        f"<div style='display:flex;align-items:center;gap:10px;'>"
+                        f"<span style='font-weight:700;color:{PALETTE.text_strong};letter-spacing:0.03em;'>"
+                        f"{source_name}</span>"
+                        f"{health_badge(health)}"
+                        f"<span style='color:{PALETTE.muted};font-size:0.85rem;'>success {rate_str}</span>"
+                        "</div>"
+                    )
+                with body_col:
+                    counts = " · ".join(
+                        f"<span style='color:{PALETTE.muted};font-size:0.82rem;'>{code}: {n}</span>"
+                        for code, n in sorted(bucket.get("codes", {}).items())
+                    )
+                    _html(
+                        f"<div style='display:flex;justify-content:flex-end;gap:14px;flex-wrap:wrap;'>"
+                        f"<span style='color:{PALETTE.muted};font-size:0.85rem;'>"
+                        f"events {bucket.get('total', 0)} · errors {bucket.get('errors', 0)}"
+                        f"</span>{counts}</div>"
+                    )
+                last_error = bucket.get("last_error")
+                if last_error:
+                    st.caption(f"**Last error** · `{last_error.get('ts')}` · `{last_error.get('code')}` — {last_error.get('message')}")
+
+    st.markdown("### Recent error events")
+    recent_errors = view.get("recent_errors") or []
+    if not recent_errors:
+        _html(empty_state("No recent errors", "Either everything's healthy or there's no recent traffic."))
+    else:
+        df_rows = [
+            {
+                "when": e.get("ts"),
+                "source": e.get("source"),
+                "level": e.get("level"),
+                "code": e.get("code"),
+                "message": e.get("message"),
+            }
+            for e in recent_errors
+        ]
+        st.dataframe(pd.DataFrame(df_rows), hide_index=True, width="stretch")
+
+    st.markdown("### Support bundle")
+    st.caption("Last 500 events, fully redacted (API keys / tokens / emails are scrubbed). Paste this into a bug report — safe to share.")
+    bundle = diagnostics_support_bundle(limit=500)
+    if bundle:
+        st.code(bundle, language="json")
+        st.download_button(
+            "⬇ Download bundle",
+            bundle.encode("utf-8"),
+            file_name="tech_stock_diagnostics.jsonl",
+            mime="application/jsonl",
+            width="stretch",
+        )
+    else:
+        st.caption("Bundle is empty (no events yet).")
+
+    with st.expander("ℹ️ Log file locations"):
+        st.write(f"Active log: `{view.get('log_path')}`")
+        rotated = view.get("rotated_path")
+        if rotated:
+            st.write(f"Rotated log: `{rotated}`")
+
+
+with tab_diagnostics:
+    _render_diagnostics()
 
 
 # ─── Editor ────────────────────────────────────────────────────────────────

@@ -36,6 +36,8 @@ from src.ui_support import (
     check_update_available,
     current_app_version,
     default_run_settings,
+    diagnostics_view,
+    diagnostics_support_bundle,
     find_default_csvs,
     latest_log_summary,
     latest_report,
@@ -52,6 +54,7 @@ from src.ui_support import (
     validate_json_text,
     write_editable_json,
 )
+from src.performance_history import portfolio_performance_summary
 
 try:
     from src.ui_theme import PALETTE  # noqa: E402
@@ -335,7 +338,9 @@ class DesktopApp(tk.Tk):
         self.run_tab = ttk.Frame(self.tabs)
         self.report_tab = ttk.Frame(self.tabs)
         self.history_tab = ttk.Frame(self.tabs)
+        self.performance_tab = ttk.Frame(self.tabs)
         self.learning_tab = ttk.Frame(self.tabs)
+        self.diagnostics_tab = ttk.Frame(self.tabs)
         self.editor_tab = ttk.Frame(self.tabs)
         self.health_tab = ttk.Frame(self.tabs)
         self.update_tab = ttk.Frame(self.tabs)
@@ -345,7 +350,9 @@ class DesktopApp(tk.Tk):
         self.tabs.add(self.run_tab, text="Run Report")
         self.tabs.add(self.report_tab, text="Report Viewer")
         self.tabs.add(self.history_tab, text="History")
+        self.tabs.add(self.performance_tab, text="Performance")
         self.tabs.add(self.learning_tab, text="Learning")
+        self.tabs.add(self.diagnostics_tab, text="Diagnostics")
         self.tabs.add(self.editor_tab, text="Config Editor")
         self.tabs.add(self.health_tab, text="API Checks")
         self.tabs.add(self.update_tab, text="Updates")
@@ -355,7 +362,9 @@ class DesktopApp(tk.Tk):
         self._build_run_tab()
         self._build_report_tab()
         self._build_history_tab()
+        self._build_performance_tab()
         self._build_learning_tab()
+        self._build_diagnostics_tab()
         self._build_editor_tab()
         self._build_health_tab()
         self._build_update_tab()
@@ -403,6 +412,10 @@ class DesktopApp(tk.Tk):
             self.refresh_api_key_manager()
         elif tab_text == "Learning":
             self.refresh_learning_tab()
+        elif tab_text == "Diagnostics":
+            self.refresh_diagnostics_tab()
+        elif tab_text == "Performance":
+            self.refresh_performance_tab()
 
     def _refresh_active_tab(self) -> None:
         """⌘R handler — re-run the data-load for whichever tab is in front."""
@@ -416,7 +429,9 @@ class DesktopApp(tk.Tk):
             "Buy Signals": self.start_buy_signal_refresh,
             "Report Viewer": lambda: self.load_report(latest_report(), select_tab=True),
             "History": self.refresh_history,
+            "Performance": self.refresh_performance_tab,
             "Learning": self.refresh_learning_tab,
+            "Diagnostics": self.refresh_diagnostics_tab,
             "Config Editor": self.load_editor_file,
             "API Checks": self.start_connectivity_check,
             "Updates": lambda: self.start_update_check(startup=False),
@@ -947,6 +962,361 @@ class DesktopApp(tk.Tk):
         self.learning_drift_text.delete("1.0", "end")
         self.learning_drift_text.insert("1.0", drift_msg)
         self.learning_drift_text.configure(state="disabled")
+
+    # ── Performance tab ─────────────────────────────────────────────────────
+    def _build_performance_tab(self) -> None:
+        """Portfolio time-series rebuilt from recommendation-log snapshots (v1.17).
+
+        Matplotlib is intentionally excluded from the PyInstaller bundle, so
+        we draw a minimal cumulative-value sparkline directly on a tk.Canvas.
+        Numbers go into Treeviews; users who want full plots can use
+        Streamlit (``./run.sh 2``).
+        """
+        toolbar = ttk.Frame(self.performance_tab)
+        toolbar.pack(fill="x", padx=16, pady=(16, 8))
+        ttk.Button(toolbar, text="Refresh", command=self.refresh_performance_tab).pack(side="left")
+        self.performance_lookback_var = tk.StringVar(value="All time")
+        ttk.Label(toolbar, text="Lookback", style="Muted.TLabel").pack(side="left", padx=(14, 4))
+        lookback_box = ttk.Combobox(
+            toolbar,
+            textvariable=self.performance_lookback_var,
+            values=["All time", "Last 30 days", "Last 90 days", "Last 365 days"],
+            state="readonly",
+            width=14,
+        )
+        lookback_box.pack(side="left", padx=(0, 8))
+        lookback_box.bind("<<ComboboxSelected>>", lambda _e: self.refresh_performance_tab())
+        self.performance_fetch_spy_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            toolbar,
+            text="Compare vs SPY",
+            variable=self.performance_fetch_spy_var,
+            command=self.refresh_performance_tab,
+        ).pack(side="left", padx=(0, 8))
+        self.performance_status = tk.StringVar(value="Open this tab to load performance metrics.")
+        ttk.Label(toolbar, textvariable=self.performance_status, style="Muted.TLabel").pack(side="left", padx=14)
+
+        # Headline metrics row
+        metrics_panel = self._panel(self.performance_tab, "Headline metrics")
+        metrics_panel.pack(fill="x", padx=16, pady=(0, 12))
+        self.performance_metric_vars: dict[str, tk.StringVar] = {}
+        grid = ttk.Frame(metrics_panel, style="Panel.TFrame")
+        grid.pack(fill="x")
+        for i, label in enumerate(
+            ["Cumulative return", "Annualized return", "Volatility", "Sharpe", "Max drawdown", "SPY return", "Beta", "Alpha (ann.)"]
+        ):
+            var = tk.StringVar(value="—")
+            self.performance_metric_vars[label] = var
+            cell = tk.Frame(grid, bg=self.card, padx=14, pady=10, highlightthickness=1, highlightbackground=self.border)
+            cell.grid(row=i // 4, column=i % 4, sticky="ew", padx=4, pady=4)
+            grid.columnconfigure(i % 4, weight=1, uniform="perf_metrics")
+            tk.Label(cell, text=label.upper(), bg=self.card, fg=self.muted, font=self.fonts["small"]).pack(anchor="w")
+            tk.Label(cell, textvariable=var, bg=self.card, fg=self.text_strong, font=self.fonts["heading"]).pack(anchor="w", pady=(4, 0))
+
+        # Sparkline canvas — portfolio (and SPY) rebased to 100 at start.
+        chart_panel = self._panel(self.performance_tab, "Portfolio value (rebased to 100 at start)")
+        chart_panel.pack(fill="x", padx=16, pady=(0, 12))
+        self.performance_canvas = tk.Canvas(
+            chart_panel,
+            height=160,
+            bg=self.table_bg,
+            highlightthickness=0,
+            bd=0,
+        )
+        self.performance_canvas.pack(fill="x", expand=True)
+        legend = ttk.Frame(chart_panel, style="Panel.TFrame")
+        legend.pack(fill="x", pady=(6, 0))
+        tk.Label(legend, text="● Portfolio", bg=self.panel, fg=self.accent, font=self.fonts["small"]).pack(side="left", padx=8)
+        tk.Label(legend, text="● SPY", bg=self.panel, fg=PALETTE.info, font=self.fonts["small"]).pack(side="left", padx=8)
+
+        # Sector waterfall + return distribution
+        body = ttk.PanedWindow(self.performance_tab, orient="horizontal")
+        body.pack(fill="both", expand=True, padx=16, pady=(0, 16))
+        sector_panel = self._panel(body, "Sector contribution (USD change)")
+        body.add(sector_panel, weight=3)
+        self.performance_sector_tree = self._make_tree(
+            sector_panel,
+            ["sector", "start_usd", "end_usd", "delta_usd"],
+            [180, 110, 110, 110],
+            height=8,
+        )
+        self.performance_sector_tree.pack(fill="both", expand=True)
+        dist_panel = self._panel(body, "Return distribution")
+        body.add(dist_panel, weight=2)
+        self.performance_dist_tree = self._make_tree(
+            dist_panel,
+            ["return_bucket", "count"],
+            [150, 80],
+            height=8,
+        )
+        self.performance_dist_tree.pack(fill="both", expand=True)
+
+    def refresh_performance_tab(self) -> None:
+        """Recompute and re-render the Performance tab."""
+        lookback_label = self.performance_lookback_var.get()
+        lookback_days = {"Last 30 days": 30, "Last 90 days": 90, "Last 365 days": 365}.get(lookback_label)
+        fetch_spy = bool(self.performance_fetch_spy_var.get())
+
+        try:
+            view = portfolio_performance_summary(lookback_days=lookback_days, fetch_spy=fetch_spy)
+        except Exception as exc:  # noqa: BLE001
+            self.performance_status.set(f"Failed to compute performance: {exc}")
+            return
+
+        if not view.get("ready"):
+            self.performance_status.set(view.get("reason") or "Not enough snapshots yet.")
+            for var in self.performance_metric_vars.values():
+                var.set("—")
+            self.performance_canvas.delete("all")
+            self._replace_tree_rows(self.performance_sector_tree, [])
+            self._replace_tree_rows(self.performance_dist_tree, [])
+            return
+
+        spy = view.get("spy") or {}
+        self.performance_status.set(
+            f"{view['n_snapshots']} sessions · {view['first_ts']} → {view['last_ts']} · "
+            f"sessions/year ≈ {view['sessions_per_year']}" + (" · SPY benchmark loaded" if spy.get("available") else "")
+        )
+
+        def _pct(value, *, signed=True, digits=2) -> str:
+            if value is None:
+                return "—"
+            fmt = f"{{:{'+' if signed else ''}.{digits}f}}%"
+            return fmt.format(value)
+
+        m = self.performance_metric_vars
+        m["Cumulative return"].set(_pct(view["cumulative_return_pct"]))
+        m["Annualized return"].set(_pct(view["annualized_return_pct"], digits=1))
+        m["Volatility"].set(_pct(view["annualized_volatility_pct"], signed=False, digits=1))
+        m["Sharpe"].set(f"{view['sharpe']:.2f}")
+        m["Max drawdown"].set(_pct(view["max_drawdown_pct"], digits=1))
+        m["SPY return"].set(_pct(spy.get("cumulative_return_pct")) if spy.get("available") else "—")
+        m["Beta"].set(f"{spy.get('beta'):.2f}" if spy.get("beta") is not None else "—")
+        m["Alpha (ann.)"].set(_pct(spy.get("alpha_annualized_pct")) if spy.get("available") else "—")
+
+        # Sparkline
+        self._draw_performance_sparkline(view)
+
+        # Sector waterfall
+        sector_rows = []
+        for row in view.get("sector_waterfall") or []:
+            sector_rows.append(
+                [
+                    row.get("sector"),
+                    f"${row.get('start_usd', 0):,.0f}",
+                    f"${row.get('end_usd', 0):,.0f}",
+                    f"${row.get('delta_usd', 0):+,.0f}",
+                ]
+            )
+        self._replace_tree_rows(self.performance_sector_tree, sector_rows)
+
+        # Return distribution — keep buckets sorted for sensible visual reading
+        def _sort_key(label: str) -> tuple:
+            if label.startswith("≤"):
+                return (-999.0,)
+            if label.startswith("≥"):
+                return (999.0,)
+            try:
+                return (float(label.split(" ")[0]),)
+            except ValueError:
+                return (0.0,)
+
+        dist_rows = sorted((view.get("return_distribution") or {}).items(), key=lambda kv: _sort_key(kv[0]))
+        self._replace_tree_rows(self.performance_dist_tree, [[bucket, str(count)] for bucket, count in dist_rows])
+
+    def _draw_performance_sparkline(self, view: dict) -> None:
+        canvas = self.performance_canvas
+        canvas.delete("all")
+        canvas.update_idletasks()
+        width = max(canvas.winfo_width(), 600)
+        height = max(canvas.winfo_height(), 120)
+        padding_x = 18
+        padding_y = 14
+        usable_w = width - 2 * padding_x
+        usable_h = height - 2 * padding_y
+
+        portfolio_values = view.get("values_usd") or []
+        if len(portfolio_values) < 2:
+            return
+        initial = portfolio_values[0]
+        portfolio_indexed = [v / initial * 100.0 for v in portfolio_values]
+
+        series_to_draw = [(portfolio_indexed, self.accent)]
+        spy = view.get("spy") or {}
+        if spy.get("available") and spy.get("values"):
+            spy_initial = spy["values"][0]
+            if spy_initial > 0:
+                series_to_draw.append(([v / spy_initial * 100.0 for v in spy["values"]], PALETTE.info))
+
+        # Shared y-range so both series stay comparable
+        all_values = [v for series, _ in series_to_draw for v in series]
+        ymin = min(all_values)
+        ymax = max(all_values)
+        if ymax == ymin:
+            ymax = ymin + 1  # avoid div-by-zero on a flat line
+
+        # 100-baseline reference line
+        baseline_y = padding_y + usable_h * (1 - (100 - ymin) / (ymax - ymin))
+        canvas.create_line(padding_x, baseline_y, width - padding_x, baseline_y, fill=self.border, dash=(2, 4))
+        canvas.create_text(padding_x + 4, baseline_y - 8, anchor="w", text="100", fill=self.muted, font=self.fonts["small"])
+
+        # Series
+        for series, colour in series_to_draw:
+            n = len(series)
+            step = usable_w / (n - 1) if n > 1 else 0
+            coords = []
+            for i, value in enumerate(series):
+                x = padding_x + i * step
+                y = padding_y + usable_h * (1 - (value - ymin) / (ymax - ymin))
+                coords.extend([x, y])
+            canvas.create_line(*coords, fill=colour, width=2, smooth=True)
+
+    # ── Diagnostics tab ─────────────────────────────────────────────────────
+    def _build_diagnostics_tab(self) -> None:
+        """Surface the structured-log Diagnostics view (v1.17).
+
+        Mirrors the Streamlit tab: per-source health table, recent-error
+        list, copyable support bundle. All data comes from
+        ``user_workspace()/logs/diagnostics.jsonl`` via ui_support.
+        """
+        toolbar = ttk.Frame(self.diagnostics_tab)
+        toolbar.pack(fill="x", padx=16, pady=(16, 8))
+        ttk.Button(toolbar, text="Refresh", command=self.refresh_diagnostics_tab).pack(side="left")
+        self.diagnostics_window_var = tk.StringVar(value="24")
+        ttk.Label(toolbar, text="Window", style="Muted.TLabel").pack(side="left", padx=(14, 4))
+        window_box = ttk.Combobox(
+            toolbar,
+            textvariable=self.diagnostics_window_var,
+            values=["1", "6", "24", "72", "168"],
+            state="readonly",
+            width=5,
+        )
+        window_box.pack(side="left", padx=(0, 4))
+        window_box.bind("<<ComboboxSelected>>", lambda _e: self.refresh_diagnostics_tab())
+        ttk.Label(toolbar, text="hours", style="Muted.TLabel").pack(side="left")
+        self.diagnostics_status = tk.StringVar(value="Open this tab to load the diagnostics view.")
+        ttk.Label(toolbar, textvariable=self.diagnostics_status, style="Muted.TLabel").pack(side="left", padx=14)
+
+        # Per-source table
+        sources_panel = self._panel(self.diagnostics_tab, "Sources")
+        sources_panel.pack(fill="x", padx=16, pady=(0, 12))
+        self.diagnostics_sources_tree = self._make_tree(
+            sources_panel,
+            ["source", "health", "total", "errors", "success_rate", "last_error_code", "last_error_message"],
+            [130, 100, 80, 80, 110, 160, 360],
+            height=7,
+        )
+        self.diagnostics_sources_tree.pack(fill="x")
+
+        # Recent errors table
+        errors_panel = self._panel(self.diagnostics_tab, "Recent error events")
+        errors_panel.pack(fill="both", expand=True, padx=16, pady=(0, 12))
+        self.diagnostics_errors_tree = self._make_tree(
+            errors_panel,
+            ["when", "source", "level", "code", "message"],
+            [160, 120, 80, 140, 480],
+            height=10,
+        )
+        self.diagnostics_errors_tree.pack(fill="both", expand=True)
+
+        # Support bundle
+        bundle_panel = self._panel(self.diagnostics_tab, "Support bundle (redacted)")
+        bundle_panel.pack(fill="x", padx=16, pady=(0, 16))
+        bundle_buttons = ttk.Frame(bundle_panel)
+        bundle_buttons.pack(fill="x", pady=(0, 6))
+        ttk.Button(bundle_buttons, text="Copy to clipboard", command=self._copy_diagnostics_bundle).pack(side="left")
+        ttk.Button(bundle_buttons, text="Open log folder", command=self._open_diagnostics_log_folder).pack(side="left", padx=8)
+        self.diagnostics_bundle_text = tk.Text(
+            bundle_panel,
+            height=8,
+            wrap="none",
+            bg=self.table_bg,
+            fg=self.text,
+            insertbackground=self.text,
+            relief="flat",
+        )
+        self.diagnostics_bundle_text.pack(fill="x")
+        self.diagnostics_bundle_text.configure(state="disabled")
+
+    def refresh_diagnostics_tab(self) -> None:
+        """Fetch a fresh diagnostics_view and re-render every panel."""
+        try:
+            hours = int(self.diagnostics_window_var.get() or "24")
+        except ValueError:
+            hours = 24
+        try:
+            view = diagnostics_view(hours=hours)
+        except Exception as exc:  # noqa: BLE001
+            self.diagnostics_status.set(f"Failed to load diagnostics: {exc}")
+            return
+
+        sources = view.get("sources") or {}
+        ok = sum(1 for b in sources.values() if b.get("health") == "ok")
+        degraded = sum(1 for b in sources.values() if b.get("health") == "degraded")
+        down = sum(1 for b in sources.values() if b.get("health") == "down")
+        self.diagnostics_status.set(
+            f"{view.get('total_events', 0)} events in last {hours}h · "
+            f"{len(sources)} source(s) · {ok} ok · {degraded} degraded · {down} down"
+        )
+
+        # — Sources table —
+        source_rows = []
+        for name in sorted(sources):
+            bucket = sources[name]
+            rate = bucket.get("success_rate")
+            rate_str = "n/a" if rate is None else f"{rate:.0%}"
+            last_error = bucket.get("last_error") or {}
+            source_rows.append(
+                [
+                    name,
+                    (bucket.get("health") or "idle").upper(),
+                    str(bucket.get("total", 0)),
+                    str(bucket.get("errors", 0)),
+                    rate_str,
+                    last_error.get("code") or "",
+                    (last_error.get("message") or "")[:200],
+                ]
+            )
+        self._replace_tree_rows(self.diagnostics_sources_tree, source_rows)
+
+        # — Recent errors table —
+        error_rows = []
+        for event in view.get("recent_errors") or []:
+            error_rows.append(
+                [
+                    event.get("ts") or "",
+                    event.get("source") or "",
+                    (event.get("level") or "").upper(),
+                    event.get("code") or "",
+                    (event.get("message") or "")[:300],
+                ]
+            )
+        self._replace_tree_rows(self.diagnostics_errors_tree, error_rows)
+
+        # — Support bundle —
+        bundle = diagnostics_support_bundle(limit=200)
+        self.diagnostics_bundle_text.configure(state="normal")
+        self.diagnostics_bundle_text.delete("1.0", "end")
+        self.diagnostics_bundle_text.insert("1.0", bundle or "(no events yet)")
+        self.diagnostics_bundle_text.configure(state="disabled")
+        # Stash the path for the "Open log folder" button
+        self._diagnostics_log_path = Path(view.get("log_path") or "")
+
+    def _copy_diagnostics_bundle(self) -> None:
+        """Copy the redacted support bundle to the clipboard."""
+        try:
+            bundle = diagnostics_support_bundle(limit=500)
+            self.clipboard_clear()
+            self.clipboard_append(bundle)
+            self.update_idletasks()
+            self.diagnostics_status.set("Support bundle copied to clipboard.")
+        except Exception as exc:  # noqa: BLE001
+            self.diagnostics_status.set(f"Copy failed: {exc}")
+
+    def _open_diagnostics_log_folder(self) -> None:
+        log_path = getattr(self, "_diagnostics_log_path", None)
+        if log_path and log_path.exists():
+            self._reveal_in_finder(log_path)
 
     def _build_editor_tab(self) -> None:
         toolbar = ttk.Frame(self.editor_tab)

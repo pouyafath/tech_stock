@@ -15,6 +15,20 @@ ROOT = Path(__file__).parent.parent
 CACHE_DIR = ROOT / "data" / ".cache"
 
 
+def _log(level: str, code: str, message: str, context: dict | None = None) -> None:
+    """Lazy import to avoid circular dependency at module load.
+
+    cache.py is imported by every API client; observability imports
+    updater which imports ... only later modules. Defer the import to
+    first use so we don't hit a half-built module graph.
+    """
+    try:
+        from src.observability import log_event
+    except Exception:
+        return
+    log_event("cache", level, code, message, context or {})
+
+
 def _cache_key_to_filename(namespace: str, key: str) -> Path:
     """Hash the namespace+key into a safe filename."""
     raw = f"{namespace}:{key}".encode("utf-8")
@@ -63,9 +77,11 @@ def cached(
                 cached_value = pickle.load(f)
             if should_cache is None or should_cache(cached_value):
                 return cached_value
-        except Exception:
-            # Cache is corrupt or unreadable — fall through to loader
-            pass
+        except Exception as exc:  # noqa: BLE001
+            # Cache is corrupt or unreadable — fall through to loader.
+            # Logged at debug because this is a normal degradation; only
+            # informational if something is consistently broken.
+            _log("warning", "corrupt_read", f"Cache read failed for {namespace}:{key}: {exc}", {"namespace": namespace})
 
     # Cache miss or stale — compute and store
     value = loader()
@@ -76,9 +92,11 @@ def cached(
             with open(tmp, "wb") as f:
                 pickle.dump(value, f)
             tmp.replace(path)  # atomic
-        except Exception:
-            # Cache write failed — not fatal, value is still returned
-            pass
+        except Exception as exc:  # noqa: BLE001
+            # Cache write failed — disk full, perm denied, etc.  Not fatal
+            # (value is still returned to caller) but worth surfacing in
+            # Diagnostics so a consistent broken-cache is visible.
+            _log("error", "write_failed", f"Cache write failed for {namespace}:{key}: {exc}", {"namespace": namespace})
 
     return value
 
@@ -94,8 +112,8 @@ def clear_cache(namespace: str = None):
     for f in target.rglob("*.pkl"):
         try:
             f.unlink()
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001
+            _log("warning", "unlink_failed", f"clear_cache: could not unlink {f.name}: {exc}", {"file": str(f)})
 
 
 if __name__ == "__main__":

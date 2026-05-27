@@ -561,6 +561,74 @@ def decision_scorecard_summary() -> dict[str, Any]:
     return run_decision_scorecard(DECISION_JOURNAL_PATH)
 
 
+def diagnostics_view(*, hours: int = 24) -> dict[str, Any]:
+    """Compact Diagnostics-tab payload.
+
+    Thin wrapper over ``src.observability.source_summary`` plus a small
+    health verdict per source.  Returns:
+      {
+        "window_hours": 24,
+        "sources": {"finnhub": {total, errors, success_rate, last_error,
+                                codes, health: "ok"|"degraded"|"down"}, ...},
+        "recent_errors": [...],
+        "total_events": int,
+        "log_path": str,
+        "rotated_path": str | None,
+      }
+
+    ``health`` is derived from ``success_rate``:
+      * ≥ 0.95 → "ok"
+      * 0.50–0.94 → "degraded"
+      * < 0.50 → "down"
+      * None (no traffic) → "idle"
+    """
+    from src.observability import source_summary
+
+    summary = source_summary(hours=hours)
+    for source, bucket in summary.get("sources", {}).items():
+        rate = bucket.get("success_rate")
+        if rate is None:
+            bucket["health"] = "idle"
+        elif rate >= 0.95:
+            bucket["health"] = "ok"
+        elif rate >= 0.50:
+            bucket["health"] = "degraded"
+        else:
+            bucket["health"] = "down"
+    return summary
+
+
+def diagnostics_support_bundle(*, limit: int = 500) -> str:
+    """Return a redacted JSON-lines tail suitable for copy-paste bug reports."""
+    from src.observability import support_bundle
+
+    return support_bundle(limit=limit)
+
+
+def degradation_health(source: str, *, minutes: int = 60) -> str | None:
+    """Return ``"degraded"`` if ``source`` had errors in the last N minutes.
+
+    Used by inline pills in the Buy Signals / Dashboard tabs so the user
+    sees *which* data source is misbehaving without opening Diagnostics.
+    Returns ``None`` when the source is healthy or has no recent traffic.
+    """
+    from src.observability import source_summary
+
+    hours = max(1, minutes // 60) if minutes >= 60 else 1
+    snapshot = source_summary(hours=hours)
+    bucket = snapshot.get("sources", {}).get(source)
+    if not bucket:
+        return None
+    rate = bucket.get("success_rate")
+    if rate is None:
+        return None
+    if rate < 0.5:
+        return "down"
+    if rate < 0.95:
+        return "degraded"
+    return None
+
+
 def learning_view() -> dict[str, Any]:
     """Aggregated 'Learning' tab data used by every UI.
 

@@ -183,6 +183,47 @@ def verdict_badge(verdict: str | None) -> str:
     return badge(label, color=meta["color"], bg=meta["bg"])
 
 
+# v1.17: health colour map for the Diagnostics tab and inline degradation
+# pills.  Mirrors the readiness scale: green/amber/red/idle-grey.
+HEALTH_META: dict[str, dict[str, str]] = {
+    "ok": {"color": PALETTE.accent, "bg": PALETTE.accent_bg, "emoji": "●", "label": "ok"},
+    "degraded": {"color": PALETTE.warn, "bg": PALETTE.warn_bg, "emoji": "▲", "label": "degraded"},
+    "down": {"color": PALETTE.danger, "bg": PALETTE.danger_bg, "emoji": "✖", "label": "down"},
+    "idle": {"color": PALETTE.subtle, "bg": PALETTE.neutral_bg, "emoji": "·", "label": "idle"},
+}
+
+
+def health_meta(health: str | None) -> dict[str, str]:
+    if not health:
+        return HEALTH_META["idle"]
+    return HEALTH_META.get(str(health).lower(), HEALTH_META["idle"])
+
+
+def health_badge(health: str | None) -> str:
+    """Pill for an API source health verdict (ok / degraded / down / idle)."""
+    meta = health_meta(health)
+    label = f"{meta['emoji']} {meta['label']}"
+    return badge(label, color=meta["color"], bg=meta["bg"])
+
+
+def degradation_pill(source: str, health: str | None) -> str:
+    """Inline pill showing the source name + its current health.
+
+    Designed to live next to a data field that might be stale (e.g. a quote
+    label).  Returns empty string when the source is healthy so callers can
+    unconditionally interpolate the result.
+
+    ``source`` is escaped inside ``badge()`` — do NOT pre-escape here, or
+    the user-supplied source string ends up double-escaped.
+    """
+    if not health or health.lower() == "ok":
+        return ""
+    meta = health_meta(health)
+    # ``badge()`` runs _esc() on the whole text once. Pass the raw source
+    # straight through.
+    return badge(f"{meta['emoji']} {source} {meta['label']}", color=meta["color"], bg=meta["bg"])
+
+
 def conviction_bar(score: float | int | None, *, max_score: int = 10) -> str:
     """Compact horizontal bar visualising a 0–10 conviction score."""
     try:
@@ -585,14 +626,18 @@ __all__ = [
     "SEVERITY_META",
     "READINESS_META",
     "VERDICT_META",
+    "HEALTH_META",
     "action_meta",
     "severity_meta",
     "readiness_meta",
     "verdict_meta",
+    "health_meta",
     "action_badge",
     "severity_badge",
     "readiness_badge",
     "verdict_badge",
+    "health_badge",
+    "degradation_pill",
     "badge",
     "conviction_bar",
     "metric_card",

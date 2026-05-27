@@ -28,6 +28,7 @@ from tenacity import (
 
 from src.cache import cached
 from src.config import load_settings
+from src.observability import log_event
 
 BASE_URL = "https://www.alphavantage.co/query"
 
@@ -64,14 +65,35 @@ def _request(params: dict) -> dict | None:
     r = requests.get(BASE_URL, params=params, timeout=15)
 
     if r.status_code >= 400:
+        log_event(
+            "alpha_vantage",
+            "error",
+            f"http_{r.status_code}",
+            f"Alpha Vantage returned HTTP {r.status_code}",
+            {"function": params.get("function"), "status": r.status_code},
+        )
         return None
     try:
         data = r.json()
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log_event(
+            "alpha_vantage",
+            "error",
+            "json_decode",
+            f"Alpha Vantage JSON decode failed: {exc}",
+            {"function": params.get("function")},
+        )
         return None
 
     # Alpha Vantage wraps errors as JSON {"Note": "...", "Information": "..."}
     if "Note" in data or "Information" in data:
+        log_event(
+            "alpha_vantage",
+            "warning",
+            "rate_limited",
+            f"Alpha Vantage soft-fail: {data.get('Note') or data.get('Information')}",
+            {"function": params.get("function")},
+        )
         return None
     return data
 
@@ -151,7 +173,8 @@ def news_sentiment(ticker: str, limit: int = 10) -> dict | None:
             loader=lambda: _fetch_news_sentiment(ticker, limit),
             enabled=settings.get("cache_enabled", True),
         )
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log_event("alpha_vantage", "error", "sentiment_failed", f"news_sentiment({ticker}) failed: {exc}", {"ticker": ticker})
         return None
 
 
@@ -206,7 +229,8 @@ def earnings_calendar(ticker: str) -> dict | None:
             loader=lambda: _fetch_earnings_calendar(ticker),
             enabled=settings.get("cache_enabled", True),
         )
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log_event("alpha_vantage", "error", "earnings_failed", f"earnings_calendar({ticker}) failed: {exc}", {"ticker": ticker})
         return None
 
 

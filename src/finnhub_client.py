@@ -28,6 +28,7 @@ from tenacity import (
 
 from src.cache import cached
 from src.config import load_settings
+from src.observability import log_event
 
 BASE_URL = "https://finnhub.io/api/v1"
 
@@ -54,12 +55,27 @@ def _request(endpoint: str, params: dict) -> dict | list | None:
     r = requests.get(f"{BASE_URL}{endpoint}", params=params, timeout=10)
     if r.status_code == 429:
         # rate limited; let tenacity retry
+        log_event("finnhub", "warning", "rate_limited", "Finnhub returned 429", {"endpoint": endpoint})
         raise requests.RequestException("Finnhub rate limit")
     if r.status_code >= 400:
+        log_event(
+            "finnhub",
+            "error",
+            f"http_{r.status_code}",
+            f"Finnhub {endpoint} returned HTTP {r.status_code}",
+            {"endpoint": endpoint, "status": r.status_code},
+        )
         return None
     try:
         return r.json()
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — JSON malformation is bounded
+        log_event(
+            "finnhub",
+            "error",
+            "json_decode",
+            f"Finnhub JSON decode failed: {exc}",
+            {"endpoint": endpoint, "status": r.status_code},
+        )
         return None
 
 
