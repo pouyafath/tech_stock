@@ -4,6 +4,31 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.19.1] — 2026-05-27
+
+### Fixed — Close the v1.19 loose ends
+
+v1.19 promised several CLI flags and a workspace-export action via the installer scripts, Privacy card, and scheduler, but the actual code for them wasn't all wired up yet. This patch closes those gaps so the productisation surface matches what users see in the UI / shortcuts.
+
+- **Five new CLI flags in `main.py`** that the Windows installer + launchd / Task Scheduler / cron scripts already invoke:
+  - `--demo` — sets `TECH_STOCK_DEMO_MODE=1` + bypasses onboarding and launches the Streamlit UI on bundled sample data.
+  - `--import-csv PATH` — stages a CSV into `temporary_upload/` (this is the open command bound to Wealthsimple `holdings-report-*.csv` files by the installer's HKCU registry entries).
+  - `--session-type {morning,afternoon}` — alias for the positional `session` arg; scheduler invocations prefer this form.
+  - `--non-interactive` — skips all interactive prompts. With no `session`, auto-picks `morning` before 12:00 / `afternoon` after, so headless launchd / Task Scheduler / cron runs don't hang.
+  - `--force` — surfaces `ALLOW_OVERAGE=1` for the v1.19 monthly-budget gate.
+- **New `src/workspace_export.py`** — wired to the Privacy card's previously-stubbed "Export workspace" button. Produces a zip under `exports/` containing reports, recommendation logs, the journal, thesis log, cost log, samples, and (sanitised) config. Excludes `.env`, `API_KEYS.txt`, the temporary upload folder, and anything matching the secret-file heuristic.
+- **Desktop wizard hook** — `DesktopApp` now checks `needs_onboarding()` on first launch and offers a one-time dialog that opens the Streamlit wizard (which is where the full step-by-step flow lives). The user's choice is stamped to settings.json so the dialog never fires twice.
+
+### Tests
+
+- **533 passing** (was 515). 18 new tests:
+  - `tests/test_cli_flags.py` (10): every new flag is advertised in `--help`; `--version` still short-circuits; `--import-csv` with a missing file exits non-zero; with a valid file stages-and-exits 0.
+  - `tests/test_workspace_export.py` (8): zip is produced, .env / API_KEYS.txt / temporary_upload are excluded, recommendation log + thesis log + cost log + settings.json ARE included, missing-workspace path produces a valid empty-ish zip, unwritable destination reports a clean error.
+
+### Version bumped: 1.19.0 → 1.19.1
+
+---
+
 ## [1.19.0] — 2026-05-27
 
 ### Added — Productisation

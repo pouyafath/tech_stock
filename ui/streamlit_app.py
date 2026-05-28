@@ -1883,7 +1883,27 @@ def _render_diagnostics() -> None:
         )
         col_export, col_delete = st.columns(2)
         with col_export:
-            st.caption("Export everything to a zip: use the existing 'Open workspace' button in the native launcher.")
+            st.caption("Export everything to a zip — secrets (API keys, .env, uploads) are scrubbed automatically.")
+            if st.button("📦 Export workspace…", key="privacy_export_button", width="stretch"):
+                from src.workspace_export import export_summary_text, export_workspace
+
+                result = export_workspace()
+                if result.ok:
+                    _toast("Workspace exported", icon="📦")
+                    st.success(export_summary_text(result))
+                    try:
+                        st.download_button(
+                            "⬇ Download zip",
+                            result.output_path.read_bytes(),
+                            file_name=result.output_path.name,
+                            mime="application/zip",
+                            width="stretch",
+                            key="privacy_export_dl",
+                        )
+                    except OSError as exc:
+                        st.warning(f"Zip written but couldn't read for download: {exc}")
+                else:
+                    st.error(export_summary_text(result))
         with col_delete:
             confirm = st.checkbox(
                 "I understand this deletes my reports, logs, cost history, and journal entries.",

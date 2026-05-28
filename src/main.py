@@ -1197,41 +1197,122 @@ CLI examples:
         help="Also apply this run's recommendations to the paper portfolio "
         "(data/paper_portfolio.json) so you can quantify discretion penalty.",
     )
+    # v1.19.1: flags referenced by the installer / scheduler / launcher
+    parser.add_argument(
+        "--demo",
+        action="store_true",
+        help="Launch the Streamlit UI in demo mode (bundled sample data, no API key required).",
+    )
+    parser.add_argument(
+        "--import-csv",
+        type=Path,
+        metavar="PATH",
+        dest="import_csv",
+        help="Stage a CSV (typically dragged onto the app icon) into the upload folder, then exit.",
+    )
+    parser.add_argument(
+        "--session-type",
+        choices=["morning", "afternoon"],
+        dest="session_type_flag",
+        help="Same as the positional 'session' argument. Accepted for scheduler invocations that use --session-type=morning.",
+    )
+    parser.add_argument(
+        "--non-interactive",
+        action="store_true",
+        help="Skip all interactive prompts. Required for scheduled / cron / launchd runs.",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Override the monthly Anthropic budget cap for this run.",
+    )
     parser.add_argument("--version", action="version", version=f"tech_stock {APP_VERSION}")
 
     args = parser.parse_args()
 
-    if args.session is None:
+    # v1.19.1: --import-csv stages a Wealthsimple CSV into temporary_upload/
+    # and exits.  Used by the Windows CSV file association open command —
+    # the user double-clicks holdings-report-...csv → Windows passes its
+    # path to tech_stock --import-csv <path>.
+    if args.import_csv:
         try:
-            info = check_for_update(timeout=4.0)
-            if info.available:
-                print(f"\n{C.YELLOW}Update available:{C.RESET} version {info.latest_version} (current {info.current_version})")
-                answer = input("Do you want to update now? [y/N]: ").strip().lower()
-                if answer in {"y", "yes"}:
-                    result = apply_update(info, restart=False)
-                    print(result.message)
-                    print(f"Update log: {result.log_path}")
-                    if result.ok:
-                        return
-            elif info.error:
-                print(f"{C.DIM}{update_status_text(info)}{C.RESET}")
-        except (EOFError, KeyboardInterrupt):
-            print()
-            return
-        except Exception as exc:
-            print(f"{C.DIM}Update check skipped: {exc}{C.RESET}")
-
-        cfg = interactive_setup()
-        run(
-            session_type=cfg["session_type"],
-            holdings_csv=cfg["holdings_path"],
-            activities_csv=cfg["activities_path"],
-            budget_usd=cfg["budget_usd"],
-            budget_cad=cfg["budget_cad"],
-            model_id=cfg["model_id"],
-            model_name=cfg["model_name"],
-        )
+            staged = copy_csv_to_temp(Path(args.import_csv))
+            print(f"{C.GREEN}✓ Imported{C.RESET} {args.import_csv} → {staged}")
+            print(f"  Next: run {C.CYAN}python -m src.main morning{C.RESET} (or launch the UI).")
+        except (OSError, FileNotFoundError) as exc:
+            print(f"{C.RED}[ERROR]{C.RESET} Could not import CSV: {exc}")
+            sys.exit(1)
         return
+
+    # v1.19.1: --demo flips on demo-mode and bounces straight into Streamlit.
+    if args.demo:
+        os.environ["TECH_STOCK_DEMO_MODE"] = "1"
+        os.environ["TECH_STOCK_SKIP_ONBOARDING"] = "1"
+        try:
+            from src.ui_launcher import launch_streamlit  # type: ignore[import-not-found]
+
+            launch_streamlit()
+        except Exception:
+            # Fall back to dispatching through app_gui so frozen bundles still work.
+            try:
+                from src.app_gui import _run_streamlit as _run_streamlit  # type: ignore[import-not-found]
+
+                _run_streamlit()
+            except Exception as exc:
+                print(f"{C.RED}[ERROR]{C.RESET} Could not start Streamlit demo: {exc}")
+                sys.exit(1)
+        return
+
+    # v1.19.1: --session-type is an alias for the positional ``session``
+    # arg.  The scheduler emits ``--session-type morning`` because passing
+    # a positional is awkward in launchd / Task Scheduler XML.
+    if args.session_type_flag and not args.session:
+        args.session = args.session_type_flag
+
+    # v1.19.1: --force surfaces as ALLOW_OVERAGE=1 for the budget gate.
+    if args.force:
+        os.environ["ALLOW_OVERAGE"] = "1"
+
+    if args.session is None:
+        # v1.19.1: scheduled runs (launchd / Task Scheduler / cron) can't
+        # answer prompts, so --non-interactive without a session picks the
+        # right one based on local time.  Morning before 12:00, afternoon
+        # after.  Avoids hangs in headless invocations.
+        if args.non_interactive:
+            hour = datetime.now().hour
+            args.session = "morning" if hour < 12 else "afternoon"
+            print(f"{C.DIM}[tech_stock] Non-interactive mode: auto-selected '{args.session}' session.{C.RESET}")
+        else:
+            try:
+                info = check_for_update(timeout=4.0)
+                if info.available:
+                    print(f"\n{C.YELLOW}Update available:{C.RESET} version {info.latest_version} (current {info.current_version})")
+                    answer = input("Do you want to update now? [y/N]: ").strip().lower()
+                    if answer in {"y", "yes"}:
+                        result = apply_update(info, restart=False)
+                        print(result.message)
+                        print(f"Update log: {result.log_path}")
+                        if result.ok:
+                            return
+                elif info.error:
+                    print(f"{C.DIM}{update_status_text(info)}{C.RESET}")
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return
+            except Exception as exc:
+                print(f"{C.DIM}Update check skipped: {exc}{C.RESET}")
+
+            cfg = interactive_setup()
+            run(
+                session_type=cfg["session_type"],
+                holdings_csv=cfg["holdings_path"],
+                activities_csv=cfg["activities_path"],
+                budget_usd=cfg["budget_usd"],
+                budget_cad=cfg["budget_cad"],
+                model_id=cfg["model_id"],
+                model_name=cfg["model_name"],
+            )
+            return
 
     if args.holdings and not args.holdings.exists():
         print(f"{C.RED}[ERROR]{C.RESET} Holdings CSV not found: {args.holdings}")

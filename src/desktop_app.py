@@ -196,6 +196,11 @@ class DesktopApp(tk.Tk):
         # The window now appears instantly; heavy I/O happens behind the scenes.
         self.after_idle(self._post_paint_warmup)
 
+        # v1.19.1: show a "use the wizard" hint on first launch.  The full
+        # wizard lives in Streamlit so the Tk window doesn't have to
+        # reimplement the whole flow; we just tell the user where to go.
+        self.after(800, self._maybe_show_onboarding_hint)
+
     def _configure_style(self) -> None:
         style = ttk.Style(self)
         try:
@@ -473,6 +478,60 @@ class DesktopApp(tk.Tk):
         else:
             parts.append("✓ clean")
         self.header_status_var.set(" · ".join(parts) or "Ready.")
+
+    def _maybe_show_onboarding_hint(self) -> None:
+        """v1.19.1: nudge first-time users toward the Streamlit wizard.
+
+        The Tk app shows a dialog once with two options: launch Streamlit
+        (where the full wizard lives) or skip and continue in the Desktop
+        flow. A flag is stamped to settings.json so the dialog never fires
+        twice for the same user.
+        """
+        try:
+            from src.onboarding import current_state, needs_onboarding
+        except Exception:
+            return
+        try:
+            if not needs_onboarding():
+                return
+            state = current_state()
+            # If the user already declined once (advanced past 'welcome'),
+            # respect that and don't pop the dialog again.
+            if "welcome" in (state.completed or []):
+                return
+        except Exception:
+            return
+
+        from tkinter import messagebox
+
+        should_launch = messagebox.askyesno(
+            "Welcome to tech_stock",
+            "Looks like this is your first time. We have a 3-minute setup "
+            "wizard (Anthropic API key, monthly budget, where to find your "
+            "Wealthsimple CSV) that lives in the Streamlit UI.\n\n"
+            "Open the wizard now? (You can also keep using the Desktop app — "
+            "just paste your API key into config/.env when you're ready.)",
+        )
+        # Mark welcome as completed either way so this only fires once.
+        try:
+            from src.onboarding import advance
+
+            advance(current="welcome", skip_demo=not should_launch)
+        except Exception:
+            pass
+        if should_launch:
+            # Reuse the Streamlit dispatch path from the launcher.
+            try:
+                import subprocess
+
+                import sys
+
+                subprocess.Popen(
+                    [sys.executable, "-m", "src.main", "--demo"] if hasattr(sys, "executable") else ["tech_stock", "--demo"],
+                    start_new_session=(sys.platform != "win32"),
+                )
+            except Exception:
+                pass
 
     def _show_about_dialog(self) -> None:
         from tkinter import messagebox

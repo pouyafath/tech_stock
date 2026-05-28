@@ -50,6 +50,17 @@
 
 ---
 
+## ✨ What's New in v1.19.1 (May 27, 2026)
+
+**Patch: close the v1.19 loose ends.**
+
+- **5 new CLI flags** the installer / scheduler already invoked: `--demo`, `--import-csv PATH`, `--session-type`, `--non-interactive`, `--force`. With `--non-interactive` and no session given, the CLI auto-picks `morning` (before noon) or `afternoon` based on local time, so headless launchd / Task Scheduler / cron runs no longer hang.
+- **Workspace export-as-zip** (`src/workspace_export.py`) — wired into the Privacy card's previously-stubbed "Export workspace" button. Secrets (`.env`, `API_KEYS.txt`, the temporary upload folder, anything looking like a key/PEM) are scrubbed automatically; reports / logs / journal / thesis log / cost log / settings.json are included.
+- **Desktop wizard hook** — the Tk desktop app now shows a one-time dialog on first launch pointing at the Streamlit wizard (where the full step-by-step flow lives).
+- **515 → 533 tests**. Two new test files: `test_cli_flags.py` (10) and `test_workspace_export.py` (8).
+
+Current local suite: `pytest -q` passes with 533 tests in ~3 s.
+
 ## ✨ What's New in v1.19.0 (May 27, 2026)
 
 **Productisation — any Wealthsimple account holder can now install + use this, not just developers.**
