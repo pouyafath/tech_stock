@@ -8,6 +8,7 @@ for the Windows CSV file association, etc.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -88,6 +89,8 @@ def test_build_bat_has_signing_hook():
 
 
 def test_build_linux_script_exists_and_is_executable():
+    if sys.platform == "win32":
+        pytest.skip("POSIX executable bits are not preserved in Windows checkouts")
     path = ROOT / "build_linux.sh"
     assert path.exists()
     assert (path.stat().st_mode & 0o111) != 0, "build_linux.sh should be executable"

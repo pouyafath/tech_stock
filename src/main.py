@@ -1259,7 +1259,7 @@ CLI examples:
     if args.import_csv:
         try:
             staged = copy_csv_to_temp(Path(args.import_csv))
-            print(f"{C.GREEN}✓ Imported{C.RESET} {args.import_csv} → {staged}")
+            print(f"{C.GREEN}[OK] Imported{C.RESET} {args.import_csv} -> {staged}")
             print(f"  Next: run {C.CYAN}python -m src.main morning{C.RESET} (or launch the UI).")
         except (OSError, FileNotFoundError) as exc:
             print(f"{C.RED}[ERROR]{C.RESET} Could not import CSV: {exc}")

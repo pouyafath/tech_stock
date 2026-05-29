@@ -105,18 +105,20 @@ def test_tail_returns_empty_on_missing_file(tmp_path):
 
 def test_open_path_in_finder_uses_open_on_macos(monkeypatch):
     captured = []
+    expected_path = str(Path("/tmp/example"))
     monkeypatch.setattr(sys, "platform", "darwin")
     monkeypatch.setattr(app_gui.subprocess, "Popen", lambda cmd, **kw: captured.append(cmd) or object())
     app_gui._open_path_in_finder(Path("/tmp/example"))
-    assert captured == [["open", "/tmp/example"]]
+    assert captured == [["open", expected_path]]
 
 
 def test_open_path_in_finder_uses_xdg_on_linux(monkeypatch):
     captured = []
+    expected_path = str(Path("/tmp/example"))
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(app_gui.subprocess, "Popen", lambda cmd, **kw: captured.append(cmd) or object())
     app_gui._open_path_in_finder(Path("/tmp/example"))
-    assert captured == [["xdg-open", "/tmp/example"]]
+    assert captured == [["xdg-open", expected_path]]
 
 
 def test_open_path_in_finder_swallows_errors(monkeypatch):
