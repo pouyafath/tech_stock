@@ -4,6 +4,36 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.20.0] — 2026-05-27
+
+### Added — Release engineering + docs
+
+A release-engineering pass that turns shipping into a one-tag-push operation, plus a full docs refactor.
+
+#### Release engineering
+
+- **`.github/workflows/build_release.yml` rewritten end-to-end**. On a `v*.*.*` tag push: a three-OS test gate (`macos-14`, `windows-latest`, `ubuntu-22.04`) runs `pytest -q` + `ruff check` + `ruff format --check` in parallel. If any platform fails the gate, the build jobs do NOT run — silent abort. Otherwise three parallel build jobs produce the macOS `.dmg`, the Windows folder + Inno Setup installer (Chocolatey-installed `iscc`, version injected from `src/version.py`), and the Linux AppImage (or tarball fallback). A final `release` job downloads every artefact, generates `SHA256SUMS.txt`, parses the matching CHANGELOG section, and publishes a draft GitHub Release with the parsed body + every artefact attached.
+- **New `src/changelog_utils.py`** — CLI-callable parser (`python -m src.changelog_utils 1.20.0`, `--latest`, `--list`) that the workflow uses to populate the GitHub Release body. Also exposed programmatically: `parse_section()`, `latest_section()`, `all_versions()`.
+
+#### Docs refactor
+
+- **`README.md` trimmed from 1583 → 1128 lines** (~29% smaller). Older "What's New" history (v1.18.0 → v1.3.0) replaced with a one-line pointer to `CHANGELOG.md`. The giant inline Architecture section replaced with a one-paragraph summary pointing at `docs/ARCHITECTURE.md`. New "📖 Documentation" index linking to every new doc file.
+- **New `docs/ARCHITECTURE.md`** — module map (with one-line purpose per file), data flow per session (10 steps), the 7-layer quality-gate reference, the learning-loop diagram, storage layout, and five explicit design tenets (never silently swallow, additive schema, tests with every feature, production = default-safe, tools not toys).
+- **New `docs/COOKBOOK.md`** — 12 common workflows: demo mode without setup, single CLI report, scheduled runs, monthly budget caps, replaying old sessions, editing settings, wiping data, exporting the workspace, backtesting past recommendations, hooking custom notifications, running tests, building bundles.
+- **New `docs/RELEASE_PROCESS.md`** — exact tag-to-release flow, what each CI job does, how to hot-fix a botched release, future tightening (notarisation, signtool, pip-audit gate).
+- **`CONTRIBUTING.md` rewritten** — design tenets, daily workflow, commit-message style with real examples, three "adding a new X" pattern guides (UI tab, API source, CLI flag), files-you-shouldn't-commit reference, areas where contributions are most welcome.
+
+### Tests
+
+- **579 passing** (was 533). 46 new tests:
+  - `tests/test_changelog_utils.py` (13): section parsing, body trimming, hyphen/en-dash separator support, pre-release versions, latest extraction, CLI exit codes, real-repo round-trip.
+  - `tests/test_release_workflow.py` (15): YAML schema validity, three-OS matrix coverage, test-gate-before-builds dependency, release-only-on-tag gate, contents:write permission, CHANGELOG parser invocation, SHA256 generation, draft Release publication, macOS hdiutil step, Windows `iscc /DAppVersion`, Linux `build_linux.sh` invocation.
+  - `tests/test_docs_links.py` (18): every docs file exists, every internal markdown link in `README.md` / `CONTRIBUTING.md` / `CHANGELOG.md` / `docs/*.md` resolves, README advertises every doc, RELEASE_PROCESS references the parser, ARCHITECTURE lists every v1.17-v1.19 module, CONTRIBUTING carries the design tenets, COOKBOOK covers the main workflows.
+
+### Version bumped: 1.19.1 → 1.20.0
+
+---
+
 ## [1.19.1] — 2026-05-27
 
 ### Fixed — Close the v1.19 loose ends

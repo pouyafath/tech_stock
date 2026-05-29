@@ -1,7 +1,16 @@
 name: Build & Release
 
-# Trigger on version tags  (e.g.  git tag v1.0.0 && git push --tags)
-# or manually from the Actions tab.
+# v1.20 — Three-platform tag-triggered release pipeline.
+#
+# Push a `vX.Y.Z` tag to ship:
+#   git tag v1.20.0 && git push --tags
+#
+# Each platform job runs pytest + ruff format/check *first*; a failing
+# test gate aborts the release.  Then the platform-specific build script
+# runs and uploads its artefact.  The release job downloads every artefact,
+# generates a SHA256SUMS file, extracts the matching CHANGELOG section,
+# and publishes a draft GitHub Release ready for human review.
+
 on:
   push:
     tags:
@@ -9,9 +18,14 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ── macOS .dmg ─────────────────────────────────────────────────────────────
-  build-macos:
-    runs-on: macos-14          # Apple Silicon runner (M1) — fastest macOS build
+  # ── Test gate (runs on every push, fast — caches kept warm) ────────────────
+  test-gate:
+    name: Tests + ruff (${{ matrix.os }})
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [macos-14, windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -19,6 +33,37 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt || pip install ruff pytest pip-audit
+
+      - name: Ruff format check
+        run: ruff format --check src/ tests/ ui/ tools/
+
+      - name: Ruff lint
+        run: ruff check src/ tests/ ui/ tools/
+
+      - name: Pytest
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: pytest -q
+
+  # ── macOS .dmg ─────────────────────────────────────────────────────────────
+  build-macos:
+    needs: test-gate
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
 
       - name: Install dependencies + PyInstaller
         run: |
@@ -32,9 +77,7 @@ jobs:
           python - << 'EOF'
           import subprocess, os, shutil
           src = 'assets/icon.png'
-          # Generate icon.png if missing
           if not os.path.exists(src):
-              # Minimal green circle PNG via Python stdlib
               import struct, zlib
               size = 512
               raw = b''
@@ -52,7 +95,6 @@ jobs:
               hdr=struct.pack('>II',size,size)+bytes([8,6,0,0,0])
               png=b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',hdr)+chunk(b'IDAT',zlib.compress(raw,9))+chunk(b'IEND',b'')
               open(src,'wb').write(png)
-
           iconset='assets/icon.iconset'
           os.makedirs(iconset,exist_ok=True)
           for s in [16,32,64,128,256,512]:
@@ -60,16 +102,12 @@ jobs:
               subprocess.run(['sips','-z',str(s*2),str(s*2),src,'--out',f'{iconset}/icon_{s}x{s}@2x.png'],capture_output=True)
           subprocess.run(['iconutil','-c','icns',iconset,'-o','assets/icon.icns'],check=True)
           shutil.rmtree(iconset)
-          print('icon.icns created')
           EOF
 
       - name: Build with PyInstaller
         run: pyinstaller tech_stock.spec --noconfirm --clean
 
-      - name: Ad-hoc code-sign
-        # Future notarization path, when an Apple Developer ID is available:
-        # replace this with Developer ID signing, submit with notarytool using
-        # GitHub Secrets, staple the notarization ticket, then package the DMG.
+      - name: Ad-hoc code-sign (notarisation hook lands in v1.21+)
         run: codesign --force --deep --sign - dist/tech_stock.app || true
 
       - name: Package into .dmg
@@ -90,8 +128,9 @@ jobs:
           path: dist/tech_stock.dmg
           retention-days: 30
 
-  # ── Windows .exe ───────────────────────────────────────────────────────────
+  # ── Windows .exe + Inno Setup installer ────────────────────────────────────
   build-windows:
+    needs: test-gate
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -100,6 +139,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
 
       - name: Install dependencies + PyInstaller
         run: |
@@ -127,51 +167,163 @@ jobs:
           img_entry = struct.pack('<BBBBHHII', size, size, 0, 0, 1, 32, len(img), 22)
           os.makedirs('assets', exist_ok=True)
           open('assets/icon.ico', 'wb').write(ico_dir + img_entry + img)
-          print('icon.ico created')
 
       - name: Build with PyInstaller
         run: pyinstaller tech_stock.spec --noconfirm --clean
 
-      - name: Upload .exe artifact
+      - name: Parse version from src/version.py
+        id: version
+        shell: pwsh
+        run: |
+          $line = Select-String -Path src/version.py -Pattern '^APP_VERSION\s*=' | Select-Object -First 1
+          $ver = ($line.Line -split '"')[1]
+          echo "version=$ver" >> $env:GITHUB_OUTPUT
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build Inno Setup installer
+        shell: pwsh
+        run: |
+          iscc /DAppVersion=${{ steps.version.outputs.version }} installer_windows.iss
+
+      - name: Upload .exe folder artifact
         uses: actions/upload-artifact@v4
         with:
           name: tech_stock-windows
           path: dist/tech_stock/
           retention-days: 30
 
-  # ── GitHub Release ─────────────────────────────────────────────────────────
+      - name: Upload Windows installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tech_stock-windows-installer
+          path: dist/tech_stock_setup.exe
+          retention-days: 30
+
+  # ── Linux AppImage ─────────────────────────────────────────────────────────
+  build-linux:
+    needs: test-gate
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2 desktop-file-utils
+
+      - name: Install appimagetool
+        run: |
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O /tmp/appimagetool
+          chmod +x /tmp/appimagetool
+          sudo mv /tmp/appimagetool /usr/local/bin/appimagetool
+
+      - name: Install Python dependencies + PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install "pyinstaller>=6.0"
+
+      - name: Run build_linux.sh
+        run: bash build_linux.sh
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tech_stock-linux
+          path: dist/tech_stock-*.AppImage
+          retention-days: 30
+        continue-on-error: true
+
+      - name: Upload tarball fallback artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tech_stock-linux-tarball
+          path: dist/tech_stock-*-linux-x86_64.tar.gz
+          retention-days: 30
+        continue-on-error: true
+
+  # ── GitHub Release with parsed CHANGELOG body ──────────────────────────────
   release:
-    needs: [build-macos, build-windows]
-    runs-on: ubuntu-latest
+    needs: [build-macos, build-windows, build-linux]
+    runs-on: ubuntu-22.04
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download macOS artifact
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Extract version from tag
+        id: tagver
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Detected tag version: $TAG_VERSION"
+
+      - name: Parse matching CHANGELOG section
+        id: notes
+        run: |
+          # Falls back to "Latest" if the exact version isn't in CHANGELOG yet.
+          set -e
+          BODY=$(python -m src.changelog_utils "${{ steps.tagver.outputs.version }}" 2>/dev/null || python -m src.changelog_utils --latest)
+          {
+            echo 'body<<EOF'
+            echo "$BODY"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download all artefacts
         uses: actions/download-artifact@v4
         with:
-          name: tech_stock-macos
           path: release/
 
-      - name: Download Windows artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: tech_stock-windows
-          path: release/windows/
+      - name: Zip Windows folder build
+        run: |
+          if [ -d release/tech_stock-windows ]; then
+            cd release && zip -r tech_stock-windows.zip tech_stock-windows/
+          fi
 
-      - name: Zip Windows build
-        run: cd release && zip -r tech_stock-windows.zip windows/
+      - name: Flatten artefacts into release/ root
+        run: |
+          set -e
+          cd release
+          # Move every artefact's content up one level
+          for d in tech_stock-macos tech_stock-windows-installer tech_stock-linux tech_stock-linux-tarball; do
+            if [ -d "$d" ]; then
+              mv -v "$d"/* . || true
+              rmdir "$d" 2>/dev/null || true
+            fi
+          done
 
-      - name: Generate checksums
-        run: cd release && sha256sum tech_stock.dmg tech_stock-windows.zip > SHA256SUMS.txt
+      - name: Generate SHA256 checksums
+        run: |
+          cd release
+          ls -la
+          find . -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.tar.gz' \) -print0 | xargs -0 sha256sum > SHA256SUMS.txt
+          cat SHA256SUMS.txt
 
-      - name: Create GitHub Release
+      - name: Create draft GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          draft: true
+          name: "tech_stock v${{ steps.tagver.outputs.version }}"
+          body: ${{ steps.notes.outputs.body }}
           files: |
-            release/tech_stock.dmg
-            release/tech_stock-windows.zip
+            release/*.dmg
+            release/*.zip
+            release/*.exe
+            release/*.AppImage
+            release/*.tar.gz
             release/SHA256SUMS.txt
-          generate_release_notes: true
