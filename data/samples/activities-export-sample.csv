@@ -1,0 +1,7 @@
+date,transaction,description,amount,currency,balance,symbol,quantity,price
+2026-05-15,BUY,NVDA - Bought 4 shares,-553.68,USD,1100.00,NVDA,4,138.42
+2026-05-10,BUY,VOO - Bought 2 shares,-1097.82,USD,1500.00,VOO,2,548.91
+2026-05-05,DEPOSIT,Interac e-Transfer deposit,2000.00,CAD,3200.00,,,
+2026-04-28,BUY,SHOP.TO - Bought 5 shares,-710.50,CAD,1200.00,SHOP.TO,5,142.10
+2026-04-22,BUY,MSFT - Bought 2 shares,-844.36,USD,1444.36,MSFT,2,422.18
+2026-04-15,DEPOSIT,Interac e-Transfer deposit,2500.00,CAD,2500.00,,,

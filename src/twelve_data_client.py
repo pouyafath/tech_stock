@@ -27,6 +27,7 @@ from tenacity import (
 
 from src.cache import cached
 from src.config import load_settings
+from src.observability import log_event
 
 BASE_URL = "https://api.twelvedata.com"
 
@@ -60,19 +61,35 @@ def _request(endpoint: str, params: dict) -> dict | None:
     _last_call_time = time.monotonic()
 
     if r.status_code >= 400:
+        log_event(
+            "twelve_data",
+            "error",
+            f"http_{r.status_code}",
+            f"Twelve Data {endpoint} returned HTTP {r.status_code}",
+            {"endpoint": endpoint, "status": r.status_code},
+        )
         return None
     try:
         data = r.json()
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log_event("twelve_data", "error", "json_decode", f"Twelve Data JSON decode failed: {exc}", {"endpoint": endpoint})
         return None
 
     # Twelve Data signals errors in the JSON body
     if isinstance(data, dict) and data.get("status") == "error":
+        log_event(
+            "twelve_data",
+            "warning",
+            "soft_error",
+            f"Twelve Data soft-fail: {data.get('message', '?')}",
+            {"endpoint": endpoint, "code": data.get("code")},
+        )
         return None
     return data
 
 
 # ── Real-time quote ───────────────────────────────────────────────────────────
+
 
 def _fetch_quote(ticker: str) -> dict | None:
     # Twelve Data uses "/" instead of "." for Canadian tickers (e.g. SHOP/TSX)
@@ -94,7 +111,8 @@ def _fetch_quote(ticker: str) -> dict | None:
             "currency": data.get("currency"),
             "source": "twelve_data",
         }
-    except (KeyError, ValueError, TypeError):
+    except (KeyError, ValueError, TypeError) as exc:
+        log_event("twelve_data", "warning", "quote_parse", f"_fetch_quote({ticker}) parse failed: {exc}", {"ticker": ticker})
         return None
 
 
@@ -112,11 +130,13 @@ def quote(ticker: str) -> dict | None:
             loader=lambda: _fetch_quote(ticker),
             enabled=settings.get("cache_enabled", True),
         )
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log_event("twelve_data", "error", "quote_failed", f"quote({ticker}) failed: {exc}", {"ticker": ticker})
         return None
 
 
 # ── Earnings dates ────────────────────────────────────────────────────────────
+
 
 def _fetch_earnings(ticker: str) -> dict | None:
     symbol = ticker.replace(".TO", "/TSX").replace(".V", "/TSXV")
@@ -163,12 +183,14 @@ def earnings(ticker: str) -> dict | None:
             loader=lambda: _fetch_earnings(ticker),
             enabled=settings.get("cache_enabled", True),
         )
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log_event("twelve_data", "error", "earnings_failed", f"earnings({ticker}) failed: {exc}", {"ticker": ticker})
         return None
 
 
 if __name__ == "__main__":
     import json
+
     if not _api_key():
         print("TWELVE_DATA_API_KEY not set — skipping live test")
     else:

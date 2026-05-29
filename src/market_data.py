@@ -31,6 +31,7 @@ from src.constants import CROSS_ASSET_TICKERS, SECTOR_ROTATION_TICKERS
 
 # ── Technical indicators ────────────────────────────────────────────────────
 
+
 def _safe_float(x) -> float | None:
     """Convert possibly-NaN value to None or rounded float."""
     try:
@@ -122,14 +123,26 @@ def compute_indicators(hist: pd.DataFrame) -> dict:
     """
     if hist is None or hist.empty or len(hist) < 15:
         return {
-            "rsi_14": None, "macd": None, "macd_signal": None, "macd_hist": None,
-            "bb_upper": None, "bb_middle": None, "bb_lower": None, "bb_pct": None,
-            "sma_50": None, "sma_200": None,
-            "price_vs_sma50_pct": None, "price_vs_sma200_pct": None,
-            "sma_50_above_200": None, "golden_cross_within_30d": None,
-            "death_cross_within_30d": None, "atr_14": None,
-            "atr_pct_of_price": None, "volatility_5d_pct": None,
-            "volatility_20d_pct": None, "vol_regime": None,
+            "rsi_14": None,
+            "macd": None,
+            "macd_signal": None,
+            "macd_hist": None,
+            "bb_upper": None,
+            "bb_middle": None,
+            "bb_lower": None,
+            "bb_pct": None,
+            "sma_50": None,
+            "sma_200": None,
+            "price_vs_sma50_pct": None,
+            "price_vs_sma200_pct": None,
+            "sma_50_above_200": None,
+            "golden_cross_within_30d": None,
+            "death_cross_within_30d": None,
+            "atr_14": None,
+            "atr_pct_of_price": None,
+            "volatility_5d_pct": None,
+            "volatility_20d_pct": None,
+            "vol_regime": None,
             "volume_spike_ratio": None,
         }
 
@@ -182,12 +195,8 @@ def compute_indicators(hist: pd.DataFrame) -> dict:
     sma50_series = close.rolling(50).mean() if len(close) >= 50 else None
     sma200_series = close.rolling(200).mean() if len(close) >= 200 else None
 
-    price_vs_sma50_pct = (
-        _safe_float((current_price - sma_50) / sma_50 * 100) if sma_50 else None
-    )
-    price_vs_sma200_pct = (
-        _safe_float((current_price - sma_200) / sma_200 * 100) if sma_200 else None
-    )
+    price_vs_sma50_pct = _safe_float((current_price - sma_50) / sma_50 * 100) if sma_50 else None
+    price_vs_sma200_pct = _safe_float((current_price - sma_200) / sma_200 * 100) if sma_200 else None
     sma_50_above_200 = bool(sma_50 and sma_200 and sma_50 > sma_200) if sma_50 and sma_200 else None
     golden_cross_within_30d = death_cross_within_30d = None
     if sma50_series is not None and sma200_series is not None:
@@ -201,11 +210,14 @@ def compute_indicators(hist: pd.DataFrame) -> dict:
     atr_14 = atr_pct_of_price = None
     if len(close) >= 15:
         prev_close = close.shift(1)
-        true_range = pd.concat([
-            high - low,
-            (high - prev_close).abs(),
-            (low - prev_close).abs(),
-        ], axis=1).max(axis=1)
+        true_range = pd.concat(
+            [
+                high - low,
+                (high - prev_close).abs(),
+                (low - prev_close).abs(),
+            ],
+            axis=1,
+        ).max(axis=1)
         atr_val = true_range.rolling(14).mean().iloc[-1]
         atr_14 = _safe_float(atr_val)
         atr_pct_of_price = _safe_float(atr_val / current_price * 100) if current_price else None
@@ -257,6 +269,7 @@ def compute_indicators(hist: pd.DataFrame) -> dict:
 
 # ── yfinance fetch with retry + cache ───────────────────────────────────────
 
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -295,12 +308,12 @@ def _fetch_ticker_raw(ticker: str, history_months: int, include_options: bool = 
     pre_market_price = _safe_float(info.get("preMarketPrice"))
     post_market_price = _safe_float(info.get("postMarketPrice"))
     pre_market_change_pct = (
-        _safe_float((pre_market_price - previous_close) / previous_close * 100)
-        if pre_market_price is not None and previous_close else None
+        _safe_float((pre_market_price - previous_close) / previous_close * 100) if pre_market_price is not None and previous_close else None
     )
     post_market_change_pct = (
         _safe_float((post_market_price - previous_close) / previous_close * 100)
-        if post_market_price is not None and previous_close else None
+        if post_market_price is not None and previous_close
+        else None
     )
     currency = info.get("currency", "USD")
     quote_timestamp_utc = _epoch_to_utc_iso(info.get("regularMarketTime"))
@@ -313,52 +326,43 @@ def _fetch_ticker_raw(ticker: str, history_months: int, include_options: bool = 
         prev = float(hist["Close"].iloc[-(n_days + 1)])
         return round((current_price - prev) / prev * 100, 2)
 
-    change_pct_1d = (
-        round((current_price - previous_close) / previous_close * 100, 2)
-        if previous_close else pct_change(1)
-    )
+    change_pct_1d = round((current_price - previous_close) / previous_close * 100, 2) if previous_close else pct_change(1)
 
     # Tail history (last 90 days) as list of dicts
     history_records = []
     for idx, row in hist.tail(90).iterrows():
-        history_records.append({
-            "date": str(idx.date()),
-            "open": round(float(row["Open"]), 2),
-            "high": round(float(row["High"]), 2),
-            "low": round(float(row["Low"]), 2),
-            "close": round(float(row["Close"]), 2),
-            "volume": int(row["Volume"]),
-        })
+        history_records.append(
+            {
+                "date": str(idx.date()),
+                "open": round(float(row["Open"]), 2),
+                "high": round(float(row["High"]), 2),
+                "low": round(float(row["Low"]), 2),
+                "close": round(float(row["Close"]), 2),
+                "volume": int(row["Volume"]),
+            }
+        )
 
     fifty_two_week_high = info.get("fiftyTwoWeekHigh")
     pct_from_52w_high = None
     if fifty_two_week_high and fifty_two_week_high > 0:
-        pct_from_52w_high = round(
-            (current_price - fifty_two_week_high) / fifty_two_week_high * 100, 2
-        )
+        pct_from_52w_high = round((current_price - fifty_two_week_high) / fifty_two_week_high * 100, 2)
 
     avg_vol = info.get("averageVolume") or info.get("averageDailyVolume10Day")
     indicators = compute_indicators(hist)
     market_cap = info.get("marketCap")
     free_cashflow = info.get("freeCashflow")
     free_cashflow_yield_pct = (
-        _safe_float(float(free_cashflow) / float(market_cap) * 100)
-        if free_cashflow is not None and market_cap else None
+        _safe_float(float(free_cashflow) / float(market_cap) * 100) if free_cashflow is not None and market_cap else None
     )
-    gross_margin_pct = (
-        _safe_float(float(info.get("grossMargins")) * 100)
-        if info.get("grossMargins") is not None else None
-    )
-    operating_margin_pct = (
-        _safe_float(float(info.get("operatingMargins")) * 100)
-        if info.get("operatingMargins") is not None else None
-    )
+    gross_margin_pct = _safe_float(float(info.get("grossMargins")) * 100) if info.get("grossMargins") is not None else None
+    operating_margin_pct = _safe_float(float(info.get("operatingMargins")) * 100) if info.get("operatingMargins") is not None else None
     dividend_yield = _safe_float(info.get("dividendYield"))
-    dividend_yield_pct = (
-        _safe_float(dividend_yield * 100)
-        if dividend_yield is not None and dividend_yield <= 1
-        else dividend_yield
-    )
+    dividend_yield_pct = _safe_float(dividend_yield * 100) if dividend_yield is not None and dividend_yield <= 1 else dividend_yield
+    analyst_target_low = _safe_float(info.get("targetLowPrice"))
+    analyst_target_mean = _safe_float(info.get("targetMeanPrice"))
+    analyst_target_median = _safe_float(info.get("targetMedianPrice"))
+    analyst_target_high = _safe_float(info.get("targetHighPrice"))
+    number_of_analyst_opinions = info.get("numberOfAnalystOpinions")
 
     return {
         "ticker": ticker,
@@ -394,6 +398,14 @@ def _fetch_ticker_raw(ticker: str, history_months: int, include_options: bool = 
         "operating_margins": info.get("operatingMargins"),
         "operating_margin_pct": operating_margin_pct,
         "debt_to_equity": info.get("debtToEquity"),
+        "analyst_target_low": analyst_target_low,
+        "analyst_target_mean": analyst_target_mean,
+        "analyst_target_median": analyst_target_median,
+        "analyst_target_high": analyst_target_high,
+        "number_of_analyst_opinions": number_of_analyst_opinions,
+        "recommendation_key": info.get("recommendationKey"),
+        "recommendation_mean": _safe_float(info.get("recommendationMean")),
+        "analyst_target_source": "yfinance:quoteSummary",
         "dividend_rate": info.get("dividendRate"),
         "dividend_yield_pct": dividend_yield_pct,
         "ex_dividend_date": _epoch_to_utc_iso(info.get("exDividendDate")),
@@ -417,7 +429,10 @@ def get_ticker_data(ticker: str, history_months: int = 10) -> dict:
     settings = load_settings()
     cache_enabled = settings.get("cache_enabled", True)
     ttl = settings.get("market_data_cache_ttl_seconds", settings.get("cache_ttl_seconds", 3600))
-    cache_version = settings.get("market_data_cache_version", 4)
+    try:
+        cache_version = max(int(settings.get("market_data_cache_version", 5) or 5), 5)
+    except (TypeError, ValueError):
+        cache_version = 5
     include_options = settings.get("enable_options_implied_move_all", False)
 
     try:
@@ -513,6 +528,7 @@ def get_portfolio_prices(holdings: list) -> dict:
 
 
 # ── Historical price lookup (for backtester) ────────────────────────────────
+
 
 @retry(
     stop=stop_after_attempt(3),

@@ -28,9 +28,9 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 # — this is what the code actually uses (ttl: "1h" set at lines 794 and 808).
 # cache_read is 0.1× input.  See https://docs.anthropic.com/en/docs/prompt-caching
 MODEL_PRICING = {
-    "claude-sonnet-4-6": {"input": 3.00,  "output": 15.00, "cache_write_5m": 3.75,  "cache_write_1h": 6.00,  "cache_read": 0.30},
-    "claude-opus-4-7":   {"input": 5.00,  "output": 25.00, "cache_write_5m": 6.25,  "cache_write_1h": 10.00, "cache_read": 0.50},
-    "claude-haiku-4-5":  {"input": 1.00,  "output": 5.00,  "cache_write_5m": 1.25,  "cache_write_1h": 2.00,  "cache_read": 0.10},
+    "claude-sonnet-4-6": {"input": 3.00, "output": 15.00, "cache_write_5m": 3.75, "cache_write_1h": 6.00, "cache_read": 0.30},
+    "claude-opus-4-7": {"input": 5.00, "output": 25.00, "cache_write_5m": 6.25, "cache_write_1h": 10.00, "cache_read": 0.50},
+    "claude-haiku-4-5": {"input": 1.00, "output": 5.00, "cache_write_5m": 1.25, "cache_write_1h": 2.00, "cache_read": 0.10},
 }
 
 # Which cache TTL the analyst actually uses (must match the cache_control TTL passed to
@@ -244,8 +244,7 @@ RECOMMENDATION_SCHEMA = {
             "type": "array",
             "items": {
                 "type": "object",
-                "required": ["ticker", "action", "conviction", "thesis",
-                             "net_expected_pct", "fee_hurdle_pct", "time_horizon"],
+                "required": ["ticker", "action", "conviction", "thesis", "net_expected_pct", "fee_hurdle_pct", "time_horizon"],
                 "properties": {
                     "ticker": {"type": "string"},
                     "action": {"enum": ["BUY", "SELL", "HOLD", "TRIM", "ADD"]},
@@ -320,9 +319,9 @@ def _default_entry_plan(rec: dict) -> list[dict]:
     pullback_pct = (low / 2.0) if isinstance(low, (int, float)) else -3.0
     confirm_pct = (high / 2.0) if isinstance(high, (int, float)) else 2.0
     return [
-        {"trigger": "now",                "fraction": 0.4, "price_pct": 0,             "note": "immediate"},
-        {"trigger": "pullback",           "fraction": 0.3, "price_pct": round(pullback_pct, 2), "note": "if price pulls back"},
-        {"trigger": "confirmation",       "fraction": 0.3, "price_pct": round(confirm_pct, 2),  "note": "on upside confirmation"},
+        {"trigger": "now", "fraction": 0.4, "price_pct": 0, "note": "immediate"},
+        {"trigger": "pullback", "fraction": 0.3, "price_pct": round(pullback_pct, 2), "note": "if price pulls back"},
+        {"trigger": "confirmation", "fraction": 0.3, "price_pct": round(confirm_pct, 2), "note": "on upside confirmation"},
     ]
 
 
@@ -340,25 +339,135 @@ def _default_exit_plan(rec: dict) -> list[dict]:
     recover_pct = (high / 2.0) if isinstance(high, (int, float)) else 2.0
     stop_pct = stop if isinstance(stop, (int, float)) else -7.0
     return [
-        {"trigger": "now",         "fraction": 0.4, "price_pct": 0,                  "note": "lock in at current"},
-        {"trigger": "recovery",    "fraction": 0.3, "price_pct": round(recover_pct, 2), "note": "if price bounces"},
-        {"trigger": "stop_loss",   "fraction": 0.3, "price_pct": round(stop_pct, 2),    "note": "full exit at stop"},
+        {"trigger": "now", "fraction": 0.4, "price_pct": 0, "note": "lock in at current"},
+        {"trigger": "recovery", "fraction": 0.3, "price_pct": round(recover_pct, 2), "note": "if price bounces"},
+        {"trigger": "stop_loss", "fraction": 0.3, "price_pct": round(stop_pct, 2), "note": "full exit at stop"},
     ]
+
+
+_CANONICAL_HORIZONS = (
+    "intraday",
+    "next session",
+    "1-3 trading days",
+    "1-2 weeks",
+    "1-3 months",
+    "3-6 months",
+    "6-12 months",
+    "12-36 months",
+)
+_CANONICAL_HORIZON_SET = set(_CANONICAL_HORIZONS)
+
+# Common Claude-drift variants → canonical horizon. Keys are lowercased and
+# whitespace-collapsed; values must appear in _CANONICAL_HORIZONS.
+_HORIZON_VARIANT_MAP = {
+    # Intraday / next session
+    "today": "intraday",
+    "same session": "intraday",
+    "open to close": "intraday",
+    "tomorrow": "next session",
+    "next open": "next session",
+    "overnight": "next session",
+    # Trading days
+    "1 day": "1-3 trading days",
+    "2 days": "1-3 trading days",
+    "3 days": "1-3 trading days",
+    "few days": "1-3 trading days",
+    "1-3 days": "1-3 trading days",
+    "1-3 sessions": "1-3 trading days",
+    "few trading days": "1-3 trading days",
+    # Weeks
+    "1 week": "1-2 weeks",
+    "2 weeks": "1-2 weeks",
+    "1-2 wks": "1-2 weeks",
+    "next 1-2 weeks": "1-2 weeks",
+    "couple weeks": "1-2 weeks",
+    # 1-3 months
+    "1 month": "1-3 months",
+    "2 months": "1-3 months",
+    "3 months": "1-3 months",
+    "1-3 mo": "1-3 months",
+    "1 to 3 months": "1-3 months",
+    "next quarter": "1-3 months",
+    # 3-6 months
+    "4 months": "3-6 months",
+    "5 months": "3-6 months",
+    "6 months": "3-6 months",
+    "3-6 mo": "3-6 months",
+    "two quarters": "3-6 months",
+    # 6-12 months
+    "7 months": "6-12 months",
+    "9 months": "6-12 months",
+    "12 months": "6-12 months",
+    "1 year": "6-12 months",
+    "6-12 mo": "6-12 months",
+    "rest of year": "6-12 months",
+    # 12-36 months
+    "18 months": "12-36 months",
+    "24 months": "12-36 months",
+    "2 years": "12-36 months",
+    "3 years": "12-36 months",
+    "1-3 years": "12-36 months",
+    "long term": "12-36 months",
+    "long-term": "12-36 months",
+    "multi-year": "12-36 months",
+}
+
+
+def _normalize_time_horizon(value) -> str:
+    """Snap a free-form time horizon to one of the canonical strings.
+
+    Falls back to the default "1-3 months" only when the input does not match
+    any canonical or known variant. Keeps the canonical value untouched.
+    """
+    if not value:
+        return "1-3 months"
+    if value in _CANONICAL_HORIZON_SET:
+        return value
+    key = " ".join(str(value).lower().split())
+    if key in _HORIZON_VARIANT_MAP:
+        return _HORIZON_VARIANT_MAP[key]
+    # Try a couple of broad heuristics for unanticipated formats (e.g. "10-12 mo")
+    if "month" in key or " mo" in key.split()[-1] if key.split() else False:
+        if any(num in key for num in ("12", "18", "24", "36")):
+            return "12-36 months"
+        if any(num in key for num in ("6", "7", "8", "9", "10", "11")):
+            return "6-12 months"
+        if any(num in key for num in ("4", "5")):
+            return "3-6 months"
+        return "1-3 months"
+    if "year" in key:
+        return "12-36 months"
+    if "week" in key:
+        return "1-2 weeks"
+    if "day" in key:
+        return "1-3 trading days"
+    return "1-3 months"
 
 
 def normalize_recommendation(recommendation: dict) -> dict:
     """Normalize model output before it is logged or rendered."""
     for rec in recommendation.get("recommendations", []) or []:
+        # ``rec.get("ticker")`` is falsy for None *or* empty string — both should
+        # collapse to the "UNKNOWN" sentinel. Using `setdefault` alone wouldn't
+        # catch the empty-string case because the key already exists (just blank).
         if rec.get("ticker"):
             rec["ticker"] = str(rec["ticker"]).upper()
-        rec.setdefault("ticker", "UNKNOWN")
+        else:
+            rec["ticker"] = "UNKNOWN"
         if rec.get("action") not in {"BUY", "SELL", "HOLD", "TRIM", "ADD"}:
             rec["action"] = "HOLD"
         rec.setdefault("conviction", 5)
         rec.setdefault("thesis", "No thesis provided by model.")
         rec.setdefault("net_expected_pct", 0)
         rec.setdefault("fee_hurdle_pct", 0)
-        rec.setdefault("time_horizon", "1-3 months")
+
+        # Snap time_horizon variants to the canonical Rule 20 strings so the
+        # backtester's HORIZON_DAYS lookup and downstream UI filters keep working.
+        original_horizon = rec.get("time_horizon")
+        normalized_horizon = _normalize_time_horizon(original_horizon)
+        rec["time_horizon"] = normalized_horizon
+        if original_horizon and original_horizon != normalized_horizon:
+            rec["time_horizon_original"] = original_horizon
         low = rec.get("price_target_low_pct")
         high = rec.get("price_target_high_pct")
         if low is not None and high is not None and low > high:
@@ -372,9 +481,17 @@ def normalize_recommendation(recommendation: dict) -> dict:
             "entry_zone_high_pct": controls.get("entry_zone_high_pct"),
             "stop_loss_pct": controls.get("stop_loss_pct"),
             "take_profit_pct": controls.get("take_profit_pct"),
-            **{k: v for k, v in controls.items() if k not in {
-                "entry_zone_low_pct", "entry_zone_high_pct", "stop_loss_pct", "take_profit_pct",
-            }},
+            **{
+                k: v
+                for k, v in controls.items()
+                if k
+                not in {
+                    "entry_zone_low_pct",
+                    "entry_zone_high_pct",
+                    "stop_loss_pct",
+                    "take_profit_pct",
+                }
+            },
         }
         rec.setdefault("catalyst_verified", False)
         rec.setdefault("catalyst_source", None)
@@ -468,10 +585,7 @@ def _format_risk_dashboard(risk_dashboard: dict | None) -> list[str]:
         lines.append("Beta estimates: " + ", ".join(f"{k}={v:.2f}" for k, v in beta.items()))
     pairs = risk_dashboard.get("correlated_pairs") or []
     if pairs:
-        lines.append(
-            "Highly correlated pairs: "
-            + ", ".join(f"{p['pair']} ({p['correlation']:+.2f})" for p in pairs)
-        )
+        lines.append("Highly correlated pairs: " + ", ".join(f"{p['pair']} ({p['correlation']:+.2f})" for p in pairs))
     return lines
 
 
@@ -481,10 +595,7 @@ def _format_company_exposure(company_exposure: dict | None) -> list[str]:
     lines = ["\n=== COMPANY-LEVEL EXPOSURE ROLLUP ==="]
     for row in list(company_exposure.values())[:12]:
         tickers = ", ".join(row.get("tickers") or [])
-        lines.append(
-            f"  {row.get('company')}: {row.get('pct', 0):.1f}% "
-            f"(${row.get('value_usd', 0):,.0f} USD equiv) via {tickers}"
-        )
+        lines.append(f"  {row.get('company')}: {row.get('pct', 0):.1f}% (${row.get('value_usd', 0):,.0f} USD equiv) via {tickers}")
     return lines
 
 
@@ -569,19 +680,23 @@ def build_user_message(
     if not budget_lines:
         budget_lines.append("Available to invest: $0 (observation only — no new capital this session)")
 
-    lines = [
-        f"SESSION TYPE: {session_type.upper()}",
-        f"TIMESTAMP: {now}",
-        f"MARKET PHASE: {market_phase}",
-        "",
-        "=== PORTFOLIO ===",
-        f"Portfolio snapshot: {exported_at}" if exported_at else "",
-        f"Cash (CASH ETF): ${cash_cad:,.2f} CAD",
-    ] + budget_lines + [
-        f"Risk tolerance: {settings.get('risk_tolerance', 'aggressive')}",
-        f"Account: {settings.get('account_type', 'wealthsimple_premium_usd')}",
-        "",
-    ]
+    lines = (
+        [
+            f"SESSION TYPE: {session_type.upper()}",
+            f"TIMESTAMP: {now}",
+            f"MARKET PHASE: {market_phase}",
+            "",
+            "=== PORTFOLIO ===",
+            f"Portfolio snapshot: {exported_at}" if exported_at else "",
+            f"Cash (CASH ETF): ${cash_cad:,.2f} CAD",
+        ]
+        + budget_lines
+        + [
+            f"Risk tolerance: {settings.get('risk_tolerance', 'aggressive')}",
+            f"Account: {settings.get('account_type', 'wealthsimple_premium_usd')}",
+            "",
+        ]
+    )
 
     if holdings:
         usd_holdings = [h for h in holdings if not h.get("is_cdr") and h.get("market_currency") == "USD"]
@@ -645,9 +760,7 @@ def build_user_message(
                 price_str = _fmt_dollar(h.get("market_price"), prefix="now $")
                 mv_str = _fmt_dollar(h.get("market_value"), prefix="value $", precision=0)
                 pnl_str = _fmt_pnl(h.get("unrealized_pnl_pct"), h.get("unrealized_pnl"))
-                lines.append(
-                    f"  {ticker:8s} {qty_str} sh | {avg_str} | {price_str} | {mv_str}{pnl_str}{_age_label(h)}"
-                )
+                lines.append(f"  {ticker:8s} {qty_str} sh | {avg_str} | {price_str} | {mv_str}{pnl_str}{_age_label(h)}")
 
         if cad_holdings:
             lines.append("\nCAD/CDR Holdings:")
@@ -659,9 +772,7 @@ def build_user_message(
                 price_str = _fmt_dollar(h.get("market_price"), prefix="now $", suffix=" CAD")
                 cdr_flag = " [CDR]" if h.get("is_cdr") and "CDR" in name else ""
                 pnl_str = _fmt_pnl(h.get("unrealized_pnl_pct"), h.get("unrealized_pnl"), currency_suffix=" CAD")
-                lines.append(
-                    f"  {ticker:8s}{cdr_flag:6s} {qty_str} sh | {avg_str} | {price_str}{pnl_str}{_age_label(h)}"
-                )
+                lines.append(f"  {ticker:8s}{cdr_flag:6s} {qty_str} sh | {avg_str} | {price_str}{pnl_str}{_age_label(h)}")
     else:
         lines.append("No current holdings — all cash.")
 
@@ -672,10 +783,7 @@ def build_user_message(
         for sector, data in sector_exposure.items():
             flag = "  ⚠️ CONCENTRATED" if data["pct"] > threshold else ""
             tickers_str = ", ".join(data["tickers"][:6])
-            lines.append(
-                f"  {sector:22s} {data['pct']:5.1f}%  (${data['value_cad']:,.0f} CAD)  "
-                f"[{tickers_str}]{flag}"
-            )
+            lines.append(f"  {sector:22s} {data['pct']:5.1f}%  (${data['value_cad']:,.0f} CAD)  [{tickers_str}]{flag}")
 
     lines += _format_company_exposure(company_exposure)
     lines += _format_risk_dashboard(risk_dashboard)
@@ -689,6 +797,7 @@ def build_user_message(
 
     # ── Catalyst windows (earnings ±5d, FOMC, CPI, NFP) ─────────────────
     from src.catalyst_windows import annotate_tickers, macro_session_tags, format_for_prompt
+
     enriched_per_ticker = (enriched or {}).get("per_ticker") or {}
     macro_calendar = ((enriched or {}).get("macro_context") or {}).get("calendar")
     ticker_windows = annotate_tickers(enriched_per_ticker)
@@ -700,6 +809,7 @@ def build_user_message(
 
     # ── Trailing stops (lock in gains as positions appreciate) ──────────
     from src.trailing_stops import evaluate as _eval_trailing_stops, format_for_prompt as _fmt_ts
+
     trailing = _eval_trailing_stops(holdings, market_data, holding_days_map, settings)
     trailing_block = _fmt_ts(trailing)
     if trailing_block:
@@ -709,6 +819,7 @@ def build_user_message(
     # ── Sector rotation rhythm (1-month relative strength) ───────────────
     if market_context:
         from src.sector_rotation import classify as _classify_sectors, format_for_prompt as _fmt_sectors
+
         prev_context = (previous_session or {}).get("market_context_snapshot")
         sector_universe = settings.get("sector_rotation_tickers")
         rotation = _classify_sectors(
@@ -724,6 +835,7 @@ def build_user_message(
     # ── Thesis decay (90-day reviews + forced exits after 4 negative reviews)
     if thesis_due_for_review or thesis_forced_exits:
         from src.thesis_tracker import format_for_prompt as _fmt_thesis
+
         thesis_block = _fmt_thesis(thesis_due_for_review or [], thesis_forced_exits or [])
         if thesis_block:
             lines.append("")
@@ -848,6 +960,7 @@ def build_user_message(
 
     if recent_activities:
         from src.activity_loader import format_activities_for_prompt
+
         recent_days = settings.get("recent_activity_days", 90)
         recent_window = "full export" if recent_days is None else f"last {recent_days} days"
         lines.append(f"\n=== RECENT TRADE HISTORY ({recent_window}) ===")
@@ -866,10 +979,55 @@ def build_user_message(
                 lines.append(f"    {action:6s} n={stats['n']:3d} avg={stats['avg_return_pct']:+.2f}%  win_rate={stats['hit_rate']:.0%}")
         by_conv = backtest_summary.get("avg_return_by_conviction", {})
         if by_conv:
-            lines.append("  Avg actual return by conviction score:")
+            lines.append("  Avg actual return by conviction score (v1.16: also Sharpe + max-DD):")
             for conv in sorted(by_conv.keys()):
                 stats = by_conv[conv]
-                lines.append(f"    conviction={conv}  n={stats['n']:3d}  avg={stats['avg_return_pct']:+.2f}%  win_rate={stats['hit_rate']:.0%}")
+                line = f"    conviction={conv}  n={stats['n']:3d}  avg={stats['avg_return_pct']:+.2f}%  win_rate={stats['hit_rate']:.0%}"
+                # Sharpe and max-DD only present when v1.16+ backtester ran —
+                # gracefully skip on legacy summaries so prompt stays clean.
+                if "sharpe" in stats:
+                    line += f"  sharpe={stats['sharpe']:+.2f}  max_dd={stats['max_drawdown_pct']:+.2f}%"
+                lines.append(line)
+            sizing_mults = backtest_summary.get("sizing_multipliers_by_conviction") or {}
+            if sizing_mults:
+                lines.append(
+                    "  ↳ Sizing multipliers (Sharpe-dampened): " + ", ".join(f"conv{k}={v:.2f}×" for k, v in sorted(sizing_mults.items()))
+                )
+
+            # v1.18: conviction calibration — only surface when meaningfully off.
+            # Below the 10-pp band we trust the conviction label as-is; above
+            # it the model gets a one-line nudge to dampen.
+            reliability = backtest_summary.get("reliability") or {}
+            mis_calibrated = [(c, b) for c, b in sorted(reliability.items()) if abs(b.get("error_pp", 0.0)) >= 10]
+            if mis_calibrated:
+                lines.append("  Conviction calibration (where stated vs realized disagree by ≥10pp):")
+                for conv, bucket in mis_calibrated:
+                    direction = "over-confident" if bucket["overconfident"] else "under-confident"
+                    nudge = "dampen by ~0.85×" if bucket["overconfident"] else "consider lifting conviction"
+                    lines.append(
+                        f"    conv {conv}: stated {bucket['stated_pct']:.0f}% / realized {bucket['realized_pct']:.0f}% "
+                        f"({bucket['error_pp']:+.1f}pp, {direction}) → {nudge}"
+                    )
+
+            # v1.18: walk-forward stability — does the user's edge look stable
+            # across rolling windows? If the most recent window is materially
+            # weaker than the all-time mean, surface a one-liner so Claude can
+            # weigh whether the current setup is degrading.
+            walk_forward = backtest_summary.get("walk_forward") or []
+            if len(walk_forward) >= 2:
+                recent = walk_forward[-1]
+                all_avg = sum(w.get("hit_rate", 0.0) for w in walk_forward) / len(walk_forward)
+                delta_pp = (recent.get("hit_rate", 0.0) - all_avg) * 100.0
+                trend = "stable"
+                if delta_pp <= -10:
+                    trend = "decaying — most recent window trails the all-time mean"
+                elif delta_pp >= 10:
+                    trend = "improving — most recent window leads the all-time mean"
+                lines.append(
+                    f"  Walk-forward stability: {len(walk_forward)} windows · "
+                    f"latest hit_rate {recent.get('hit_rate', 0):.0%} vs mean {all_avg:.0%} "
+                    f"({delta_pp:+.1f}pp, {trend})"
+                )
         by_ticker = backtest_summary.get("avg_return_by_ticker", {})
         if by_ticker:
             lines.append("  Avg actual return by ticker:")
@@ -910,6 +1068,26 @@ def build_user_message(
                     f"user={stats['user_avg_return_pct']:+.2f}% "
                     f"delta={stats['avg_decision_delta_pct']:+.2f}%"
                 )
+        # v1.16: per-horizon edge — the user's edge often varies sharply by
+        # holding period. Surface it explicitly so Claude can bias the
+        # time_horizon field toward where the user actually outperforms.
+        by_horizon = decision_scorecard.get("by_horizon") or {}
+        if by_horizon:
+            edge_parts = []
+            best_horizon: tuple[int, float] | None = None
+            for horizon in sorted(int(h) for h in by_horizon.keys()):
+                stats = by_horizon[horizon]
+                user_avg = float(stats.get("user_avg_return_pct", 0.0))
+                edge_parts.append(f"{horizon}d {user_avg:+.1f}%")
+                # "Best" = highest user_avg, breaking ties toward shorter horizon.
+                if best_horizon is None or user_avg > best_horizon[1] + 1e-9:
+                    best_horizon = (horizon, user_avg)
+            lines.append("  Your edge by horizon (user_avg_return): " + " | ".join(edge_parts))
+            if best_horizon is not None and best_horizon[1] > 0:
+                lines.append(
+                    f"  ↳ Bias time_horizon toward ~{best_horizon[0]}d when conviction ≥ 7 "
+                    f"(user's strongest window: {best_horizon[1]:+.1f}%)."
+                )
         worst = decision_scorecard.get("worst_user_overrides") or []
         if worst:
             lines.append("  Overrides that hurt most:")
@@ -924,12 +1102,32 @@ def build_user_message(
     # ── Drift from previous session ────────────────────────────────────────
     if drift:
         lines.append("\n=== DRIFT SINCE LAST SESSION ===")
+        # Render generic drift events first; thesis_text_drift gets its own
+        # mini-section because it needs the similarity score and a steering
+        # nudge for Claude.
+        thesis_drift_events = [d for d in drift if d.get("drift_type") == "thesis_text_drift"]
         for d in drift:
+            if d.get("drift_type") == "thesis_text_drift":
+                continue
+            was = d.get("was") or {}
+            now = d.get("now") or {}
             lines.append(
                 f"  {d['ticker']}: {d['drift_type']} — "
-                f"was {d['was']['action']}/{d['was']['conviction']}, "
-                f"now {d['now']['action']}/{d['now']['conviction']}"
+                f"was {was.get('action', '')}/{was.get('conviction', '')}, "
+                f"now {now.get('action', '')}/{now.get('conviction', '')}"
             )
+        if thesis_drift_events:
+            lines.append("  Thesis-text drift (action steady, rationale rewritten — confirm or downgrade):")
+            for d in thesis_drift_events[:3]:
+                ticker = d.get("ticker", "?")
+                similarity = d.get("similarity", 0.0)
+                was_thesis = ((d.get("was") or {}).get("thesis") or "").strip()
+                now_thesis = ((d.get("now") or {}).get("thesis") or "").strip()
+                lines.append(f"    {ticker}: similarity={similarity:.2f}")
+                if was_thesis:
+                    lines.append(f"      was: {was_thesis[:220]}")
+                if now_thesis:
+                    lines.append(f"      now: {now_thesis[:220]}")
 
     lines.append("\n=== FEE SNAPSHOT (round-trip cost per $1000 notional) ===")
     fee_model = settings.get("fee_model", {})
@@ -968,6 +1166,7 @@ def build_user_message(
     # ── Enriched intelligence (Finnhub, Polygon, FRED, CoinGecko, etc.) ──────
     if enriched:
         from src.enriched_data import format_enrichment_for_prompt
+
         enrichment_block = format_enrichment_for_prompt(enriched)
         if enrichment_block:
             lines.append(enrichment_block)
@@ -994,21 +1193,20 @@ def estimate_cost(usage, model: str) -> dict:
     M = 1_000_000
     cache_write_rate = pricing.get(f"cache_write_{_CACHE_TTL}", pricing.get("cache_write_1h"))
 
-    input_cost    = (getattr(usage, "input_tokens", 0) / M) * pricing["input"]
-    output_cost   = (getattr(usage, "output_tokens", 0) / M) * pricing["output"]
-    cache_w_cost  = (getattr(usage, "cache_creation_input_tokens", 0) / M) * cache_write_rate
-    cache_r_cost  = (getattr(usage, "cache_read_input_tokens", 0) / M) * pricing["cache_read"]
-    total_cost    = input_cost + output_cost + cache_w_cost + cache_r_cost
+    input_cost = (getattr(usage, "input_tokens", 0) / M) * pricing["input"]
+    output_cost = (getattr(usage, "output_tokens", 0) / M) * pricing["output"]
+    cache_w_cost = (getattr(usage, "cache_creation_input_tokens", 0) / M) * cache_write_rate
+    cache_r_cost = (getattr(usage, "cache_read_input_tokens", 0) / M) * pricing["cache_read"]
+    total_cost = input_cost + output_cost + cache_w_cost + cache_r_cost
 
     return {
-        "input_tokens":        getattr(usage, "input_tokens", 0),
-        "output_tokens":       getattr(usage, "output_tokens", 0),
-        "cache_write_tokens":  getattr(usage, "cache_creation_input_tokens", 0),
-        "cache_read_tokens":   getattr(usage, "cache_read_input_tokens", 0),
-        "total_tokens":        (getattr(usage, "input_tokens", 0)
-                                + getattr(usage, "output_tokens", 0)),
-        "cost_usd":            round(total_cost, 4),
-        "cache_hit":           getattr(usage, "cache_read_input_tokens", 0) > 0,
+        "input_tokens": getattr(usage, "input_tokens", 0),
+        "output_tokens": getattr(usage, "output_tokens", 0),
+        "cache_write_tokens": getattr(usage, "cache_creation_input_tokens", 0),
+        "cache_read_tokens": getattr(usage, "cache_read_input_tokens", 0),
+        "total_tokens": (getattr(usage, "input_tokens", 0) + getattr(usage, "output_tokens", 0)),
+        "cost_usd": round(total_cost, 4),
+        "cache_hit": getattr(usage, "cache_read_input_tokens", 0) > 0,
     }
 
 
@@ -1025,9 +1223,7 @@ def _parse_validate_recommendation(raw_text: str) -> dict:
     try:
         recommendation = json.loads(raw_text)
     except json.JSONDecodeError as e:
-        raise ValueError(
-            f"Claude returned non-JSON response. Parse error: {e}\n\nRaw response:\n{raw_text[:500]}"
-        )
+        raise ValueError(f"Claude returned non-JSON response. Parse error: {e}\n\nRaw response:\n{raw_text[:500]}")
 
     recommendation = normalize_recommendation(recommendation)
 
@@ -1035,9 +1231,7 @@ def _parse_validate_recommendation(raw_text: str) -> dict:
         jsonschema.validate(recommendation, RECOMMENDATION_SCHEMA)
     except jsonschema.ValidationError as e:
         path = " -> ".join(str(p) for p in e.absolute_path) or "<root>"
-        raise ValueError(
-            f"Claude response failed schema validation at {path}: {e.message}"
-        )
+        raise ValueError(f"Claude response failed schema validation at {path}: {e.message}")
 
     return recommendation
 
@@ -1109,10 +1303,7 @@ def _sum_usage_stats(stats: list[dict]) -> dict:
 
 def _looks_retryable_json_error(exc: ValueError, response) -> bool:
     message = str(exc)
-    return (
-        "Claude returned non-JSON response" in message
-        or getattr(response, "stop_reason", None) == "max_tokens"
-    )
+    return "Claude returned non-JSON response" in message or getattr(response, "stop_reason", None) == "max_tokens"
 
 
 def _create_parse_message(client, model: str, settings: dict, messages: list[dict]) -> tuple[dict, dict]:
@@ -1166,28 +1357,30 @@ def _build_review_message(
         "source": (previous_session or {}).get("_session_file"),
         "recommendations": (previous_session or {}).get("recommendations", [])[:12],
     }
-    return "\n".join([
-        "SECOND PASS QUALITY REVIEW.",
-        "Revise the recommendation JSON using the deterministic warnings and drift below.",
-        "Return one complete valid JSON object only, using the same schema.",
-        "Hard requirements:",
-        "- Fix or explicitly surface every high/medium quality warning.",
-        "- Downgrade BUY/ADD to HOLD when catalyst verification is missing.",
-        "- Keep risk_controls, catalyst fields, hedge_suggestions, and decision-tree wording populated.",
-        "- Preserve useful recommendations, but reduce unsupported drift versus the previous session.",
-        "",
-        "FIRST_PASS_JSON:",
-        json.dumps(first_recommendation, indent=2, default=str),
-        "",
-        "QUALITY_WARNINGS_JSON:",
-        json.dumps(quality_warnings, indent=2, default=str),
-        "",
-        "DRIFT_VS_PREVIOUS_JSON:",
-        json.dumps(drift, indent=2, default=str),
-        "",
-        "PREVIOUS_SESSION_CONTEXT_JSON:",
-        json.dumps(previous_meta, indent=2, default=str),
-    ])
+    return "\n".join(
+        [
+            "SECOND PASS QUALITY REVIEW.",
+            "Revise the recommendation JSON using the deterministic warnings and drift below.",
+            "Return one complete valid JSON object only, using the same schema.",
+            "Hard requirements:",
+            "- Fix or explicitly surface every high/medium quality warning.",
+            "- Downgrade BUY/ADD to HOLD when catalyst verification is missing.",
+            "- Keep risk_controls, catalyst fields, hedge_suggestions, and decision-tree wording populated.",
+            "- Preserve useful recommendations, but reduce unsupported drift versus the previous session.",
+            "",
+            "FIRST_PASS_JSON:",
+            json.dumps(first_recommendation, indent=2, default=str),
+            "",
+            "QUALITY_WARNINGS_JSON:",
+            json.dumps(quality_warnings, indent=2, default=str),
+            "",
+            "DRIFT_VS_PREVIOUS_JSON:",
+            json.dumps(drift, indent=2, default=str),
+            "",
+            "PREVIOUS_SESSION_CONTEXT_JSON:",
+            json.dumps(previous_meta, indent=2, default=str),
+        ]
+    )
 
 
 def call_claude(
@@ -1229,7 +1422,12 @@ def call_claude(
         deterministic_hedges = build_hedge_suggestions(risk_dashboard or {}, company_exposure or {}, settings)
 
     user_message = build_user_message(
-        session_type, portfolio, market_data, news_by_ticker, fee_snapshot, settings,
+        session_type,
+        portfolio,
+        market_data,
+        news_by_ticker,
+        fee_snapshot,
+        settings,
         recent_activities=recent_activities,
         sector_exposure=sector_exposure,
         backtest_summary=backtest_summary,
@@ -1308,6 +1506,7 @@ def call_claude(
 
     # Build the aging summary so the gate can enforce the 2-year cap.
     from src.position_aging import annotate_holdings, aging_summary
+
     annotated = annotate_holdings(
         portfolio.get("holdings", []),
         holding_days_map or {},
@@ -1317,6 +1516,7 @@ def call_claude(
 
     # Compute trailing-stop alerts for the gate.
     from src.trailing_stops import evaluate as _eval_trailing_stops
+
     trailing_alerts = _eval_trailing_stops(
         portfolio.get("holdings", []),
         market_data,

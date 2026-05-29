@@ -35,16 +35,17 @@ from tenacity import (
 
 from src.cache import cached
 from src.config import load_settings
+from src.observability import log_event
 
 BASE_URL = "https://api.stlouisfed.org/fred"
 
 # Series ID → (label, units, higher_is_good for equities)
 SERIES = {
-    "DFF":      ("Fed Funds Rate",         "%",    False),
-    "T10Y2Y":   ("Yield Curve (10Y-2Y)",   "%",    True),
-    "CPIAUCSL": ("CPI Inflation",          "% YoY",False),
-    "UNRATE":   ("Unemployment Rate",      "%",    False),
-    "VIXCLS":   ("VIX (Fear Index)",       "pts",  False),
+    "DFF": ("Fed Funds Rate", "%", False),
+    "T10Y2Y": ("Yield Curve (10Y-2Y)", "%", True),
+    "CPIAUCSL": ("CPI Inflation", "% YoY", False),
+    "UNRATE": ("Unemployment Rate", "%", False),
+    "VIXCLS": ("VIX (Fear Index)", "pts", False),
 }
 
 # Separate from SERIES because FX has a different consumer (portfolio_loader),
@@ -129,6 +130,7 @@ def _fetch_series_latest(series_id: str) -> float | None:
         timeout=10,
     )
     if r.status_code >= 400:
+        log_event("fred", "error", f"http_{r.status_code}", f"FRED series fetch returned {r.status_code}", {"status": r.status_code})
         return None
     try:
         obs = r.json().get("observations") or []
@@ -138,7 +140,8 @@ def _fetch_series_latest(series_id: str) -> float | None:
         if val in (".", "", None):
             return None
         return round(float(val), 3)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log_event("fred", "error", "parse_failed", f"FRED series parse failed: {exc}", {})
         return None
 
 
@@ -162,18 +165,17 @@ def _fetch_cpi_yoy() -> float | None:
         timeout=10,
     )
     if r.status_code >= 400:
+        log_event("fred", "error", f"http_{r.status_code}", f"FRED CPI fetch returned {r.status_code}", {"status": r.status_code})
         return None
     try:
-        obs = [
-            o for o in r.json().get("observations", [])
-            if o.get("value") not in (".", "", None)
-        ]
+        obs = [o for o in r.json().get("observations", []) if o.get("value") not in (".", "", None)]
         if len(obs) < 13:
             return None
         latest = float(obs[0]["value"])
         year_ago = float(obs[12]["value"])
         return round((latest - year_ago) / year_ago * 100, 2)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log_event("fred", "error", "cpi_parse_failed", f"FRED CPI parse failed: {exc}", {})
         return None
 
 
@@ -191,10 +193,10 @@ def _fetch_macro_context() -> dict | None:
         return None
 
     # Derived interpretations
-    dff    = (data.get("DFF", {}).get("value") or 0)
-    curve  = data.get("T10Y2Y", {}).get("value")
-    cpi    = data.get("CPIAUCSL", {}).get("value")
-    vix    = data.get("VIXCLS", {}).get("value")
+    dff = data.get("DFF", {}).get("value") or 0
+    curve = data.get("T10Y2Y", {}).get("value")
+    cpi = data.get("CPIAUCSL", {}).get("value")
+    vix = data.get("VIXCLS", {}).get("value")
 
     # Rate regime
     if dff >= 5.0:
@@ -235,9 +237,7 @@ def _fetch_macro_context() -> dict | None:
         "yield_curve_signal": curve_signal,
         "vix_regime": vix_regime,
         "inflation_signal": (
-            "ELEVATED INFLATION" if (cpi or 0) > 4 else
-            "MODERATE INFLATION" if (cpi or 0) > 2.5 else
-            "LOW INFLATION — benign for equities"
+            "ELEVATED INFLATION" if (cpi or 0) > 4 else "MODERATE INFLATION" if (cpi or 0) > 2.5 else "LOW INFLATION — benign for equities"
         ),
         "summary": _macro_summary(dff, curve, cpi, vix),
     }
@@ -257,7 +257,8 @@ def macro_context() -> dict | None:
             loader=_fetch_macro_context,
             enabled=settings.get("cache_enabled", True),
         )
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log_event("fred", "error", "macro_context_failed", f"macro_context() failed: {exc}", {})
         return None
 
 
@@ -284,12 +285,14 @@ def live_cad_per_usd() -> float | None:
             loader=lambda: _fetch_series_latest(FX_SERIES),
             enabled=settings.get("cache_enabled", True),
         )
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log_event("fred", "error", "cad_fx_failed", f"live_cad_per_usd() failed: {exc}", {})
         return None
 
 
 if __name__ == "__main__":
     import json
+
     if not _api_key():
         print("FRED_API_KEY not set — skipping live test")
     else:

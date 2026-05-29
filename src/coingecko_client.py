@@ -28,6 +28,7 @@ from tenacity import (
 
 from src.cache import cached
 from src.config import load_settings
+from src.observability import log_event
 
 BASE_URL = "https://api.coingecko.com/api/v3"
 PRO_BASE_URL = "https://pro-api.coingecko.com/api/v3"
@@ -67,16 +68,26 @@ def _request(endpoint: str, params: dict | None = None) -> dict | list | None:
         timeout=12,
     )
     if r.status_code == 429:
+        log_event("coingecko", "warning", "rate_limited", "CoinGecko returned 429", {"endpoint": endpoint})
         raise requests.RequestException("CoinGecko rate limit")
     if r.status_code >= 400:
+        log_event(
+            "coingecko",
+            "error",
+            f"http_{r.status_code}",
+            f"CoinGecko {endpoint} returned {r.status_code}",
+            {"endpoint": endpoint, "status": r.status_code},
+        )
         return None
     try:
         return r.json()
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log_event("coingecko", "error", "json_decode", f"CoinGecko JSON decode failed: {exc}", {"endpoint": endpoint})
         return None
 
 
 # ── Crypto market context ─────────────────────────────────────────────────────
+
 
 def _fetch_crypto_context() -> dict | None:
     # Prices and changes
@@ -94,11 +105,11 @@ def _fetch_crypto_context() -> dict | None:
 
     btc = data.get("bitcoin", {})
     eth = data.get("ethereum", {})
-    btc_price  = btc.get("usd")
-    btc_24h    = btc.get("usd_24h_change")
-    btc_7d     = btc.get("usd_7d_change")
-    eth_price  = eth.get("usd")
-    eth_24h    = eth.get("usd_24h_change")
+    btc_price = btc.get("usd")
+    btc_24h = btc.get("usd_24h_change")
+    btc_7d = btc.get("usd_7d_change")
+    eth_price = eth.get("usd")
+    eth_24h = eth.get("usd_24h_change")
 
     # Crypto fear & greed from alternative.me (free, no auth)
     fear_greed = None
@@ -111,12 +122,12 @@ def _fetch_crypto_context() -> dict | None:
         fg_data = (fg.get("data") or [{}])[0]
         fear_greed = int(fg_data.get("value", 0))
         fear_label = fg_data.get("value_classification", "")
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        log_event("alternative_me", "warning", "fear_greed_failed", f"Fear & Greed fetch failed: {exc}", {})
 
     # Risk-on/off interpretation
     risk_signal = "NEUTRAL"
-    risk_note   = "Crypto market is stable — no special risk-off signal."
+    risk_note = "Crypto market is stable — no special risk-off signal."
 
     if btc_7d is not None:
         if btc_7d < -15:
@@ -127,16 +138,10 @@ def _fetch_crypto_context() -> dict | None:
             )
         elif btc_7d < -8:
             risk_signal = "CAUTION"
-            risk_note = (
-                f"Bitcoin down {btc_7d:.1f}% this week — mild risk-off signal. "
-                "Watch high-beta positions carefully."
-            )
+            risk_note = f"Bitcoin down {btc_7d:.1f}% this week — mild risk-off signal. Watch high-beta positions carefully."
         elif btc_7d > 10:
             risk_signal = "RISK-ON"
-            risk_note = (
-                f"Bitcoin up {btc_7d:.1f}% this week — risk-on environment. "
-                "High-beta tech typically benefits."
-            )
+            risk_note = f"Bitcoin up {btc_7d:.1f}% this week — risk-on environment. High-beta tech typically benefits."
 
     if fear_greed is not None and fear_greed < 25 and risk_signal == "NEUTRAL":
         risk_signal = "CAUTION"
@@ -167,11 +172,13 @@ def crypto_context() -> dict | None:
             loader=_fetch_crypto_context,
             enabled=settings.get("cache_enabled", True),
         )
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log_event("coingecko", "error", "context_failed", f"crypto_context() failed: {exc}", {})
         return None
 
 
 if __name__ == "__main__":
     import json
+
     print("── crypto_context() ──")
     print(json.dumps(crypto_context(), indent=2))

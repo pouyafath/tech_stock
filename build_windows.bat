@@ -106,14 +106,38 @@ if not exist "%DIST%\%APP_NAME%\%APP_NAME%.exe" (
 )
 
 :: ── 8. Optional Inno Setup installer ──────────────────────────────────────
+:: v1.19: AppVersion is now parsed from src\version.py and passed to iscc
+:: via /D so the installer carries the real version (was hard-coded 1.0.0).
 if exist "installer_windows.iss" (
     where iscc >nul 2>&1
     if not errorlevel 1 (
         echo.
+        echo  Reading version from src\version.py ...
+        for /f "tokens=2 delims== " %%v in ('findstr /B "APP_VERSION =" src\version.py') do (
+            set APP_VERSION_RAW=%%v
+        )
+        set APP_VERSION=!APP_VERSION_RAW:"=!
+        echo  Version: !APP_VERSION!
+        echo.
         echo  Building installer with Inno Setup...
-        iscc installer_windows.iss
+        iscc /DAppVersion=!APP_VERSION! installer_windows.iss
     ) else (
         echo  Inno Setup not found -- skipping installer. Install from https://jrsoftware.org/isinfo.php
+    )
+)
+
+:: ── 8b. Optional code-signing hook ────────────────────────────────────────
+:: Set SIGN_PFX_PATH and SIGN_PFX_PASSWORD in the environment to enable.
+:: Without those, the installer ships unsigned (users will see a SmartScreen
+:: prompt — they can click "More info" → "Run anyway").
+if defined SIGN_PFX_PATH (
+    where signtool >nul 2>&1
+    if not errorlevel 1 (
+        echo.
+        echo  Signing dist\tech_stock_setup.exe ...
+        signtool sign /f "%SIGN_PFX_PATH%" /p "%SIGN_PFX_PASSWORD%" /tr http://timestamp.sectigo.com /td SHA256 /fd SHA256 "%DIST%\tech_stock_setup.exe"
+    ) else (
+        echo  signtool not found -- skipping signing.
     )
 )
 

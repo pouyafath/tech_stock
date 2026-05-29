@@ -12,12 +12,16 @@ Usage:
 from __future__ import annotations
 
 import subprocess
+import os
 import sys
 import time
 import webbrowser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from src.updater import apply_update, check_for_update, update_status_text  # noqa: E402
 
 BANNER = r"""
   _            _        _            _
@@ -45,6 +49,10 @@ OPTIONS = {
     "4": {
         "label": "Desktop App     — Embedded dashboard, no browser needed",
         "desc": "embedded desktop dashboard",
+    },
+    "5": {
+        "label": "Update          — Check GitHub Releases and update",
+        "desc": "application updater",
     },
 }
 
@@ -83,6 +91,14 @@ def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
 
+    # Short-circuit version flag so `./run.sh --version` answers without invoking the menu
+    # or hitting the update-check API path. Keep the answer identical to `main.py --version`.
+    if argv and argv[0] in {"--version", "-V"}:
+        from src.version import APP_VERSION
+
+        print(f"tech_stock {APP_VERSION}")
+        return 0
+
     # Non-interactive: first arg is a choice key (1/2/3/4) passed by the shell script
     choice = ""
     extra_args: list[str] = []
@@ -98,19 +114,38 @@ def main(argv: list[str] | None = None) -> int:
 
     # Interactive menu
     if not choice:
+        if os.environ.get("TECH_STOCK_SKIP_UPDATE_CHECK") != "1":
+            # Cached lookup — every `./run.sh` boot should not pay a GitHub round-trip
+            # when we successfully checked within the last 6 hours.
+            info = check_for_update(timeout=4.0, use_cache=True)
+            if info.available:
+                print(f"\n  Update available: version {info.latest_version} (current {info.current_version})")
+                try:
+                    answer = input("  Do you want to update before launching? [y/N]: ").strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    answer = ""
+                    print()
+                if answer in {"y", "yes"}:
+                    result = apply_update(info, restart=False)
+                    print(f"  {result.message}")
+                    print(f"  Update log: {result.log_path}")
+                    return 0 if result.ok else 1
+            elif info.error:
+                print(f"  Update check skipped: {info.error}")
+
         print(BANNER)
         print("  How would you like to run tech_stock?\n")
         for key, meta in OPTIONS.items():
             print(f"    [{key}]  {meta['label']}")
         print()
         try:
-            choice = input("  Choose [1/2/3/4, Enter = 1]: ").strip() or "1"
+            choice = input("  Choose [1/2/3/4/5, Enter = 1]: ").strip() or "1"
         except (EOFError, KeyboardInterrupt):
             print()
             return 0
 
     if choice not in OPTIONS:
-        print(f"  Invalid choice: {choice!r}. Pick 1, 2, 3, or 4.")
+        print(f"  Invalid choice: {choice!r}. Pick 1, 2, 3, 4, or 5.")
         return 2
 
     print(f"\n  Launching: {OPTIONS[choice]['desc']} …\n")
@@ -129,6 +164,19 @@ def main(argv: list[str] | None = None) -> int:
     if choice == "4":
         cmd = [sys.executable, str(ROOT / "src" / "desktop_app.py")] + extra_args
         return subprocess.call(cmd, cwd=ROOT)
+
+    if choice == "5":
+        info = check_for_update()
+        print(update_status_text(info))
+        if info.error or not info.available:
+            return 1 if info.error else 0
+        answer = input("  Do you want to update now? [y/N]: ").strip().lower()
+        if answer not in {"y", "yes"}:
+            return 0
+        result = apply_update(info, restart=False)
+        print(result.message)
+        print(f"Update log: {result.log_path}")
+        return 0 if result.ok else 1
 
     return 0  # unreachable
 

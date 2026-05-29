@@ -83,6 +83,7 @@ def test_report_renders_quality_risk_hedge_and_bear_bull_sections():
 
     assert "## Report Quality Warnings" in markdown
     assert "## Critical Actions" in markdown
+    assert "## Data Confidence" in markdown
     assert "Source footnote" in markdown
     assert "## Portfolio Risk Dashboard" in markdown
     assert "## Hedge And Rebalance Suggestions" in markdown

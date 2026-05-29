@@ -18,21 +18,22 @@ from pathlib import Path
 
 from src.activity_loader import holding_days_by_ticker
 from src.constants import LEVERAGED_ETF_LEVERAGE, LEVERAGED_ETFS
+from src.data_confidence import build_data_confidence
 from src.portfolio_analytics import aggregate_company_exposure, aggregate_positions
 from src.recommendation_sizing import apply_trade_sizes
 
 ACTION_EMOJI = {
-    "BUY":  "🟢",
-    "ADD":  "🟡",
+    "BUY": "🟢",
+    "ADD": "🟡",
     "HOLD": "⚪",
     "TRIM": "🟠",
     "SELL": "🔴",
 }
 
 HOLD_TIER_LABEL = {
-    "watch":       "⚠️ HOLD-WATCH",
-    "keep":        "✅ HOLD-KEEP",
-    "add_on_dip":  "💡 HOLD (add on dip)",
+    "watch": "⚠️ HOLD-WATCH",
+    "keep": "✅ HOLD-KEEP",
+    "add_on_dip": "💡 HOLD (add on dip)",
 }
 
 CONVICTION_BAR = {
@@ -55,6 +56,7 @@ def conviction_bar(score: int) -> str:
 
 # ── Helpers for Phase 5 sections ──────────────────────────────────────────────
 
+
 def tax_loss_candidates(holdings: list, threshold_pct: float = -15) -> list[dict]:
     """
     Find positions sitting on losses ≥ |threshold_pct| % — candidates for
@@ -68,15 +70,17 @@ def tax_loss_candidates(holdings: list, threshold_pct: float = -15) -> list[dict
         if pnl_pct is None:
             continue
         if pnl_pct <= threshold_pct:
-            out.append({
-                "ticker": h.get("ticker", ""),
-                "name": h.get("name", ""),
-                "pnl_pct": pnl_pct,
-                "pnl": h.get("unrealized_pnl"),
-                "pnl_currency": h.get("unrealized_pnl_currency", ""),
-                "market_value": h.get("market_value"),
-                "market_value_currency": h.get("market_value_currency", ""),
-            })
+            out.append(
+                {
+                    "ticker": h.get("ticker", ""),
+                    "name": h.get("name", ""),
+                    "pnl_pct": pnl_pct,
+                    "pnl": h.get("unrealized_pnl"),
+                    "pnl_currency": h.get("unrealized_pnl_currency", ""),
+                    "market_value": h.get("market_value"),
+                    "market_value_currency": h.get("market_value_currency", ""),
+                }
+            )
     return sorted(out, key=lambda x: x["pnl_pct"])
 
 
@@ -112,17 +116,19 @@ def leveraged_etf_warnings(
         if days_held is None or days_held > max_hold_days:
             decay_days = days_held if days_held is not None else lower_bound_days
             decay_estimate = _leveraged_decay_estimate_pct(ticker, decay_days, market_data or {})
-            warnings.append({
-                "ticker": ticker,
-                "days_held": days_held,
-                "lower_bound_days": lower_bound_days,
-                "earliest_open_buy": holding_info.get("earliest_open_buy"),
-                "duration_unknown": holding_info.get("duration_unknown", True),
-                "max_hold_days": max_hold_days,
-                "pnl_pct": h.get("unrealized_pnl_pct"),
-                "market_value": h.get("market_value"),
-                "estimated_decay_pct": decay_estimate,
-            })
+            warnings.append(
+                {
+                    "ticker": ticker,
+                    "days_held": days_held,
+                    "lower_bound_days": lower_bound_days,
+                    "earliest_open_buy": holding_info.get("earliest_open_buy"),
+                    "duration_unknown": holding_info.get("duration_unknown", True),
+                    "max_hold_days": max_hold_days,
+                    "pnl_pct": h.get("unrealized_pnl_pct"),
+                    "market_value": h.get("market_value"),
+                    "estimated_decay_pct": decay_estimate,
+                }
+            )
     return warnings
 
 
@@ -138,7 +144,7 @@ def _leveraged_decay_estimate_pct(ticker: str, days_held: int | None, market_dat
     if annual_vol_pct is None:
         return None
     daily_sigma = (annual_vol_pct / 100.0) / math.sqrt(252)
-    drag = ((leverage ** 2 - leverage) / 2.0) * (daily_sigma ** 2) * days_held
+    drag = ((leverage**2 - leverage) / 2.0) * (daily_sigma**2) * days_held
     return round(-drag * 100, 2)
 
 
@@ -175,26 +181,31 @@ def watchlist_price_alerts(watchlist: dict, market_data: dict) -> list[dict]:
         target_exit = entry.get("target_exit_price")
 
         if target_entry is not None and price <= target_entry:
-            alerts.append({
-                "ticker": ticker,
-                "kind": "entry",
-                "price": price,
-                "target": target_entry,
-                "message": f"crossed below target entry ${target_entry:.2f} (now ${price:.2f})",
-            })
+            alerts.append(
+                {
+                    "ticker": ticker,
+                    "kind": "entry",
+                    "price": price,
+                    "target": target_entry,
+                    "message": f"crossed below target entry ${target_entry:.2f} (now ${price:.2f})",
+                }
+            )
         if target_exit is not None and price >= target_exit:
-            alerts.append({
-                "ticker": ticker,
-                "kind": "exit",
-                "price": price,
-                "target": target_exit,
-                "message": f"crossed above target exit ${target_exit:.2f} (now ${price:.2f})",
-            })
+            alerts.append(
+                {
+                    "ticker": ticker,
+                    "kind": "exit",
+                    "price": price,
+                    "target": target_exit,
+                    "message": f"crossed above target exit ${target_exit:.2f} (now ${price:.2f})",
+                }
+            )
 
     return alerts
 
 
 # ── Markdown rendering ────────────────────────────────────────────────────────
+
 
 def _render_sector_section(sector_exposure: dict, threshold_pct: float = 40) -> list[str]:
     if not sector_exposure:
@@ -205,9 +216,7 @@ def _render_sector_section(sector_exposure: dict, threshold_pct: float = 40) -> 
     for sector, data in sector_exposure.items():
         flag = " ⚠️" if data.get("pct", 0) > threshold_pct else ""
         tickers = ", ".join(data.get("tickers", []))
-        lines.append(
-            f"| {sector} | {data['pct']:.1f}% | ${data['value_cad']:,.0f} | {tickers} | {flag} |"
-        )
+        lines.append(f"| {sector} | {data['pct']:.1f}% | ${data['value_cad']:,.0f} | {tickers} | {flag} |")
     lines += ["", "---", ""]
     return lines
 
@@ -228,9 +237,7 @@ def _render_tax_loss_section(holdings: list, threshold_pct: float = -15) -> list
         pnl = c["pnl"] or 0
         mv = c["market_value"] or 0
         cur = c.get("pnl_currency", "")
-        lines.append(
-            f"| **{c['ticker']}** | {c['pnl_pct']:+.1f}% | ${pnl:+,.0f} {cur} | ${mv:,.0f} |"
-        )
+        lines.append(f"| **{c['ticker']}** | {c['pnl_pct']:+.1f}% | ${pnl:+,.0f} {cur} | ${mv:,.0f} |")
     lines += ["", "---", ""]
     return lines
 
@@ -256,11 +263,11 @@ def _render_drift_section(drift: list) -> list[str]:
         by_type.setdefault(d["drift_type"], []).append(d)
 
     type_labels = {
-        "action_flip":     "🔀 Action flips",
+        "action_flip": "🔀 Action flips",
         "conviction_jump": "📈 Conviction jumps",
-        "sign_flip":       "↕️ Net-expected sign flips",
-        "new_ticker":      "✨ New tickers",
-        "dropped_ticker":  "🗑 Dropped tickers",
+        "sign_flip": "↕️ Net-expected sign flips",
+        "new_ticker": "✨ New tickers",
+        "dropped_ticker": "🗑 Dropped tickers",
     }
 
     for drift_type, label in type_labels.items():
@@ -281,8 +288,7 @@ def _render_drift_section(drift: list) -> list[str]:
 
 def _render_execution_check_section(previous_session: dict | None, activities: list[dict]) -> list[str]:
     previous_actions = [
-        rec for rec in (previous_session or {}).get("recommendations", []) or []
-        if rec.get("action") in {"BUY", "ADD", "TRIM", "SELL"}
+        rec for rec in (previous_session or {}).get("recommendations", []) or [] if rec.get("action") in {"BUY", "ADD", "TRIM", "SELL"}
     ]
     if not previous_actions:
         return []
@@ -302,8 +308,7 @@ def _render_execution_check_section(previous_session: dict | None, activities: l
         rows = traded.get(ticker) or []
         if rows:
             activity_str = "; ".join(
-                f"{row.get('date')} {row.get('sub_type', '').upper()} {row.get('quantity') or ''}".strip()
-                for row in rows[:3]
+                f"{row.get('date')} {row.get('sub_type', '').upper()} {row.get('quantity') or ''}".strip() for row in rows[:3]
             )
         else:
             activity_str = "No matching recent trade found in activities CSV."
@@ -345,9 +350,7 @@ def _render_track_record_section(backtest_summary: dict) -> list[str]:
             "|---|---:|---:|---:|",
         ]
         for action, stats in by_action.items():
-            lines.append(
-                f"| {action} | {stats['n']} | {stats['avg_return_pct']:+.2f}% | {stats['hit_rate']:.0%} |"
-            )
+            lines.append(f"| {action} | {stats['n']} | {stats['avg_return_pct']:+.2f}% | {stats['hit_rate']:.0%} |")
         lines.append("")
 
     by_conv = backtest_summary.get("avg_return_by_conviction", {})
@@ -374,9 +377,7 @@ def _render_track_record_section(backtest_summary: dict) -> list[str]:
             "|---|---:|---:|---:|",
         ]
         for ticker, stats in list(by_ticker.items())[:10]:
-            lines.append(
-                f"| {ticker} | {stats['n']} | {stats['avg_return_pct']:+.2f}% | {stats['hit_rate']:.0%} |"
-            )
+            lines.append(f"| {ticker} | {stats['n']} | {stats['avg_return_pct']:+.2f}% | {stats['hit_rate']:.0%} |")
         lines.append("")
 
     lines += ["---", ""]
@@ -454,14 +455,16 @@ def _render_data_quality_section(market_data: dict) -> list[str]:
             continue
         if data.get("price_basis") == "daily_history_close":
             fallback_count += 1
-        rows.append((
-            ticker,
-            f"${data.get('current_price', 'N/A')} {data.get('currency', '')}",
-            f"${data.get('previous_close'):,.2f}" if data.get("previous_close") else "N/A",
-            f"{data.get('change_pct_1d'):+.2f}%" if data.get("change_pct_1d") is not None else "N/A",
-            data.get("quote_timestamp_utc") or "N/A",
-            data.get("quote_source") or "N/A",
-        ))
+        rows.append(
+            (
+                ticker,
+                f"${data.get('current_price', 'N/A')} {data.get('currency', '')}",
+                f"${data.get('previous_close'):,.2f}" if data.get("previous_close") else "N/A",
+                f"{data.get('change_pct_1d'):+.2f}%" if data.get("change_pct_1d") is not None else "N/A",
+                data.get("quote_timestamp_utc") or "N/A",
+                data.get("quote_source") or "N/A",
+            )
+        )
 
     lines = [
         "## Quote & Data Quality",
@@ -474,6 +477,61 @@ def _render_data_quality_section(market_data: dict) -> list[str]:
     ]
     for row in rows:
         lines.append("| " + " | ".join(_table_cell(v) for v in row) + " |")
+    lines += ["", "---", ""]
+    return lines
+
+
+def _render_data_confidence_section(recommendation: dict, market_data: dict, enriched: dict) -> list[str]:
+    confidence = recommendation.get("data_confidence") or build_data_confidence(
+        recommendations=recommendation.get("recommendations") or [],
+        market_data=market_data or {},
+        quality_warnings=recommendation.get("quality_warnings") or [],
+        enriched=enriched or {},
+    )
+    source_coverage = confidence.get("source_coverage") or {}
+    catalyst_coverage = confidence.get("catalyst_coverage") or {}
+    readiness = confidence.get("readiness_counts") or {}
+    rows = [
+        ("Data Confidence", confidence.get("label") or "N/A"),
+        ("Quote freshness", confidence.get("quote_freshness") or "N/A"),
+        (
+            "Quotes timestamped",
+            f"{confidence.get('timestamped_quotes', 0)}/{confidence.get('quote_total', 0)}",
+        ),
+        ("Fallback close quotes", confidence.get("fallback_quotes", 0)),
+        ("Quote errors", confidence.get("quote_errors", 0)),
+        ("Active optional sources", source_coverage.get("active_count", 0)),
+        ("Source degradation records", source_coverage.get("degradation_count", 0)),
+        (
+            "Catalysts verified",
+            f"{catalyst_coverage.get('verified_count', 0)}/{catalyst_coverage.get('relevant_count', 0)}",
+        ),
+        ("Manual-review recommendations", catalyst_coverage.get("manual_review_required", 0)),
+        ("Quality warnings", confidence.get("warning_count", 0)),
+    ]
+    if readiness:
+        rows.append(
+            (
+                "Buy-signal readiness",
+                f"{readiness.get('TRADE_READY', 0)} ready / {readiness.get('REVIEW_FIRST', 0)} review / {readiness.get('BLOCKED', 0)} blocked",
+            )
+        )
+
+    lines = [
+        "## Data Confidence",
+        "",
+        f"_{confidence.get('summary') or 'Deterministic data-confidence summary.'}_",
+        "",
+        "| Signal | Value |",
+        "|---|---:|",
+    ]
+    for label, value in rows:
+        lines.append(f"| {label} | {_table_cell(value)} |")
+    reasons = confidence.get("reasons") or []
+    if reasons:
+        lines += ["", "**Why it matters:**"]
+        for reason in reasons[:5]:
+            lines.append(f"- {reason}")
     lines += ["", "---", ""]
     return lines
 
@@ -492,13 +550,16 @@ def _render_quality_warnings_section(warnings: list[dict]) -> list[str]:
     for warning in rows:
         lines.append(
             "| "
-            + " | ".join(_table_cell(v) for v in [
-                (warning.get("severity") or "").upper(),
-                warning.get("code", ""),
-                warning.get("ticker") or "Portfolio",
-                warning.get("message", ""),
-                warning.get("action_required", ""),
-            ])
+            + " | ".join(
+                _table_cell(v)
+                for v in [
+                    (warning.get("severity") or "").upper(),
+                    warning.get("code", ""),
+                    warning.get("ticker") or "Portfolio",
+                    warning.get("message", ""),
+                    warning.get("action_required", ""),
+                ]
+            )
             + " |"
         )
     lines += ["", "---", ""]
@@ -520,17 +581,13 @@ def _render_critical_actions_section(
             quote_mismatches.append(warning)
             continue
         ticker = warning.get("ticker") or "Portfolio"
-        items.append(
-            f"**{ticker}**: {warning.get('action_required') or warning.get('message', '')}"
-        )
+        items.append(f"**{ticker}**: {warning.get('action_required') or warning.get('message', '')}")
     if quote_mismatches:
         summary = _quote_mismatch_summary(quote_mismatches)
         items.insert(0, summary)
     for rec in recommendations or []:
         if rec.get("manual_review_required"):
-            items.append(
-                f"**{rec.get('ticker')}**: manual catalyst review required before any trade."
-            )
+            items.append(f"**{rec.get('ticker')}**: manual catalyst review required before any trade.")
     for warning in leveraged_warnings or []:
         held = _format_holding_duration(warning)
         items.append(
@@ -590,12 +647,15 @@ def _render_data_coverage_section(enriched: dict) -> list[str]:
     for item in degradation[:25]:
         lines.append(
             "| "
-            + " | ".join(_table_cell(v) for v in [
-                item.get("source", ""),
-                item.get("ticker") or "portfolio",
-                item.get("operation", ""),
-                item.get("error", ""),
-            ])
+            + " | ".join(
+                _table_cell(v)
+                for v in [
+                    item.get("source", ""),
+                    item.get("ticker") or "portfolio",
+                    item.get("operation", ""),
+                    item.get("error", ""),
+                ]
+            )
             + " |"
         )
     lines += ["", "---", ""]
@@ -613,9 +673,22 @@ def _render_risk_dashboard_section(risk_dashboard: dict) -> list[str]:
     ]
     metric_rows = [
         ("Total value in risk model", f"${risk_dashboard.get('total_value_usd', 0):,.0f} USD"),
-        ("Annualized volatility", f"{risk_dashboard.get('annualized_volatility_pct'):.1f}%" if risk_dashboard.get("annualized_volatility_pct") is not None else "N/A"),
-        ("Max drawdown estimate", f"{risk_dashboard.get('max_drawdown_estimate_pct'):.1f}%" if risk_dashboard.get("max_drawdown_estimate_pct") is not None else "N/A"),
-        ("Top-3 concentration", f"{risk_dashboard.get('top3_concentration_pct'):.1f}%" if risk_dashboard.get("top3_concentration_pct") is not None else "N/A"),
+        (
+            "Annualized volatility",
+            f"{risk_dashboard.get('annualized_volatility_pct'):.1f}%"
+            if risk_dashboard.get("annualized_volatility_pct") is not None
+            else "N/A",
+        ),
+        (
+            "Max drawdown estimate",
+            f"{risk_dashboard.get('max_drawdown_estimate_pct'):.1f}%"
+            if risk_dashboard.get("max_drawdown_estimate_pct") is not None
+            else "N/A",
+        ),
+        (
+            "Top-3 concentration",
+            f"{risk_dashboard.get('top3_concentration_pct'):.1f}%" if risk_dashboard.get("top3_concentration_pct") is not None else "N/A",
+        ),
     ]
     beta = risk_dashboard.get("beta") or {}
     if beta:
@@ -720,10 +793,7 @@ def _render_catalyst_section(market_data: dict, news_by_ticker: dict, threshold_
         if move is None or abs(move) < threshold_pct:
             continue
         articles = (news_by_ticker or {}).get(ticker) or []
-        usable = [
-            a for a in articles
-            if a.get("title") and not a.get("title", "").lower().startswith("error fetching news")
-        ]
+        usable = [a for a in articles if a.get("title") and not a.get("title", "").lower().startswith("error fetching news")]
         if usable:
             top = usable[0]
             headline = top.get("title", "")
@@ -763,7 +833,7 @@ def _render_priority_actions_section(priority_actions: list, recommendations: li
     for pa in sorted(priority_actions, key=lambda x: x.get("order", 99)):
         ticker = pa.get("ticker", "")
         action = pa.get("action", "")
-        emoji  = ACTION_EMOJI.get(action, "⚪")
+        emoji = ACTION_EMOJI.get(action, "⚪")
         amount = pa.get("invest_amount_usd")
         shares = pa.get("shares")
         if pa.get("action_size_label"):
@@ -801,9 +871,7 @@ def _render_leveraged_etf_section(warnings: list) -> list[str]:
         pnl_str = f" | P&L {pnl:+.1f}%" if pnl is not None else ""
         decay = w.get("estimated_decay_pct")
         decay_str = f" | est. vol-decay drag {decay:+.2f}%" if decay is not None else ""
-        lines.append(
-            f"- **{w['ticker']}** — held {held} (cap: {w['max_hold_days']} days){pnl_str}{decay_str}"
-        )
+        lines.append(f"- **{w['ticker']}** — held {held} (cap: {w['max_hold_days']} days){pnl_str}{decay_str}")
     lines += ["", "---", ""]
     return lines
 
@@ -817,6 +885,7 @@ def _format_holding_duration(warning: dict) -> str:
 
 
 # ── Main entrypoint ───────────────────────────────────────────────────────────
+
 
 def generate_markdown(
     session_type: str,
@@ -913,6 +982,7 @@ def generate_markdown(
     paper_summary = recommendation.get("paper_summary")
     if paper_summary:
         from src.paper_trading import format_for_report as _fmt_paper
+
         lines += _fmt_paper(paper_summary)
     lines += render_market_state_banner(
         drawdown_state or recommendation.get("drawdown_state"),
@@ -937,6 +1007,7 @@ def generate_markdown(
     )
 
     # ── Data quality and cost assumptions ─────────────────────────────────
+    lines += _render_data_confidence_section(recommendation, market_data or {}, enriched or {})
     lines += _render_data_quality_section(market_data or {})
     lines += _render_data_coverage_section(enriched or {})
     lines += _render_fee_assumptions_section(settings)
@@ -959,6 +1030,7 @@ def generate_markdown(
     if trailing_alerts is None:
         try:
             from src.trailing_stops import evaluate as _eval_trailing_stops
+
             trailing_alerts = _eval_trailing_stops(holdings, market_data, holding_days_map, settings)
         except Exception:
             trailing_alerts = []
@@ -978,6 +1050,7 @@ def generate_markdown(
     lines += _render_track_record_section(backtest_summary or {})
     if decision_scorecard:
         from src.decision_journal import format_for_report as _fmt_decision_journal
+
         lines += _fmt_decision_journal(decision_scorecard)
 
     tax_threshold = settings.get("tax_loss_threshold_pct", -15)
@@ -992,12 +1065,12 @@ def generate_markdown(
         lines.append("_No recommendations this session._")
     else:
         for rec in recs:
-            ticker     = rec.get("ticker", "")
-            action     = rec.get("action", "HOLD")
+            ticker = rec.get("ticker", "")
+            action = rec.get("action", "HOLD")
             conviction = rec.get("conviction", 0)
-            emoji      = ACTION_EMOJI.get(action, "⚪")
-            hold_tier  = rec.get("hold_tier")
-            earnings   = rec.get("earnings_alert")
+            emoji = ACTION_EMOJI.get(action, "⚪")
+            hold_tier = rec.get("hold_tier")
+            earnings = rec.get("earnings_alert")
 
             # Build header line — HOLD gets sub-label, earnings get badge
             action_label = action
@@ -1028,8 +1101,7 @@ def generate_markdown(
 
             md = market_data.get(ticker, {})
             if md and not md.get("error"):
-                lines += ["| | |", "|---|---|",
-                          f"| Current Price | ${md.get('current_price', 'N/A')} {md.get('currency', '')} |"]
+                lines += ["| | |", "|---|---|", f"| Current Price | ${md.get('current_price', 'N/A')} {md.get('currency', '')} |"]
                 if md.get("change_pct_1d") is not None:
                     lines.append(f"| 1-Day Change | {md['change_pct_1d']:+.1f}% |")
                 if md.get("pre_market_change_pct") is not None:
@@ -1075,18 +1147,12 @@ def generate_markdown(
                     lines.append(f"| Ex-Dividend Date | {md['ex_dividend_date'][:10]} |")
                 options_move = md.get("options_implied_move")
                 if options_move:
-                    lines.append(
-                        f"| Options Implied Move | {options_move.get('implied_move_pct')}% by "
-                        f"{options_move.get('expiry')} |"
-                    )
+                    lines.append(f"| Options Implied Move | {options_move.get('implied_move_pct')}% by {options_move.get('expiry')} |")
                 if rec.get("liquidity_tier"):
                     lines.append(f"| Liquidity Tier | {rec['liquidity_tier']} |")
                 position = positions.get(ticker)
                 if position:
-                    lines.append(
-                        f"| Position Size | ~${position['value_usd']:,.0f} "
-                        f"({position.get('pct', 0):.1f}% of holdings ex-cash) |"
-                    )
+                    lines.append(f"| Position Size | ~${position['value_usd']:,.0f} ({position.get('pct', 0):.1f}% of holdings ex-cash) |")
                 if rec.get("target_entry_or_exit"):
                     lines.append(f"| Target Entry/Exit | ${rec['target_entry_or_exit']:.2f} |")
                 # Invest amount for buys; shares for sells/trims
@@ -1099,6 +1165,7 @@ def generate_markdown(
 
             controls = rec.get("risk_controls") or {}
             if controls:
+
                 def _pct_cell(value):
                     return f"{value:+.1f}%" if isinstance(value, (int, float)) else "N/A"
 

@@ -1,12 +1,12 @@
 """Backtester now subtracts fees and slippage from realized returns."""
+
 from datetime import datetime
 from unittest.mock import patch
 
 from src.backtester import evaluate_recommendations, summarize
 
 
-def _rec(ticker="MSFT", action="BUY", conviction=8, expected_pct=4.0,
-         time_horizon="1-2 weeks", session_date="2026-04-01"):
+def _rec(ticker="MSFT", action="BUY", conviction=8, expected_pct=4.0, time_horizon="1-2 weeks", session_date="2026-04-01"):
     return {
         "ticker": ticker,
         "action": action,
@@ -14,7 +14,7 @@ def _rec(ticker="MSFT", action="BUY", conviction=8, expected_pct=4.0,
         "net_expected_pct": expected_pct,
         "time_horizon": time_horizon,
         "session_date": session_date,
-        "session_file": f"{session_date.replace('-','')}_0930_morning.json",
+        "session_file": f"{session_date.replace('-', '')}_0930_morning.json",
     }
 
 

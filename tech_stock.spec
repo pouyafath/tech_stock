@@ -12,6 +12,9 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 ROOT = Path(SPECPATH)  # directory containing this .spec file
+version_ns = {}
+exec((ROOT / "src" / "version.py").read_text(), version_ns)
+APP_VERSION = version_ns.get("APP_VERSION", "1.0.0")
 
 # ── Data files ────────────────────────────────────────────────────────────────
 # Streamlit ships a large static/ directory (JS, CSS, images) that must be
@@ -23,11 +26,16 @@ datas += collect_data_files("textual")
 datas += collect_data_files("altair")
 datas += collect_data_files("pyarrow")      # required by streamlit
 datas += collect_data_files("vaderSentiment")
+datas += collect_data_files("certifi")      # CA bundle for HTTPS update checks
 
 # Our own source trees
 datas += [(str(ROOT / "src"),  "src")]
 datas += [(str(ROOT / "ui"),   "ui")]
 datas += [(str(ROOT / "config"), "config")]
+for filename in ("API_KEYS.template.txt", ".env.example"):
+    path = ROOT / filename
+    if path.exists():
+        datas += [(str(path), ".")]
 
 # ── Hidden imports ────────────────────────────────────────────────────────────
 # Modules that are imported dynamically (plugins, lazy-loaded, etc.)
@@ -65,6 +73,8 @@ hiddenimports = [
     # Project modules
     "src.main",
     "src.ui_support",
+    "src.updater",
+    "src.version",
     "src.desktop_app",
     "src.claude_analyst",
     "src.market_data",
@@ -165,12 +175,56 @@ if sys.platform == "darwin":
         icon=icon,
         bundle_identifier="com.techstock.app",
         info_plist={
-            "CFBundleShortVersionString": "1.0.0",
-            "CFBundleVersion": "1",
-            "NSHighResolutionCapable": True,
-            "NSRequiresAquaSystemAppearance": False,   # supports dark mode
-            "LSMinimumSystemVersion": "12.0",
+            # — Identity —
+            "CFBundleName": "tech_stock",
             "CFBundleDisplayName": "tech_stock",
-            "NSHumanReadableCopyright": "© 2026 tech_stock",
+            "CFBundleShortVersionString": APP_VERSION,
+            "CFBundleVersion": APP_VERSION,
+            "CFBundleExecutable": "tech_stock",
+            "CFBundleIdentifier": "com.techstock.app",
+            "CFBundlePackageType": "APPL",
+            "CFBundleSignature": "????",
+            "CFBundleInfoDictionaryVersion": "6.0",
+            "NSHumanReadableCopyright": "© 2026 tech_stock — built on Claude",
+            # — Display / appearance —
+            "NSHighResolutionCapable": True,
+            "NSSupportsAutomaticGraphicsSwitching": True,
+            "NSRequiresAquaSystemAppearance": False,  # supports dark mode (Mojave+)
+            "LSApplicationCategoryType": "public.app-category.finance",
+            "LSMinimumSystemVersion": "12.0",
+            # — Behaviour —
+            # The app shows a dashboard window, so it should *not* be a UIElement.
+            "LSUIElement": False,
+            "LSBackgroundOnly": False,
+            "NSPrincipalClass": "NSApplication",
+            # CSV file association — double-click a Wealthsimple CSV → open in app
+            "CFBundleDocumentTypes": [
+                {
+                    "CFBundleTypeName": "Comma-Separated Values",
+                    "CFBundleTypeExtensions": ["csv"],
+                    "CFBundleTypeIconFile": "icon.icns",
+                    "CFBundleTypeRole": "Viewer",
+                    "LSItemContentTypes": ["public.comma-separated-values-text"],
+                    "LSHandlerRank": "Alternate",
+                }
+            ],
+            # — Privacy / entitlements descriptions (shown in macOS prompts) —
+            "NSAppleEventsUsageDescription": (
+                "tech_stock uses AppleScript only to reveal report files in Finder. "
+                "It does not control other applications."
+            ),
+            "NSDesktopFolderUsageDescription": (
+                "tech_stock looks for today's Wealthsimple holdings CSV on your Desktop."
+            ),
+            "NSDocumentsFolderUsageDescription": (
+                "tech_stock looks for today's Wealthsimple holdings CSV in your Documents folder."
+            ),
+            "NSDownloadsFolderUsageDescription": (
+                "tech_stock looks for today's Wealthsimple holdings CSV in your Downloads folder."
+            ),
+            # — Networking entitlement hint (no ATS exception; HTTPS only) —
+            "NSAppTransportSecurity": {
+                "NSAllowsArbitraryLoads": False,
+            },
         },
     )

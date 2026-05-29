@@ -36,7 +36,7 @@ def test_drift_window_allows_post_earnings_adds():
 def test_no_tag_outside_known_windows():
     today = date(2026, 5, 6)
     far_future = date(2026, 8, 1)
-    far_past   = date(2026, 1, 1)
+    far_past = date(2026, 1, 1)
     assert classify_earnings_window(far_future, today) is None
     assert classify_earnings_window(far_past, today) is None
     assert classify_earnings_window(None, today) is None
@@ -87,7 +87,7 @@ def test_macro_session_tags_detects_fomc_in_2_days():
 def test_format_for_prompt_groups_by_window():
     ticker_tags = {
         "AAPL": {"window": "lockdown", "days_to": 2, "label": "earnings lockdown"},
-        "NVDA": {"window": "setup",    "days_to": 19, "label": "earnings setup"},
+        "NVDA": {"window": "setup", "days_to": 19, "label": "earnings setup"},
     }
     block = format_for_prompt(ticker_tags, ["FOMC_TODAY"])
     assert "CATALYST WINDOWS" in block

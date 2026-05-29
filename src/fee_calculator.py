@@ -75,10 +75,7 @@ def calculate_round_trip_cost(
 def build_fee_snapshot(tickers: list, notional_usd: float = 1000.0) -> dict:
     """Build a fee snapshot dict for all tickers."""
     settings = load_settings()
-    return {
-        ticker: calculate_round_trip_cost(ticker, notional_usd, settings)
-        for ticker in tickers
-    }
+    return {ticker: calculate_round_trip_cost(ticker, notional_usd, settings) for ticker in tickers}
 
 
 if __name__ == "__main__":

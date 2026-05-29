@@ -21,3 +21,38 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: pytest -q
+
+  lint-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Ruff syntax/undefined-name check
+        run: ruff check .
+      - name: Ruff format check (whole src/ and tests/)
+        # Previously only checked 4 hand-picked files; CI passed even when
+        # 30+ modules drifted out of format. Expanded after a one-time
+        # `ruff format src/ tests/` baseline so the signal is honest.
+        run: ruff format --check src/ tests/
+      - name: Dependency vulnerability audit
+        run: pip-audit --requirement requirements.txt
+
+  pyinstaller-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install build dependency
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+      - name: Validate PyInstaller is available
+        run: pyinstaller --version

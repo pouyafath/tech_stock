@@ -1,4 +1,5 @@
 """Tests for the smaller P2 fixes: news cache key, drift tracker, tranches."""
+
 import json
 import os
 from datetime import datetime, timedelta
@@ -13,9 +14,9 @@ from src.drift_tracker import get_previous_session
 
 # ── Tranched plans ──────────────────────────────────────────────────────
 
+
 def test_default_entry_plan_sums_to_100pct():
-    rec = {"risk_controls": {"entry_zone_low_pct": -3, "entry_zone_high_pct": 2,
-                              "stop_loss_pct": -7, "take_profit_pct": 15}}
+    rec = {"risk_controls": {"entry_zone_low_pct": -3, "entry_zone_high_pct": 2, "stop_loss_pct": -7, "take_profit_pct": 15}}
     plan = _default_entry_plan(rec)
     assert len(plan) == 3
     assert abs(sum(t["fraction"] for t in plan) - 1.0) < 0.001
@@ -30,8 +31,8 @@ def test_default_entry_plan_uses_zone_when_provided():
     plan = _default_entry_plan(rec)
     pullback = next(t for t in plan if t["trigger"] == "pullback")
     confirm = next(t for t in plan if t["trigger"] == "confirmation")
-    assert pullback["price_pct"] == -2.0   # half of -4
-    assert confirm["price_pct"] == 3.0      # half of 6
+    assert pullback["price_pct"] == -2.0  # half of -4
+    assert confirm["price_pct"] == 3.0  # half of 6
 
 
 def test_default_entry_plan_uses_safe_defaults_when_no_zone():
@@ -49,11 +50,16 @@ def test_default_exit_plan_full_stop_at_stop_loss():
 
 
 def test_normalize_backfills_entry_plan_for_buy():
-    rec = {"recommendations": [
-        {"ticker": "MSFT", "action": "BUY", "conviction": 8,
-         "risk_controls": {"entry_zone_low_pct": -3, "entry_zone_high_pct": 2,
-                           "stop_loss_pct": -7, "take_profit_pct": 15}},
-    ]}
+    rec = {
+        "recommendations": [
+            {
+                "ticker": "MSFT",
+                "action": "BUY",
+                "conviction": 8,
+                "risk_controls": {"entry_zone_low_pct": -3, "entry_zone_high_pct": 2, "stop_loss_pct": -7, "take_profit_pct": 15},
+            },
+        ]
+    }
     out = normalize_recommendation(rec)
     plan = out["recommendations"][0]["entry_plan"]
     assert len(plan) == 3
@@ -61,10 +67,11 @@ def test_normalize_backfills_entry_plan_for_buy():
 
 
 def test_normalize_backfills_exit_plan_for_trim():
-    rec = {"recommendations": [
-        {"ticker": "PLTR", "action": "TRIM", "conviction": 7,
-         "risk_controls": {"stop_loss_pct": -5}},
-    ]}
+    rec = {
+        "recommendations": [
+            {"ticker": "PLTR", "action": "TRIM", "conviction": 7, "risk_controls": {"stop_loss_pct": -5}},
+        ]
+    }
     out = normalize_recommendation(rec)
     assert "exit_plan" in out["recommendations"][0]
     assert out["recommendations"][0]["exit_plan_auto_generated"] is True
@@ -72,27 +79,29 @@ def test_normalize_backfills_exit_plan_for_trim():
 
 def test_normalize_does_not_overwrite_existing_plan():
     custom_plan = [{"trigger": "now", "fraction": 1.0, "price_pct": 0, "note": "all in"}]
-    rec = {"recommendations": [
-        {"ticker": "NVDA", "action": "BUY", "conviction": 9,
-         "entry_plan": custom_plan,
-         "risk_controls": {}},
-    ]}
+    rec = {
+        "recommendations": [
+            {"ticker": "NVDA", "action": "BUY", "conviction": 9, "entry_plan": custom_plan, "risk_controls": {}},
+        ]
+    }
     out = normalize_recommendation(rec)
     assert out["recommendations"][0]["entry_plan"] == custom_plan
     assert "entry_plan_auto_generated" not in out["recommendations"][0]
 
 
 def test_normalize_skips_plan_for_hold():
-    rec = {"recommendations": [
-        {"ticker": "MSFT", "action": "HOLD", "conviction": 6,
-         "risk_controls": {}},
-    ]}
+    rec = {
+        "recommendations": [
+            {"ticker": "MSFT", "action": "HOLD", "conviction": 6, "risk_controls": {}},
+        ]
+    }
     out = normalize_recommendation(rec)
     assert "entry_plan" not in out["recommendations"][0]
     assert "exit_plan" not in out["recommendations"][0]
 
 
 # ── Drift tracker self-compare fix ──────────────────────────────────────
+
 
 def test_drift_tracker_skips_recent_re_run(tmp_path):
     """A morning re-run minutes apart should not be treated as previous session."""

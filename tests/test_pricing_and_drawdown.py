@@ -1,9 +1,11 @@
 """Tests for cache pricing fix and drawdown detection."""
+
 from src.claude_analyst import MODEL_PRICING, estimate_cost
 from src.portfolio_analytics import detect_drawdown
 
 
 # ── Cache pricing ───────────────────────────────────────────────────────
+
 
 def test_pricing_table_has_1h_cache_write_at_2x_input():
     """The code uses ttl='1h' which charges 2× input for cache writes."""
@@ -11,9 +13,7 @@ def test_pricing_table_has_1h_cache_write_at_2x_input():
         assert "cache_write_1h" in prices, f"{model} missing cache_write_1h"
         assert "cache_write_5m" in prices, f"{model} missing cache_write_5m"
         # 1h write must be 2× input within rounding
-        assert abs(prices["cache_write_1h"] - 2 * prices["input"]) < 0.01, (
-            f"{model}: 1h cache write should be 2× input"
-        )
+        assert abs(prices["cache_write_1h"] - 2 * prices["input"]) < 0.01, f"{model}: 1h cache write should be 2× input"
         # 5m write should be 1.25× input
         assert abs(prices["cache_write_5m"] - 1.25 * prices["input"]) < 0.01
 
@@ -24,6 +24,7 @@ def test_estimate_cost_uses_1h_write_rate():
         output_tokens = 500
         cache_creation_input_tokens = 5000
         cache_read_input_tokens = 10000
+
     out = estimate_cost(FakeUsage(), "claude-sonnet-4-6")
     # input: 0.001 * 3 = 0.003
     # output: 0.0005 * 15 = 0.0075
@@ -40,12 +41,14 @@ def test_estimate_cost_unknown_model_falls_back_to_sonnet():
         output_tokens = 0
         cache_creation_input_tokens = 0
         cache_read_input_tokens = 0
+
     out = estimate_cost(FakeUsage(), "claude-some-future-model")
     # input only: 1000 / 1M * $3 = $0.003
     assert abs(out["cost_usd"] - 0.003) < 0.0001
 
 
 # ── Drawdown detection ─────────────────────────────────────────────────
+
 
 def _holding(ticker, market_value=10000, currency="USD"):
     return {
@@ -57,7 +60,7 @@ def _holding(ticker, market_value=10000, currency="USD"):
 
 def _history(prices):
     """Build a market_data history list of {date, close} from a list of closes."""
-    return [{"date": f"2026-04-{i+1:02d}", "close": p} for i, p in enumerate(prices)]
+    return [{"date": f"2026-04-{i + 1:02d}", "close": p} for i, p in enumerate(prices)]
 
 
 def test_drawdown_triggers_when_below_threshold():
@@ -90,12 +93,12 @@ def test_drawdown_handles_no_holdings():
 def test_drawdown_weighted_by_market_value():
     """Two holdings, one tanks, one stable — drawdown weighted by value."""
     holdings = [
-        _holding("BAD", market_value=50_000),   # 5x weight
-        _holding("OK",  market_value=10_000),
+        _holding("BAD", market_value=50_000),  # 5x weight
+        _holding("OK", market_value=10_000),
     ]
     market_data = {
         "BAD": {"history": _history([100, 100, 100, 90, 80])},  # -20% from peak
-        "OK":  {"history": _history([100, 100, 100, 100, 100])},
+        "OK": {"history": _history([100, 100, 100, 100, 100])},
     }
     state = detect_drawdown(holdings, market_data, {})
     assert state["triggered"] is True

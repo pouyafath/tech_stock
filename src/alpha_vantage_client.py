@@ -28,6 +28,7 @@ from tenacity import (
 
 from src.cache import cached
 from src.config import load_settings
+from src.observability import log_event
 
 BASE_URL = "https://www.alphavantage.co/query"
 
@@ -64,27 +65,51 @@ def _request(params: dict) -> dict | None:
     r = requests.get(BASE_URL, params=params, timeout=15)
 
     if r.status_code >= 400:
+        log_event(
+            "alpha_vantage",
+            "error",
+            f"http_{r.status_code}",
+            f"Alpha Vantage returned HTTP {r.status_code}",
+            {"function": params.get("function"), "status": r.status_code},
+        )
         return None
     try:
         data = r.json()
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log_event(
+            "alpha_vantage",
+            "error",
+            "json_decode",
+            f"Alpha Vantage JSON decode failed: {exc}",
+            {"function": params.get("function")},
+        )
         return None
 
     # Alpha Vantage wraps errors as JSON {"Note": "...", "Information": "..."}
     if "Note" in data or "Information" in data:
+        log_event(
+            "alpha_vantage",
+            "warning",
+            "rate_limited",
+            f"Alpha Vantage soft-fail: {data.get('Note') or data.get('Information')}",
+            {"function": params.get("function")},
+        )
         return None
     return data
 
 
 # ── News & Sentiment ──────────────────────────────────────────────────────────
 
+
 def _fetch_news_sentiment(ticker: str, limit: int = 10) -> dict | None:
-    data = _request({
-        "function": "NEWS_SENTIMENT",
-        "tickers": ticker,
-        "limit": limit,
-        "sort": "LATEST",
-    })
+    data = _request(
+        {
+            "function": "NEWS_SENTIMENT",
+            "tickers": ticker,
+            "limit": limit,
+            "sort": "LATEST",
+        }
+    )
     if not data:
         return None
     items = data.get("feed") or []
@@ -103,7 +128,7 @@ def _fetch_news_sentiment(ticker: str, limit: int = 10) -> dict | None:
     # Ticker-specific scores (filtered)
     ticker_scores = []
     for article in items:
-        for ts in (article.get("ticker_sentiment") or []):
+        for ts in article.get("ticker_sentiment") or []:
             if ts.get("ticker") == ticker:
                 try:
                     ticker_scores.append(float(ts["ticker_sentiment_score"]))
@@ -121,11 +146,15 @@ def _fetch_news_sentiment(ticker: str, limit: int = 10) -> dict | None:
         "bearish": bearish,
         "neutral": neutral,
         "label": (
-            "BULLISH" if avg_score > 0.35 else
-            "SOMEWHAT BULLISH" if avg_score > 0.15 else
-            "NEUTRAL" if avg_score > -0.15 else
-            "SOMEWHAT BEARISH" if avg_score > -0.35 else
-            "BEARISH"
+            "BULLISH"
+            if avg_score > 0.35
+            else "SOMEWHAT BULLISH"
+            if avg_score > 0.15
+            else "NEUTRAL"
+            if avg_score > -0.15
+            else "SOMEWHAT BEARISH"
+            if avg_score > -0.35
+            else "BEARISH"
         ),
     }
 
@@ -144,11 +173,13 @@ def news_sentiment(ticker: str, limit: int = 10) -> dict | None:
             loader=lambda: _fetch_news_sentiment(ticker, limit),
             enabled=settings.get("cache_enabled", True),
         )
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log_event("alpha_vantage", "error", "sentiment_failed", f"news_sentiment({ticker}) failed: {exc}", {"ticker": ticker})
         return None
 
 
 # ── Earnings Calendar ──────────────────────────────────────────────────────────
+
 
 def _fetch_earnings_calendar(ticker: str) -> dict | None:
     """Annual and quarterly earnings + analyst estimates."""
@@ -198,12 +229,14 @@ def earnings_calendar(ticker: str) -> dict | None:
             loader=lambda: _fetch_earnings_calendar(ticker),
             enabled=settings.get("cache_enabled", True),
         )
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log_event("alpha_vantage", "error", "earnings_failed", f"earnings_calendar({ticker}) failed: {exc}", {"ticker": ticker})
         return None
 
 
 if __name__ == "__main__":
     import json
+
     if not _api_key():
         print("ALPHA_VANTAGE_API_KEY not set — skipping live test")
     else:

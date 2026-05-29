@@ -44,7 +44,7 @@
   "history_months": 10,
   "cache_enabled": true,
   "cache_ttl_seconds": 3600,
-  "market_data_cache_version": 4,
+  "market_data_cache_version": 5,
   "market_data_cache_ttl_seconds": 300,
   "historical_price_cache_ttl_seconds": 2592000,
   "enable_indicators": true,

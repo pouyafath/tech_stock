@@ -4,6 +4,453 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.21.0] — 2026-05-29
+
+### Added — Stabilization, doctor, and V2 readiness gate
+
+Focused supportability release for the v1 line. This is intentionally **not** `v2.0.1`: V2 remains a readiness milestone until public releases, updater flow, demo mode, installer smoke tests, and migration rules are proven end-to-end.
+
+- **CLI doctor command** — `python src/main.py doctor --json` returns a structured preflight payload with installed version, latest GitHub release, update-cache metadata, workspace paths, API-key discovery, required/optional API status, CSV freshness, monthly budget status, release asset/checksum availability, and optional demo smoke results.
+- **Preflight surfaced in Diagnostics** — Desktop and Streamlit Diagnostics now show the same doctor summary as a Preflight card/table before paid runs.
+- **Force-refresh update checks** — manual UI checks bypass the update cache and explicitly show whether the result came from cached data or live GitHub Releases, plus asset/checksum coverage.
+- **No-spend demo smoke test** — validates bundled sample CSVs, sample recommendation JSON, markdown rendering, Dashboard view-model loading, and Buy Signals view-model loading without Anthropic calls.
+- **Data Confidence block** — reports, Dashboard, and Buy Signals now surface quote freshness, source coverage, catalyst coverage, warning counts, and readiness state as a top-level trust signal.
+
+### Fixed
+
+- **Release CI flake** — report history sorting now uses filename as a deterministic tie-breaker when filesystem mtimes are identical, fixing an Ubuntu-only `test_list_reports_returns_newest_first` failure that blocked the `v1.20.0` draft release.
+
+### Tests
+
+- **588 passing expected** after this release (579 → 588): new coverage for data confidence, doctor/preflight payloads, update-cache metadata, demo smoke, Diagnostics preflight, and report rendering.
+
+### Version bumped: 1.20.0 → 1.21.0
+
+---
+
+## [1.20.0] — 2026-05-27
+
+### Added — Release engineering + docs
+
+A release-engineering pass that turns shipping into a one-tag-push operation, plus a full docs refactor.
+
+#### Release engineering
+
+- **`.github/workflows/build_release.yml` rewritten end-to-end**. On a `v*.*.*` tag push: a three-OS test gate (`macos-14`, `windows-latest`, `ubuntu-22.04`) runs `pytest -q` + `ruff check` + `ruff format --check` in parallel. If any platform fails the gate, the build jobs do NOT run — silent abort. Otherwise three parallel build jobs produce the macOS `.dmg`, the Windows folder + Inno Setup installer (Chocolatey-installed `iscc`, version injected from `src/version.py`), and the Linux AppImage (or tarball fallback). A final `release` job downloads every artefact, generates `SHA256SUMS.txt`, parses the matching CHANGELOG section, and publishes a draft GitHub Release with the parsed body + every artefact attached.
+- **New `src/changelog_utils.py`** — CLI-callable parser (`python -m src.changelog_utils 1.20.0`, `--latest`, `--list`) that the workflow uses to populate the GitHub Release body. Also exposed programmatically: `parse_section()`, `latest_section()`, `all_versions()`.
+
+#### Docs refactor
+
+- **`README.md` trimmed from 1583 → 1128 lines** (~29% smaller). Older "What's New" history (v1.18.0 → v1.3.0) replaced with a one-line pointer to `CHANGELOG.md`. The giant inline Architecture section replaced with a one-paragraph summary pointing at `docs/ARCHITECTURE.md`. New "📖 Documentation" index linking to every new doc file.
+- **New `docs/ARCHITECTURE.md`** — module map (with one-line purpose per file), data flow per session (10 steps), the 7-layer quality-gate reference, the learning-loop diagram, storage layout, and five explicit design tenets (never silently swallow, additive schema, tests with every feature, production = default-safe, tools not toys).
+- **New `docs/COOKBOOK.md`** — 12 common workflows: demo mode without setup, single CLI report, scheduled runs, monthly budget caps, replaying old sessions, editing settings, wiping data, exporting the workspace, backtesting past recommendations, hooking custom notifications, running tests, building bundles.
+- **New `docs/RELEASE_PROCESS.md`** — exact tag-to-release flow, what each CI job does, how to hot-fix a botched release, future tightening (notarisation, signtool, pip-audit gate).
+- **`CONTRIBUTING.md` rewritten** — design tenets, daily workflow, commit-message style with real examples, three "adding a new X" pattern guides (UI tab, API source, CLI flag), files-you-shouldn't-commit reference, areas where contributions are most welcome.
+
+### Tests
+
+- **579 passing** (was 533). 46 new tests:
+  - `tests/test_changelog_utils.py` (13): section parsing, body trimming, hyphen/en-dash separator support, pre-release versions, latest extraction, CLI exit codes, real-repo round-trip.
+  - `tests/test_release_workflow.py` (15): YAML schema validity, three-OS matrix coverage, test-gate-before-builds dependency, release-only-on-tag gate, contents:write permission, CHANGELOG parser invocation, SHA256 generation, draft Release publication, macOS hdiutil step, Windows `iscc /DAppVersion`, Linux `build_linux.sh` invocation.
+  - `tests/test_docs_links.py` (18): every docs file exists, every internal markdown link in `README.md` / `CONTRIBUTING.md` / `CHANGELOG.md` / `docs/*.md` resolves, README advertises every doc, RELEASE_PROCESS references the parser, ARCHITECTURE lists every v1.17-v1.19 module, CONTRIBUTING carries the design tenets, COOKBOOK covers the main workflows.
+
+### Version bumped: 1.19.1 → 1.20.0
+
+---
+
+## [1.19.1] — 2026-05-27
+
+### Fixed — Close the v1.19 loose ends
+
+v1.19 promised several CLI flags and a workspace-export action via the installer scripts, Privacy card, and scheduler, but the actual code for them wasn't all wired up yet. This patch closes those gaps so the productisation surface matches what users see in the UI / shortcuts.
+
+- **Five new CLI flags in `main.py`** that the Windows installer + launchd / Task Scheduler / cron scripts already invoke:
+  - `--demo` — sets `TECH_STOCK_DEMO_MODE=1` + bypasses onboarding and launches the Streamlit UI on bundled sample data.
+  - `--import-csv PATH` — stages a CSV into `temporary_upload/` (this is the open command bound to Wealthsimple `holdings-report-*.csv` files by the installer's HKCU registry entries).
+  - `--session-type {morning,afternoon}` — alias for the positional `session` arg; scheduler invocations prefer this form.
+  - `--non-interactive` — skips all interactive prompts. With no `session`, auto-picks `morning` before 12:00 / `afternoon` after, so headless launchd / Task Scheduler / cron runs don't hang.
+  - `--force` — surfaces `ALLOW_OVERAGE=1` for the v1.19 monthly-budget gate.
+- **New `src/workspace_export.py`** — wired to the Privacy card's previously-stubbed "Export workspace" button. Produces a zip under `exports/` containing reports, recommendation logs, the journal, thesis log, cost log, samples, and (sanitised) config. Excludes `.env`, `API_KEYS.txt`, the temporary upload folder, and anything matching the secret-file heuristic.
+- **Desktop wizard hook** — `DesktopApp` now checks `needs_onboarding()` on first launch and offers a one-time dialog that opens the Streamlit wizard (which is where the full step-by-step flow lives). The user's choice is stamped to settings.json so the dialog never fires twice.
+
+### Tests
+
+- **533 passing** (was 515). 18 new tests:
+  - `tests/test_cli_flags.py` (10): every new flag is advertised in `--help`; `--version` still short-circuits; `--import-csv` with a missing file exits non-zero; with a valid file stages-and-exits 0.
+  - `tests/test_workspace_export.py` (8): zip is produced, .env / API_KEYS.txt / temporary_upload are excluded, recommendation log + thesis log + cost log + settings.json ARE included, missing-workspace path produces a valid empty-ish zip, unwritable destination reports a clean error.
+
+### Version bumped: 1.19.0 → 1.19.1
+
+---
+
+## [1.19.0] — 2026-05-27
+
+### Added — Productisation
+
+The app is now installable + usable by any Wealthsimple account holder, not just developers.
+
+#### First-run wizard + demo mode
+
+- **New `src/onboarding.py`** — state machine over six stages (`welcome` → `api_key` → `budgets` → `csv_walkthrough` → `first_run` → `done`). State stamped into `config/settings.json` under an `onboarding` block, so it survives restarts mid-wizard. Public API: `current_state()`, `advance()`, `reset_onboarding()`, `needs_onboarding()`, `stage_guidance()`, `demo_snapshot()`, `is_demo_mode_active()`. `TECH_STOCK_SKIP_ONBOARDING=1` env var bypasses for headless / existing-user runs.
+- **Inline wizard in `ui/streamlit_app.py`** — short-circuits the page render when `needs_onboarding()` is True. Steps render with title / body / external link / primary + secondary action. API-key paste flow drops the key into `config/.env`; budget step persists to `settings.json`.
+- **Demo mode** — `data/samples/holdings-report-sample.csv` (5 realistic Wealthsimple-style positions), `activities-export-sample.csv`, and `recommendation_log_sample.json` (cached Claude response with `_demo: true` flag). The launcher's new "🎬 Try demo" link fires Streamlit with `TECH_STOCK_DEMO_MODE=1` so a brand-new user sees a complete report without an API key, without a CSV, without spending a cent.
+
+#### Cost transparency + monthly budget caps
+
+- **New `src/cost_tracker.py`** — JSONL log at `data/cost_log.jsonl`, one record per run. Public API: `record_run()`, `spend_summary()`, `check_budget()`, `is_overage_allowed()`, `clear_cost_log()`. Aggregates total / last-7-day / last-30-day / month-to-date / projected-monthly. Daily series for the Spend chart.
+- **`main.run()` enforces the budget** — pre-run `check_budget` reads `monthly_budget_usd` from settings; soft-warns at 80%, hard-blocks at 100% unless `ALLOW_OVERAGE=1`. Default is 0 (no cap) so existing users see no change until they opt in.
+- **`main.run()` records every run** — post-run hook appends model, cost, tokens, session_type, report filename to the cost log.
+- **Spend sub-section in the Diagnostics tab** — total / MTD / projected / runs metrics, a 30-day daily-spend line chart, and a budget-usage bar with colour-coded threshold tone (green < 80%, amber 80-100%, red ≥ 100%).
+- **Privacy card in the Diagnostics tab** — explains what gets sent to Anthropic vs what stays local, lists each enrichment source, and a confirmation-gated "🗑 Delete all local data" button that wipes reports / logs / journal / cache / thesis-log / cost log atomically.
+
+#### Bundled installer parity (Windows + Linux)
+
+- **`installer_windows.iss` v1.19** — the hard-coded `AppVersion=1.0.0` is gone; the script now consumes `#define AppVersion` injected at build time. Adds: per-user CSV file association (HKCU registry entries with a `tech_stock.holdings_csv` ProgId + `--import-csv "%1"` open command), Start-Menu group with a separate "tech_stock (Demo mode)" shortcut (`--demo`), optional desktop shortcut task, optional CSV-association task, samples component, full version metadata, AppId GUID so Windows treats upgrades as upgrades rather than fresh installs.
+- **`build_windows.bat`** — now parses `APP_VERSION` from `src/version.py` and passes it to `iscc /DAppVersion=…`, so the installer always carries the real version. Adds a `SIGN_PFX_PATH` / `SIGN_PFX_PASSWORD` code-signing hook that fires `signtool` against the produced `tech_stock_setup.exe` when credentials are present.
+- **New `build_linux.sh`** — composes a freedesktop AppDir layout (`AppRun` script, `tech_stock.desktop` with `Categories=Finance;Office;`, 256×256 icon), runs `appimagetool` to produce `dist/tech_stock-x86_64.AppImage` when available, falls back to a tarball when not. Reads the version from `src/version.py` like the other build scripts.
+
+### Tests
+
+- **515 passing** (was 467). 48 new tests across:
+  - `tests/test_onboarding.py` (16): state machine progression, env-skip override, stage-guidance shape, demo-snapshot file presence, sample CSV column validation, sample JSON shape.
+  - `tests/test_cost_tracker.py` (13): round-trip, aggregation, corrupt-line tolerance, budget no-cap / soft-warn / hard-block, overage env-var, clear path, projection math, daily-series grouping.
+  - `tests/test_installer_artefacts.py` (13): Inno Setup version-macro plumbing, CSV registry plumbing, Start-Menu + demo-mode + samples components, version-injection from the .bat, `signtool` hook, build_linux.sh executable + reads version + emits AppImage / tarball / desktop entry + macOS spec regression guard.
+
+### Version bumped: 1.18.0 → 1.19.0
+
+---
+
+## [1.18.0] — 2026-05-27
+
+### Added — Calibration & walk-forward backtest
+
+- **`reliability_diagram()` in `src/backtester.py`** — bins evaluated recommendations by conviction (6–10) and compares the *stated* probability (`conviction × 10%`) against the *realized* hit rate. Returns `{conviction: {n, stated_pct, realized_hit_rate, error_pp, overconfident, avg_actual_pct}}` for any bucket with ≥ 3 samples.
+- **`evaluate_rolling_window()` in `src/backtester.py`** — walk-forward stability check. Slides a window over the time-sorted results and emits per-window dicts with hit rate, average return, Sharpe, max-DD, stdev, and an in-window sizing multiplier. Window/step user-tunable; gracefully returns `[]` for thin datasets.
+- **`summarize()` now exposes `reliability` + `walk_forward` keys** — additive; existing consumers unaffected.
+- **Claude prompt enrichment (`src/claude_analyst.py`)** — track-record block adds a `Conviction calibration` section for any decile where `abs(error_pp) ≥ 10`, with a per-bucket dampening hint (`conv 8: stated 80% / realized 60% (-20pp, over-confident) → dampen by ~0.85×`), plus a one-line walk-forward stability summary.
+- **Learning tab Calibration sub-section** — Streamlit gets an Altair scatter (stated vs realized hit-rate with a 45° reference) plus a rolling-window hit-rate line chart. Desktop gets a Treeview Calibration row group + one-line stability summary.
+
+### Added — Native notifications
+
+- **New `src/notifications.py`** — cross-platform `send(title, message, channel)`. macOS via `osascript`, Linux via `notify-send`, Windows via PowerShell BurntToast (with MessageBox fallback). Zero new pip deps. Settings-gated (`config/settings.json → notifications.channels.{report_complete, trailing_stop_breach, thesis_force_exit, high_priority_action}`). 5-second dedup window. Every send logs via observability.
+- **`send_many()`** collapses long batches (> 5) into 3 individuals + a single summary line so the user isn't flooded.
+- **Wired into `main.run()`** — every report completion fires a `report_complete` notification; trailing-stop breaches fire `trailing_stop_breach`; ≥ 3 priority-≤2 actions fire `high_priority_action`. Each call is wrapped so a backend failure never breaks the report run.
+
+### Added — Schedule installer
+
+- **New `src/scheduling.py`** — per-user scheduled-run installer. `install_schedule(times)` writes a launchd plist (macOS), Task Scheduler XML (Windows), or crontab line (Linux). `uninstall_schedule()` removes it cleanly. `current_schedule()` parses the installed artefact back into `ScheduleTime` objects so the UI shows live state. `preview_schedule()` returns the artefact body without writing.
+- **No `sudo`, no root crontab** — macOS uses `~/Library/LaunchAgents/com.techstock.daily.plist`, Linux edits the user crontab, Windows uses `schtasks` per-user.
+- **⏰ Schedule tab in Streamlit + Desktop** — three slot pickers (morning / midday / afternoon), live preview pane, install / uninstall / test-notification buttons, current-state table.
+
+### Fixed
+
+- **`main.api_key_search_paths()` was returning 12 paths with 6 duplicates** — when invoked from inside the project root, `ROOT`, `Path.cwd()`, and `SOURCE_ROOT` all resolve to the same directory. Now wraps the raw list with the existing `_dedupe_paths()` helper.
+- **`normalize_recommendation` no longer leaves empty-string tickers** — empty string was bypassing both `upper()` and the `setdefault("ticker", "UNKNOWN")` fallback. Empty / None now collapse to the `UNKNOWN` sentinel.
+- **`_maybe_fire_notifications` no longer propagates notification backend errors** — every `send()` call inside the post-report flow is wrapped so a buggy PowerShell host or AppleScript permission denial can't break a report run that already succeeded.
+
+### Tests
+
+- **467 passing** (was 388). 79 new tests across:
+  - `tests/test_backtester_calibration.py` (13): reliability mapping, walk-forward windowing, edge cases.
+  - `tests/test_notifications.py` (16): argv escaping, dispatch routing, dedup window, settings gating, subprocess-error handling, batch collapsing.
+  - `tests/test_scheduling.py` (16): launchd plist / task scheduler XML / cron line builders, round-trip parse, install→inspect→uninstall, no-op + idempotent paths, quoting helpers.
+  - `tests/test_app_gui.py` (13): `_self_command` dev vs frozen, `_find_free_port` walk, `_tail`, `_open_path_in_finder` per-platform, `_latest_report_summary` empty + populated, PALETTE wiring.
+  - `tests/test_main_pipeline.py` (12): bounded `find_csv_by_date`, `_dedupe_paths`-aware `api_key_search_paths`, `ensure_workspace` idempotence, `validate_environment` exit codes, `_maybe_fire_notifications` channel routing + error swallowing.
+  - `tests/test_claude_analyst_passes.py` (22): ticker normalisation, action fallback, risk-controls dict shape, price-target swap, time-horizon canonicalisation, HOLD-tier defaults, entry/exit-plan auto-fill.
+
+### Version bumped: 1.17.0 → 1.18.0
+
+---
+
+## [1.17.0] — 2026-05-27
+
+### Added — Observability
+
+- **New `src/observability.py`** — structured-log layer. Public API: `log_event(source, level, code, message, context=None)`, `success_rate(source, hours=24)`, `recent_errors(limit=50)`, `source_summary(hours=24)`, `support_bundle(limit=500)`, `clear_diagnostics()`. JSON-lines on disk at `user_workspace()/logs/diagnostics.jsonl`. Thread-safe writer. Size-based rotation to `.jsonl.1` at 5 MB. Never raises — observability must not break the caller.
+- **Redaction** — API keys (`sk-…`), hex tokens (32+ chars), `Authorization: Bearer …`, and email addresses are scrubbed from every record before write. Support bundles are safe to paste into public bug reports.
+- **API clients now log instead of swallowing** — replaced 17 silent `except Exception:` blocks in `finnhub_client.py`, `polygon_client.py`, `alpha_vantage_client.py`, `twelve_data_client.py`, `fred_client.py`, `coingecko_client.py`, and `cache.py` with `log_event()` calls. Graceful degradation (callers still get `None`) is preserved.
+- **🩺 Diagnostics tab in Streamlit + Desktop** — per-source health table (ok / degraded / down / idle based on success rate over the selected time window), recent error events, redacted support bundle with copy-to-clipboard, log-file path, "Open log folder" reveal-in-Finder action.
+- **`HEALTH_META` + `health_badge()` + `degradation_pill()` in `ui_theme.py`** — colour-coded health pills using the same palette as everything else; safe to interpolate inline (XSS-escaped).
+- **`diagnostics_view()` + `diagnostics_support_bundle()` + `degradation_health()` in `ui_support.py`** — UI-facing aggregators.
+
+### Added — Portfolio Performance
+
+- **New `src/performance_history.py`** — rebuilds a portfolio time-series from `data/recommendations_log/*.json` snapshots. Computes cumulative return, annualized return, annualized volatility, Sharpe (rf=0), max drawdown, rolling 30-session Sharpe, rolling drawdown from peak, sector contribution waterfall (start_usd → end_usd → delta_usd), and a 0.5%-bucketed return distribution histogram. SPY benchmark fetched from yfinance (cached 4h) with OLS-derived beta and annualised alpha.
+- **💹 Performance tab in Streamlit + Desktop** — headline metric strip, portfolio-vs-SPY rebased line chart, rolling Sharpe + drawdown panels, sector waterfall, return distribution. Streamlit uses `st.line_chart` / `st.area_chart` / `st.bar_chart` with palette colours. Desktop draws a sparkline on a Tk Canvas (matplotlib is intentionally excluded from the PyInstaller bundle) plus Treeview tables. Lookback selector (All time / 30 / 90 / 365 days). Optional SPY toggle so users without yfinance can still use the tab.
+
+### Tests
+
+- **375 passing** (was 333). 42 new tests:
+  - `tests/test_observability.py` (15): round-trip, level normalisation, redaction patterns (API keys, hex tokens, Bearer tokens, emails), context recursion, source/level filters, success-rate fractions, code bucketing, support bundle JSON validity, rotation, clear.
+  - `tests/test_performance_history.py` (16): pure math helpers (`_pct_changes`, `_max_drawdown_pct`, `_linear_regression`), snapshot loader filename parsing and ordering, value/zero filtering, sector buckets, `not_ready` states, cumulative return, SPY-disabled path, lookback window filter, sector waterfall, return-distribution bucketing.
+  - `tests/test_diagnostics_view.py` (11): view shape, health threshold mapping (ok ≥ 0.95, degraded 0.50–0.94, down < 0.50, idle = no traffic), `degradation_health` healthy/unhealthy/idle, redacted support bundle, `health_badge` palette wiring, `degradation_pill` empty-when-ok, XSS escaping.
+
+### Version bumped: 1.16.0 → 1.17.0
+
+---
+
+## [1.16.0] — 2026-05-26
+
+### Added — Close the learning loop
+
+The app already collected a lot of introspective data (thesis verdicts, decision-journal scorecard, backtester); v1.16 surfaces it and feeds the high-leverage signals back into the next Claude run.
+
+- **Per-horizon edge in `decision_journal`** — `summarize_outcomes` now emits a `by_horizon` block (`{1: {...}, 5: {...}, 20: {...}, 60: {...}}`) computed from the same scored windows the dashboard already displays. Additive; existing keys unchanged.
+- **Risk-adjusted sizing in `backtester`** — `_avg_and_hit_rate` now returns `stdev_pct`, `sharpe` (rf=0, `mean/stdev × √N`), and `max_drawdown_pct` per bucket. The conviction-stratified sizing multiplier formula is now **Sharpe-dampened** — high-variance buckets no longer get the same size as low-variance buckets with the same expectation. Clamp range `[0.4, 1.4]` preserved.
+- **Thesis-text drift in `drift_tracker`** — new `thesis_text_drift` event fires when action / conviction / sign all stayed the same but the rationale was substantially rewritten (token-set Jaccard < 0.55 after stop-word filtering). Catches the "moving goalposts" smell. Pure-Python — no new hard dependency.
+- **Claude prompt enrichment (`src/claude_analyst.py`)** — track-record block now lists `Sharpe / max_dd` per conviction bucket; scorecard block now lists `Your edge by horizon: 1d ±X% | 5d ±Y% | 20d ±Z% | 60d ±W%` plus a tuning hint pointing to the user's strongest horizon; drift section has a dedicated `Thesis-text drift` mini-section.
+- **`learning_view()` in `ui_support.py`** — single aggregator returning `{thesis_verdicts, edge_by_horizon, sharpe_by_conviction, thesis_text_drift_alerts, errors}`. Lazy and read-only; never triggers a Claude run.
+- **`VERDICT_META` + `verdict_badge()` in `ui_theme.py`** — colour map for the thesis-tracker verdicts (materialized / partial / not_yet / invalidated), matching the existing badge family.
+- **🧠 Learning tab in Streamlit (`ui/streamlit_app.py`)** — per-horizon edge metrics + bar chart, Sharpe-by-conviction table, thesis-verdict heat-map with history dots, thesis-text drift alerts.
+- **Learning tab in the embedded Tk desktop (`src/desktop_app.py`)** — same data via Treeviews, registered between History and Config Editor, wired into the lazy `_on_tab_changed` warm-up so it doesn't fire on cold start.
+- **One-line per-horizon edge in the Textual TUI Dashboard** — surfaces the same signal without adding a new pane.
+
+### Fixed
+
+- `summarize_outcomes` no longer raises `TypeError` when a legacy outcome row has `horizon_days=None` — bad rows are silently dropped from the new `by_horizon` block.
+
+### Tests
+
+- Total: **333 passing** (was 288) — `pytest -q` runs in ~2 s.
+- New: `test_decision_journal_horizon.py` (8), `test_backtester_risk_metrics.py` (10), `test_drift_tracker_thesis_text.py` (10), `test_learning_view.py` (6), plus 5 added to `test_ui_theme.py` for `verdict_badge`.
+
+---
+
+## [1.15.1] — 2026-05-26
+
+### Added — macOS native-app polish
+
+- **Shared `PALETTE` adopted by `src/desktop_app.py`** — the embedded Tkinter dashboard now reads the same colour tokens as Streamlit and the Textual TUI, so a tweak in `src/ui_theme.py` propagates to every UI.
+- **Native macOS menu bar with keyboard shortcuts** — File (New Report ⌘N, Open Latest ⌘L, Reveal Workspace, Reveal Latest Report), View (Dashboard / Buy Signals / Report / History / Config Editor ⌘,), Refresh Current Tab ⌘R, Find ⌘F, Help (Check for Updates, Open Repository, Report a Bug, About). On macOS the standard About / Preferences / Quit slots are wired into the application menu via `tk::mac::ShowPreferences` and `tk::mac::Quit`.
+- **Status pill in the header** — top-right indicator shows `⚡ cost · ⚠️ warnings` (or `⛔` for high-severity) once the dashboard warms up; auto-refreshes when the dashboard refreshes.
+- **Platform-aware font ladder (`_platform_fonts`)** — SF Pro Display / SF Pro Text / SF Mono on macOS, Segoe UI on Windows, TkDefault elsewhere; pushed through TFrame, Treeview, and TNotebook styles so every widget reads from the same family.
+- **PyInstaller spec hardening** — `tech_stock.spec` now ships the macOS-recommended `Info.plist` keys: `LSApplicationCategoryType=public.app-category.finance`, `LSUIElement=False`, `NSPrincipalClass=NSApplication`, `NSSupportsAutomaticGraphicsSwitching`, `NSAppTransportSecurity`, plus user-friendly explanations for `NSAppleEventsUsageDescription`, `NSDocumentsFolderUsageDescription`, `NSDownloadsFolderUsageDescription`, and `NSDesktopFolderUsageDescription`. Added `CFBundleDocumentTypes` so double-clicking a CSV opens tech_stock.
+
+### Fixed — Startup cost
+
+- **Cold-start tax removed from `DesktopApp.__init__`**. Previously the constructor synchronously called `latest_report()`, `refresh_dashboard()`, `refresh_history()`, `load_report(...)`, a CSV-detection toast, an update probe, and a buy-signal refresh — the window paint was blocked for ~1–2 s on first launch. All of that now runs via `self.after_idle(self._post_paint_warmup)`, and `start_buy_signal_refresh` is deferred until the user actually opens the Buy Signals tab (saves the yfinance hits when they don't).
+- **`aqua` ttk theme** preferred over `clam` on macOS so widgets honour the system dark-mode appearance.
+
+### Tests
+
+- New `tests/test_desktop_app_macos.py` (10 tests): font ladder, palette wiring, Info.plist keys, file-association, menu-factory presence, post-paint warm-up presence, no hard-coded hex.
+- Total: **288 tests passing** (was 278).
+
+---
+
+## [1.15.0] — 2026-05-25
+
+### Added — Production-grade UI overhaul
+
+- **`src/ui_theme.py`** — single source of truth for visual language used by every front-end. Exports a colour `PALETTE`, `STREAMLIT_CSS` bundle, and HTML-escaped helpers for badges (`action_badge`, `severity_badge`, `readiness_badge`), conviction bars, status dots, metric cards, action cards, warning rows, hero banners, and empty-state placeholders. The Streamlit dashboard, Tkinter launcher and Textual TUI all consume the same tokens so a colour tweak only needs to happen in one place.
+- **Streamlit dashboard rebuild (`ui/streamlit_app.py`)** — custom dark theme injected via CSS, polished sidebar (run settings · live API/update status · workspace info · refresh action), hero banner with latest-run context (date, portfolio value, β, run cost, warning count), 8 colour-coded tabs (📊 📝 🎯 ▶️ 📚 📈 📓 ⚙️), live status pills for Trade-Ready / Review-First / Blocked, conviction bars rendered inline, toast notifications for every state-changing action, friendly empty states for every section that can be empty, and contextual help tooltips on every model/budget/source control.
+- **Native launcher polish (`src/app_gui.py`)** — switched to the shared palette, added per-mode icons (🖥 🌐 ⌨ ▶), hover affordance now lifts the whole card, footer renamed/repositioned, version pill in the header, and a new “Recent activity” panel with quick links to open the workspace folder or the latest report in Finder/Explorer.
+- **Textual TUI polish (`ui/textual_app.py`)** — `rich.text.Text` cells colourise the action / severity / readiness columns in every table using the shared palette; placeholder screens for Buy Signals / Backtest are now multi-line with icons; the update-prompt modal got a centred layout, accent border, and a subtle “what is kept” line.
+- **Theme + Streamlit smoke tests** — `tests/test_ui_theme.py` (40 tests covering XSS escaping, palette wiring, badge/card/conviction output, CSS bundle integrity) and `tests/test_streamlit_smoke.py` (mocks `streamlit` so the module runs end-to-end during pytest to catch import/template errors in CI).
+
+### Fixed
+
+- **`find_csv_by_date` no longer recurses the entire home directory.** Previously the fallback step ran `Path.home().glob("**/*.csv")` which could take 2+ minutes on disks with deep dot-trees (node_modules, IDE caches), and was paid on every UI startup whose CSV was missing. Now we look at a bounded list of common roots (Desktop, Documents, iCloud Drive Desktop/Documents) without recursion — observed boot time went from **117 s** to **<1 ms**.
+
+### Tests
+
+- Total: **278 tests passing** (was 236) — `pytest -q` runs in ~2 s.
+- New: `test_ui_theme.py` (40), `test_streamlit_smoke.py` (2).
+
+---
+
+## [1.14.2] — 2026-05-24
+
+### Added — Audit-driven hardening
+- **`--version` flag** on both `python src/main.py` and the `./run.sh` launcher (short-circuits without hitting the update API).
+- **`time_horizon` normalization** in `normalize_recommendation`: Claude variants like `3 months`, `1 year`, `long-term`, `next quarter` now snap to the canonical Rule 20 strings before logging/rendering, with the original preserved as `time_horizon_original` when changed.
+- **Update-check disk cache**: `check_for_update(use_cache=True)` reads the last successful result from `user_workspace()/cache/update_check.json` (default TTL 6 hours). Background probes in `app_gui`, `ui_launcher`, Streamlit, Textual, and Desktop now use the cache; CLI `check-update` and explicit “Check now” buttons force a refresh. Failed lookups never cache; bumps to `APP_VERSION` invalidate stale entries automatically.
+- **`unknown_with_lower_bound`** field in `aging_summary` and corresponding block in the prompt + markdown report: positions whose entry pre-dates the activities window now surface their `lower_bound_days` so Claude can reason about long-untouched holdings.
+
+### Fixed
+- **`apply_quality_gates` docstring** updated to reflect the seven actual layers (catalyst, stale, thesis decay, trailing stop, VIX, conviction sizing, drawdown) instead of the four documented when the gate was simpler.
+- **README staleness** — version footer and recap pointer now match the v1.14 line.
+
+### Changed — Code hygiene
+- **Repo-wide `ruff format` baseline** applied to all source and test files. CI’s ruff-format step now checks `src/` and `tests/` instead of four hand-picked files, so future drift is caught at PR time.
+
+### Tests
+- Added `test_main_cli.py` (3 tests), `test_horizon_normalization.py` (29 tests), updater cache coverage (5 tests), and 3 new position-aging tests for `unknown_with_lower_bound`.
+- Full local suite: **236 tests passing** (was 196).
+
+---
+
+## [1.14.1] — 2026-05-24
+
+### Fixed — Security and updater hardening
+- Raised `pyarrow` to the fixed `23.0.1+` range after `pip-audit` flagged `PYSEC-2026-113` in the previous pinned range.
+- The updater now records whether checksum verification succeeded, was skipped, or failed in the `UpdateResult` path instead of discarding that result.
+
+### Tests
+- Added updater coverage for checksum reporting during update application.
+- Full local suite: 196 tests passing.
+
+---
+
+## [1.14.0] — 2026-05-18
+
+### Added — Roadmap hardening
+- **Trade readiness view models** classify Buy Signals as Trade Ready, Review First, or Blocked from quote freshness, quality warnings, catalyst gates, and source coverage.
+- **Buy Signal filters** added across Desktop, Streamlit, and Textual for BUY/ADD, add-on-dip, and readiness status.
+- **ReportPipeline facade** returns structured report artifacts for UI callers while preserving the existing CLI workflow.
+- **Release checksums** are published as `SHA256SUMS.txt`, and the updater verifies downloaded assets when checksums are available.
+- **CI hardening** adds ruff, pip-audit, and PyInstaller smoke jobs alongside pytest.
+
+### Tests
+- Added shared view-model, pipeline facade, checksum, and mocked end-to-end pipeline coverage.
+- Full local suite: 195 tests passing.
+
+---
+
+## [1.13.7] — 2026-05-18
+
+### Added — Source-backed Buy Signals
+- **Buy Signals tab** added to Desktop, Streamlit, and Textual for BUY/ADD and add-on-dip candidates from the latest recommendation log.
+- **Consensus and target snapshots** show Finnhub analyst buy/hold/sell consensus and Yahoo/yfinance analyst target fields when available.
+- **Catalyst and risk detail** separates catalyst source, manual-review flag, recent news, technicals, insider activity, earnings, quality warnings, and invalidation notes.
+- **Source transparency** lists the data feed behind each signal so the UI does not present unsourced visual claims.
+
+### Changed
+- Market data now stores Yahoo/yfinance analyst target fields and uses cache version 5 for the expanded schema.
+
+### Tests
+- Full local suite: 186 tests passing.
+
+---
+
+## [1.13.6] — 2026-05-18
+
+### Added — API health and key management
+- **Complete API health checks** now cover Anthropic, yfinance, Finnhub, Polygon, Twelve Data, FRED, CoinGecko, and Alpha Vantage.
+- **Desktop API Key Manager** lets users add/update/delete supported API keys from the API Checks tab.
+- **Streamlit API Key Manager** exposes the same masked key inventory and save/delete flow in the browser dashboard.
+- **Secret-safe display** masks configured key values and shows the source file path without printing full secrets.
+
+### Tests
+- Added focused API key manager tests.
+- Full local suite: 183 tests passing.
+
+---
+
+## [1.13.5] — 2026-05-18
+
+### Fixed — Native Tk search crash
+- **Desktop report search no longer calls Tk `Text.search`**, avoiding the macOS packaged-app crash path seen in `Tcl_UtfToLower` / `TextSearchAddNextLine`.
+- **Search now computes match offsets in Python** and uses Tk only to highlight the resulting ranges.
+
+### Tests
+- Added focused desktop search offset tests.
+- Full local suite: 179 tests passing.
+
+---
+
+## [1.13.4] — 2026-05-18
+
+### Fixed — Desktop report search crash
+- **Search typing no longer runs live whole-report highlighting** on every keypress, preventing packaged Tk crashes when entering common letters.
+- **Find button added** so users can type a full word first, then search with **Find**, `Enter`, **Next**, or **Previous**.
+- **Match highlight cap** limits very broad searches to the first 500 visible matches and marks the count with `+`.
+
+### Tests
+- Full local suite: 176 tests passing.
+
+---
+
+## [1.13.3] — 2026-05-18
+
+### Added — Desktop report search
+- **Report Viewer search** adds a native search field with highlighted matches, current-match focus, match counts, Find, Next/Previous navigation, and Clear.
+- **History report search** adds the same search controls to the selected historical report preview.
+- **Keyboard shortcut** supports `Cmd+F` on macOS and `Ctrl+F` on Windows/Linux to focus report search.
+
+### Tests
+- Full local suite: 176 tests passing.
+
+---
+
+## [1.13.2] — 2026-05-17
+
+### Improved — Desktop dashboard
+- **Action cockpit layout** replaces the dense dashboard tables with wrapped action cards, severity-colored quality gate cards, and stop-breach cards.
+- **Metric cards** now include secondary context such as benchmark beta, drawdown estimate, concentration risk, warning totals, and token count.
+- **Next-action panel** now carries a colored urgency stripe and summarizes priority actions, quality gates, and stop breaches at a glance.
+
+### Tests
+- Full local suite: 176 tests passing.
+
+---
+
+## [1.13.1] — 2026-05-16
+
+### Fixed — Packaged updater HTTPS certificates
+- **macOS/Windows update checks** now use the bundled `certifi` CA certificate bundle instead of relying on Python's default certificate lookup inside the packaged app.
+- **Packaging** now explicitly includes `certifi` data files so GitHub Release checks and downloads can verify HTTPS certificates.
+- **Error text** for certificate failures now explains the update-check problem instead of showing a raw `urlopen` SSL exception.
+
+### Tests
+- Full local suite: 176 tests passing.
+
+---
+
+## [1.13.0] — 2026-05-16
+
+### Added — In-app updates
+- **Shared updater** (`src/updater.py`) — checks GitHub Releases, compares semantic versions, selects the correct platform asset, downloads updates into the app workspace, and writes `logs/update.log`.
+- **Startup update checks** — interactive Desktop, Streamlit, Textual, and native launcher sessions check for newer releases and ask before applying an update.
+- **Manual update controls** — Desktop App adds an Updates tab, Streamlit adds an Updates sidebar section, Textual adds an Updates tab, the native launcher adds a Check Updates button, and terminal users can run `python src/main.py check-update` or `python src/main.py update`.
+- **Data preservation** — updates keep reports, recommendation logs, uploaded CSVs, config files, decision journals, and API key files in the durable app workspace.
+- **Version metadata** — app version now lives in `src/version.py`, and macOS bundle metadata reads that version during packaging.
+
+### Tests
+- Full local suite: 175 tests passing.
+
+---
+
+## [1.12.3] — 2026-05-14
+
+### Added — Desktop dashboard and report readability
+- **Action dashboard** — the embedded Desktop App Dashboard now surfaces the next action, portfolio/risk cards, priority action queue, quality gates, stop breaches, drift, hedge ideas, market context, and watchlist signals.
+- **Styled report reader** — Report Viewer and History now render markdown with styled headings, paragraph spacing, bold text, and aligned table blocks instead of raw markdown.
+- **Compact report paths** — Report Viewer keeps search paths available behind a Show/Hide control so the report content starts higher on the screen.
+- **Richer UI summaries** — UI summary helpers now expose session summary, market context, watchlist flags, trailing-stop breaches, sector warnings, and general warnings from the latest JSON log.
+
+### Tests
+- Full local suite: 171 tests passing.
+
+---
+
+## [1.12.2] — 2026-05-14
+
+### Fixed — Desktop report discovery visibility
+- **Report Viewer search paths** — the embedded Desktop App now shows every markdown report folder it checks, with found/missing status and report counts.
+- **History search paths** — the History tab now uses and displays the same multi-folder report discovery list.
+- **Cross-mode report discovery** — source runs and packaged-app runs can now find reports from the active workspace, current folder, `~/Documents/tech_stock/`, `~/Desktop/tech_stock/`, `~/Downloads/tech_stock/`, and the source checkout.
+- **README locations** — documentation now explains where source and packaged app runs save reports, logs, uploads, and config.
+
+### Tests
+- Full local suite: 171 tests passing.
+
+---
+
+## [1.12.1] — 2026-05-14
+
+### Fixed — Desktop app file discovery
+- **Packaged-app workspace** — native builds now use a writable `~/Documents/tech_stock/` workspace for config, reports, uploads, and logs instead of relying on the temporary PyInstaller extraction directory.
+- **API key discovery** — `API_KEYS.txt` and `.env` are searched in the writable workspace, current folder, `~/Desktop/tech_stock/`, `~/Downloads/tech_stock/`, and the source checkout.
+- **Desktop API Checks tab** — now displays every API-key file path checked, with found/missing status.
+- **Detected CSV confirmation** — the embedded Desktop App now asks users to confirm auto-detected Holdings and Activities CSV paths before using them.
+- **Release packaging** — bundled builds now include `API_KEYS.template.txt` and `.env.example` so the packaged workspace can seed user-facing setup files.
+
+### Tests
+- Full local suite: 171 tests passing.
+
+---
+
 ## [1.12.0] — 2026-05-14
 
 ### Added — Embedded desktop application

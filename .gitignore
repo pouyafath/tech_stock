@@ -48,6 +48,7 @@ data/.cache/
 data/paper_portfolio.json
 data/thesis_log.json
 data/decision_journal.json
+data/cost_log.jsonl
 
 # Temporary uploads (user CSV files — never commit)
 temporary_upload/*.csv

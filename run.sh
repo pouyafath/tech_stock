@@ -2,12 +2,13 @@
 # run.sh — One-command launcher for tech_stock portfolio advisor
 #
 # Usage:
-#   ./run.sh                            # Show UI-choice menu (CLI / Streamlit / Textual / Desktop)
+#   ./run.sh                            # Show UI-choice menu (CLI / Streamlit / Textual / Desktop / Update)
 #   ./run.sh morning                    # Skip menu → CLI, morning session
 #   ./run.sh afternoon --model opus     # Skip menu → CLI, afternoon + Opus
 #   ./run.sh 2                          # Skip menu → Streamlit directly
 #   ./run.sh 3                          # Skip menu → Textual directly
 #   ./run.sh 4                          # Skip menu → embedded desktop UI
+#   ./run.sh 5                          # Skip menu → check for updates
 #
 # Requirements:
 #   - ANTHROPIC_API_KEY set in .env (or exported in your shell)
@@ -49,8 +50,15 @@ if [ -z "$ANTHROPIC_API_KEY" ] && [ -f "API_KEYS.txt" ]; then
     done < API_KEYS.txt
 fi
 
-# ── Check API key ────────────────────────────────────────────────────────────
-if [ -z "$ANTHROPIC_API_KEY" ]; then
+# ── Check API key for direct report runs ─────────────────────────────────────
+NEEDS_API_KEY=0
+if [ $# -gt 0 ]; then
+    case "$1" in
+        morning|afternoon) NEEDS_API_KEY=1 ;;
+    esac
+fi
+
+if [ "$NEEDS_API_KEY" = "1" ] && [ -z "$ANTHROPIC_API_KEY" ]; then
     echo ""
     echo "  ERROR: ANTHROPIC_API_KEY is not set."
     echo "  Add it to your .env file:"
@@ -78,7 +86,7 @@ fi
 # With no arguments → show the UI-choice menu.
 # With arguments that look like a session flag (morning/afternoon/--...) →
 #   pass them straight to the CLI so existing cron/script callers still work.
-# With "2", "3", or "4" as the first argument → jump straight to that UI.
+# With "2", "3", "4", or "5" as the first argument → jump straight to that UI/action.
 
 if [ $# -eq 0 ]; then
     # No args: interactive menu

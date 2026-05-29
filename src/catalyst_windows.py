@@ -18,6 +18,7 @@ This module is pure: given today's date and per-ticker earnings dates, it return
 deterministic tags. The Claude prompt lists tags so the model can pre-position
 without us having to hard-code each rule.
 """
+
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
@@ -52,21 +53,21 @@ def classify_earnings_window(earnings_date, today: date | None = None) -> dict |
 
     if 5 < days_to <= 30:
         return {
-            "window":   "setup",
-            "days_to":  days_to,
-            "label":    f"earnings setup (T-{days_to}d) — entry OK if conviction ≥7",
+            "window": "setup",
+            "days_to": days_to,
+            "label": f"earnings setup (T-{days_to}d) — entry OK if conviction ≥7",
         }
     if 0 <= days_to <= 5:
         return {
-            "window":   "lockdown",
-            "days_to":  days_to,
-            "label":    f"earnings lockdown (T-{days_to}d) — no new ADD/BUY, IV crush risk",
+            "window": "lockdown",
+            "days_to": days_to,
+            "label": f"earnings lockdown (T-{days_to}d) — no new ADD/BUY, IV crush risk",
         }
     if -3 <= days_to < 0:
         return {
-            "window":   "drift",
-            "days_to":  days_to,
-            "label":    f"post-earnings drift (T{days_to}d) — high-conviction adds OK if direction confirmed",
+            "window": "drift",
+            "days_to": days_to,
+            "label": f"post-earnings drift (T{days_to}d) — high-conviction adds OK if direction confirmed",
         }
     return None
 
@@ -87,6 +88,7 @@ def annotate_tickers(per_ticker_enriched: dict, today: date | None = None) -> di
 # ─────────────────────────────────────────────────────────────────────────
 # Macro / session-level catalyst windows (FOMC, CPI, NFP)
 # ─────────────────────────────────────────────────────────────────────────
+
 
 def _first_friday(year: int, month: int) -> date:
     d = date(year, month, 1)

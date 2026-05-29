@@ -7,11 +7,31 @@ Keep this file dependency-free — only stdlib imports.
 # Daily-reset 2x/3x leveraged ETFs — should not be held > ~14 days due to decay.
 # Used by report_generator (warning section) and referenced by the system prompt
 # in claude_analyst (rule 11).
-LEVERAGED_ETFS = frozenset({
-    "SOXL", "SOXS", "TQQQ", "SQQQ", "UPRO", "UVXY", "TMF", "TZA", "SPXL",
-    "LABU", "LABD", "TSLL", "NVDL", "TMV", "UDOW", "SDOW", "FAS", "FAZ",
-    "TNA", "YINN", "YANG",
-})
+LEVERAGED_ETFS = frozenset(
+    {
+        "SOXL",
+        "SOXS",
+        "TQQQ",
+        "SQQQ",
+        "UPRO",
+        "UVXY",
+        "TMF",
+        "TZA",
+        "SPXL",
+        "LABU",
+        "LABD",
+        "TSLL",
+        "NVDL",
+        "TMV",
+        "UDOW",
+        "SDOW",
+        "FAS",
+        "FAZ",
+        "TNA",
+        "YINN",
+        "YANG",
+    }
+)
 
 LEVERAGED_ETF_LEVERAGE = {
     "SOXL": 3.0,
@@ -105,11 +125,7 @@ COMPANY_GROUPS = {
 }
 
 
-COMPANY_ALIASES = {
-    alias: company
-    for company, aliases in COMPANY_GROUPS.items()
-    for alias in aliases
-}
+COMPANY_ALIASES = {alias: company for company, aliases in COMPANY_GROUPS.items() for alias in aliases}
 
 
 RISK_BENCHMARK_TICKERS = ("SPY", "QQQ", "SMH")

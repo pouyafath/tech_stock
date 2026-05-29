@@ -6,6 +6,7 @@ the user's follow-through helped or hurt versus the model's recommendation.
 The journal is intentionally local/private:
     data/decision_journal.json
 """
+
 from __future__ import annotations
 
 import json
@@ -191,9 +192,9 @@ def score_decisions(
     """Score recorded decisions over fixed windows from the report date."""
     as_of = as_of or datetime.now()
     recorded = [
-        row for row in journal.get("decisions", []) or []
-        if row.get("user_decision") in RECORDED_DECISIONS
-        and (row.get("recommended_action") or "").upper() in ACTIONABLE_ACTIONS
+        row
+        for row in journal.get("decisions", []) or []
+        if row.get("user_decision") in RECORDED_DECISIONS and (row.get("recommended_action") or "").upper() in ACTIONABLE_ACTIONS
     ]
     recorded = sorted(recorded, key=lambda row: row.get("session_date") or "", reverse=True)[:max_decisions]
 
@@ -227,22 +228,24 @@ def score_decisions(
             model_return = _model_action_return_pct(recommended_action, model_raw)
             user_return = _user_action_return_pct(actual_action, recommended_action, user_raw)
 
-            rows.append({
-                "id": row.get("id"),
-                "ticker": ticker,
-                "session_date": row.get("session_date"),
-                "horizon_days": int(horizon),
-                "recommended_action": recommended_action,
-                "user_decision": row.get("user_decision"),
-                "actual_action": actual_action,
-                "conviction": row.get("conviction"),
-                "raw_move_pct": round(model_raw, 2),
-                "model_action_return_pct": round(model_return, 2),
-                "user_action_return_pct": round(user_return, 2),
-                "decision_delta_pct": round(user_return - model_return, 2),
-                "model_hit": model_return > 0,
-                "user_hit": user_return > 0,
-            })
+            rows.append(
+                {
+                    "id": row.get("id"),
+                    "ticker": ticker,
+                    "session_date": row.get("session_date"),
+                    "horizon_days": int(horizon),
+                    "recommended_action": recommended_action,
+                    "user_decision": row.get("user_decision"),
+                    "actual_action": actual_action,
+                    "conviction": row.get("conviction"),
+                    "raw_move_pct": round(model_raw, 2),
+                    "model_action_return_pct": round(model_return, 2),
+                    "user_action_return_pct": round(user_return, 2),
+                    "decision_delta_pct": round(user_return - model_return, 2),
+                    "model_hit": model_return > 0,
+                    "user_hit": user_return > 0,
+                }
+            )
     return rows
 
 
@@ -261,6 +264,7 @@ def summarize_outcomes(outcomes: list[dict], status: dict) -> dict:
             },
             "by_user_decision": {},
             "by_recommended_action": {},
+            "by_horizon": {},
             "best_user_overrides": [],
             "worst_user_overrides": [],
             "missed_model_winners": [],
@@ -287,11 +291,31 @@ def summarize_outcomes(outcomes: list[dict], status: dict) -> dict:
     for action in sorted({row.get("recommended_action") for row in outcomes}):
         by_action[action] = bucket_stats([row for row in outcomes if row.get("recommended_action") == action])
 
+    # Per-horizon breakdown — keyed by horizon_days as int, sorted ascending.
+    # This is what Claude reads downstream to bias time_horizon selection
+    # toward the user's strongest window (e.g. "User edge by horizon: 1d -0.3
+    # | 5d +1.1 | 20d +3.2 | 60d -1.1 → bias toward 5-20d at conviction ≥7").
+    #
+    # Rows with missing / 0 / None horizon_days are silently dropped — they
+    # carry no signal for this grouping and used to raise TypeError when the
+    # field came back as None (legacy rows).
+    def _row_horizon(row: dict) -> int:
+        raw = row.get("horizon_days")
+        try:
+            return int(raw) if raw else 0
+        except (TypeError, ValueError):
+            return 0
+
+    by_horizon: dict[int, dict] = {}
+    horizons_seen = sorted({h for h in (_row_horizon(row) for row in outcomes) if h > 0})
+    for horizon in horizons_seen:
+        bucket = [row for row in outcomes if _row_horizon(row) == horizon]
+        if bucket:
+            by_horizon[horizon] = bucket_stats(bucket)
+
     override_rows = [row for row in outcomes if row.get("user_decision") not in {"accepted", "executed"}]
     missed_winners = [
-        row for row in override_rows
-        if row.get("recommended_action") in {"BUY", "ADD"}
-        and row.get("model_action_return_pct", 0) > 3
+        row for row in override_rows if row.get("recommended_action") in {"BUY", "ADD"} and row.get("model_action_return_pct", 0) > 3
     ]
 
     return {
@@ -301,6 +325,7 @@ def summarize_outcomes(outcomes: list[dict], status: dict) -> dict:
         "overall": bucket_stats(outcomes),
         "by_user_decision": by_decision,
         "by_recommended_action": by_action,
+        "by_horizon": by_horizon,
         "best_user_overrides": sorted(override_rows, key=lambda row: row["decision_delta_pct"], reverse=True)[:8],
         "worst_user_overrides": sorted(override_rows, key=lambda row: row["decision_delta_pct"])[:8],
         "missed_model_winners": sorted(missed_winners, key=lambda row: row["model_action_return_pct"], reverse=True)[:8],
@@ -481,10 +506,7 @@ if __name__ == "__main__":
         card = run_scorecard(args.journal)
         status = card.get("journal") or {}
         overall = card.get("overall") or {}
-        print(
-            f"Journal: {status.get('total', 0)} entries, "
-            f"{status.get('pending', 0)} pending, {status.get('recorded', 0)} recorded"
-        )
+        print(f"Journal: {status.get('total', 0)} entries, {status.get('pending', 0)} pending, {status.get('recorded', 0)} recorded")
         print(
             f"Scored windows: {card.get('n_scored_windows', 0)} | "
             f"model avg {overall.get('model_avg_return_pct', 0):+.2f}% | "

@@ -8,13 +8,15 @@ from src.market_data import _fetch_options_implied_move, _safe_float, compute_in
 def test_compute_indicators_includes_atr_volatility_and_sma_cross():
     dates = pd.date_range("2025-01-01", periods=230, freq="B")
     close = pd.Series(range(100, 330), index=dates, dtype=float)
-    hist = pd.DataFrame({
-        "Open": close - 1,
-        "High": close + 2,
-        "Low": close - 2,
-        "Close": close,
-        "Volume": [1_000_000] * len(close),
-    })
+    hist = pd.DataFrame(
+        {
+            "Open": close - 1,
+            "High": close + 2,
+            "Low": close - 2,
+            "Close": close,
+            "Volume": [1_000_000] * len(close),
+        }
+    )
 
     indicators = compute_indicators(hist)
 
@@ -25,14 +27,18 @@ def test_compute_indicators_includes_atr_volatility_and_sma_cross():
 
 
 def test_options_implied_move_uses_atm_straddle_mid_prices():
-    calls = pd.DataFrame([
-        {"strike": 95, "bid": 4, "ask": 5, "lastPrice": 4.5},
-        {"strike": 100, "bid": 6, "ask": 8, "lastPrice": 7},
-    ])
-    puts = pd.DataFrame([
-        {"strike": 100, "bid": 5, "ask": 7, "lastPrice": 6},
-        {"strike": 105, "bid": 8, "ask": 10, "lastPrice": 9},
-    ])
+    calls = pd.DataFrame(
+        [
+            {"strike": 95, "bid": 4, "ask": 5, "lastPrice": 4.5},
+            {"strike": 100, "bid": 6, "ask": 8, "lastPrice": 7},
+        ]
+    )
+    puts = pd.DataFrame(
+        [
+            {"strike": 100, "bid": 5, "ask": 7, "lastPrice": 6},
+            {"strike": 105, "bid": 8, "ask": 10, "lastPrice": 9},
+        ]
+    )
     ticker = SimpleNamespace(
         options=["2026-05-15"],
         option_chain=lambda expiry: SimpleNamespace(calls=calls, puts=puts),

@@ -22,7 +22,7 @@ Place your Wealthsimple CSV exports here before running the app.
 
 ## Notes
 
-- The app will auto-detect the most recent CSV files in this folder
+- The app checks this folder, your Downloads folder, and the active workspace for recent CSV files. Interactive flows ask you to confirm the detected path before using it.
 - Export a fresh Holdings CSV before any paid run; stale holdings snapshots create visible quote-mismatch warnings and can distort position sizing.
 - A full Activities export lets the app compute exact FIFO holding days. Short exports still work, but older holdings will show lower-bound durations.
 - This folder is **NOT** tracked by Git — your data stays private

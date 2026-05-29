@@ -174,17 +174,18 @@ def build_hedge_suggestions(
         pct = row.get("pct") or 0
         if pct <= max_position_pct:
             continue
-        suggestions.append({
-            "type": "rebalance",
-            "instrument": company,
-            "action": "TRIM",
-            "max_portfolio_pct": max_position_pct,
-            "rationale": (
-                f"Reduce {company} economic exposure from {pct:.1f}% toward "
-                f"the configured {max_position_pct}% single-company cap."
-            ),
-            "risk_note": "Prefer direct trim/rebalance before adding hedge complexity.",
-        })
+        suggestions.append(
+            {
+                "type": "rebalance",
+                "instrument": company,
+                "action": "TRIM",
+                "max_portfolio_pct": max_position_pct,
+                "rationale": (
+                    f"Reduce {company} economic exposure from {pct:.1f}% toward the configured {max_position_pct}% single-company cap."
+                ),
+                "risk_note": "Prefer direct trim/rebalance before adding hedge complexity.",
+            }
+        )
 
     top3 = (risk_dashboard or {}).get("top3_concentration_pct")
     vol = (risk_dashboard or {}).get("annualized_volatility_pct")
@@ -195,17 +196,19 @@ def build_hedge_suggestions(
     high_beta = qqq_beta is not None and qqq_beta >= settings.get("portfolio_beta_warning_threshold", 1.25)
 
     if high_concentration or high_vol or high_beta:
-        suggestions.append({
-            "type": "inverse_etf",
-            "instrument": "PSQ",
-            "action": "OPTIONAL_SHORT_TERM_HEDGE",
-            "max_portfolio_pct": inverse_cap_pct,
-            "rationale": "Small inverse Nasdaq hedge may offset concentrated tech beta during event risk.",
-            "risk_note": (
-                "Inverse ETFs reset daily and can decay quickly. Use only as a short-term hedge, "
-                "size small, and prefer trims when risk is position-specific."
-            ),
-        })
+        suggestions.append(
+            {
+                "type": "inverse_etf",
+                "instrument": "PSQ",
+                "action": "OPTIONAL_SHORT_TERM_HEDGE",
+                "max_portfolio_pct": inverse_cap_pct,
+                "rationale": "Small inverse Nasdaq hedge may offset concentrated tech beta during event risk.",
+                "risk_note": (
+                    "Inverse ETFs reset daily and can decay quickly. Use only as a short-term hedge, "
+                    "size small, and prefer trims when risk is position-specific."
+                ),
+            }
+        )
 
     return suggestions
 
@@ -244,7 +247,7 @@ def detect_drawdown(holdings: list, market_data: dict, settings: dict) -> dict:
 
         # Closes by date (last `lookback_days` rows, plus a small buffer)
         closes = {}
-        for row in history[-(lookback_days + 5):]:
+        for row in history[-(lookback_days + 5) :]:
             date = row.get("date")
             close = row.get("close")
             if date and close:
@@ -283,10 +286,10 @@ def detect_drawdown(holdings: list, market_data: dict, settings: dict) -> dict:
 
     triggered = bool(drawdown_pct <= threshold_pct)
     return {
-        "triggered":         triggered,
-        "drawdown_pct":      round(float(drawdown_pct), 2),
-        "threshold_pct":     threshold_pct,
-        "peak_label":        f"{lookback_days}d peak",
-        "lookback_days":     lookback_days,
-        "samples":           int(len(portfolio_index)),
+        "triggered": triggered,
+        "drawdown_pct": round(float(drawdown_pct), 2),
+        "threshold_pct": threshold_pct,
+        "peak_label": f"{lookback_days}d peak",
+        "lookback_days": lookback_days,
+        "samples": int(len(portfolio_index)),
     }

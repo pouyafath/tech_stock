@@ -32,6 +32,11 @@
 - ✅ **Risk Controls** — Entry zones, stop-loss, take-profit, catalyst verification, and manual-review flags per recommendation
 - ✅ **Exit Planning** — Target exit dates and Bear Case / Bull Case ranges for every trade
 - ✅ **Portfolio Risk Dashboard** — Beta, volatility, drawdown estimate, company exposure rollups, and hedge suggestions
+- ✅ **Buy Signals View** — Source-backed BUY/ADD and add-on-dip snapshots with analyst consensus, targets, catalysts, quality warnings, and data-source notes
+- ✅ **Trade Readiness Badges** — Buy Signals are classified as Trade Ready / Review First / Blocked using deterministic quote, catalyst, quality-gate, and source checks
+- ✅ **Data Confidence** — Reports and dashboards show quote freshness, source coverage, catalyst coverage, warning counts, and readiness status before trade details
+- ✅ **Doctor / Preflight** — `python src/main.py doctor --json` checks version, update cache, API keys, CSV freshness, budget status, release assets, and demo smoke readiness
+- ✅ **Verified Updates** — Release downloads are checked against published SHA256 checksums when available
 - ✅ **8 Time Horizons** — Intraday / next session / 1-3 trading days / 1-2 weeks / 1-3 months / 3-6 months / 6-12 months / 12-36 months
 - ✅ **6 Enrichment APIs** — Parallel data from Finnhub, Polygon, Twelve Data, FRED, CoinGecko (+ optional Alpha Vantage)
 - ✅ **Fee-Aware** — Refuses to recommend trades below the fee hurdle (default 0.5% net expected return)
@@ -47,148 +52,68 @@
 
 ---
 
-## ✨ What's New in v1.12.0 (May 14, 2026)
+## ✨ What's New in v1.21.0 (May 29, 2026)
 
-**Fully embedded desktop application.**
+**Stabilization, supportability, and V2 readiness gate.**
 
-- **Embedded Desktop App** — new browser-free Tkinter dashboard packaged inside the native macOS/Windows app.
-- **Native tabs** — Dashboard, Run Report, Report Viewer, History, Config Editor, and API Checks are available inside the app window.
-- **Same report engine** — the desktop app calls `src.ui_support.run_report_from_ui()`, so it uses the same two-pass Claude report pipeline as CLI, Streamlit, and Textual.
-- **Live progress** — report generation streams CLI progress into the desktop window and loads the finished markdown report automatically.
-- **Launcher update** — the native launcher now offers Desktop App first, then Streamlit Web UI, Textual Terminal UI, and CLI.
-- **Source launch** — run `./run.sh 4` or `python src/desktop_app.py` to open the embedded UI from source.
+- **Doctor / Preflight** — new `python src/main.py doctor --json` command reports installed version, latest GitHub release, update-cache age/source, workspace paths, API-key discovery, required/optional API status, CSV freshness, monthly budget state, and release asset/checksum availability.
+- **Diagnostics Preflight** — Desktop and Streamlit Diagnostics now show the same preflight table before paid runs, so missing keys, stale CSVs, cached updater results, or release-asset gaps are visible in-app.
+- **Force-refresh updates** — manual update checks bypass the 6-hour cache and show whether the result came from live GitHub Releases or local cache.
+- **Demo smoke test** — bundled samples, markdown rendering, Dashboard view models, and Buy Signals view models can be validated with no network spend.
+- **Data Confidence** — reports, Dashboard, and Buy Signals now surface quote freshness, source degradation, catalyst coverage, warning counts, and Trade Ready / Review First / Blocked readiness as a top-level trust signal.
+- **Release-line cleanup** — fixed a CI-only report history ordering flake that blocked the `v1.20.0` draft release on Ubuntu.
 
-Current local suite: `pytest -q` passes with 171 tests.
+Current local suite: `pytest -q` passes with 588 tests.
 
-## ✨ What's New in v1.11.0 (May 13, 2026)
+> **V2 note:** do not call the next update `v2.0.1`. V2 should wait until public releases match repo version, updater flow works from older installs, demo mode works without keys, installers pass smoke tests on macOS/Windows/Linux, user-data migration rules are documented, and production installers are signed/notarized.
 
-**Decision journal and model-vs-user outcome scoring.**
+## ✨ What's New in v1.20.0 (May 27, 2026)
 
-- **Decision Journal** — actionable recommendations are seeded into local `data/decision_journal.json` as pending decisions after each run.
-- **Record real follow-through** — mark a recommendation as accepted, ignored, modified, delayed, watch, or executed, with optional actual action, shares, execution price, reason, and notes.
-- **Outcome Scorecard** — scores recorded decisions over 1/5/20/60-day windows and reports model avg return, your avg return, hit rates, and discretion delta.
-- **Feedback into Claude** — the scorecard is included in the next Claude prompt so the model can calibrate around your actual behavior, not only historical recommendations.
-- **UI support** — Streamlit has a Decision Journal tab; Textual shows journal status and scorecard summaries.
+**Release engineering + docs refactor — one tag = one release.**
 
-Current local suite: `pytest -q` passes with 170 tests.
+- **CI release pipeline** — push a `v*.*.*` tag and GitHub Actions handles the rest: a three-OS test gate (`macos-14`, `windows-latest`, `ubuntu-22.04` run `pytest + ruff` in parallel), three platform-specific build jobs (`.dmg`, Windows `.exe` + Inno Setup installer, Linux AppImage + tarball), and a final `release` job that generates `SHA256SUMS.txt`, parses the matching CHANGELOG section, and publishes a draft GitHub Release with everything attached.
+- **New `src/changelog_utils.py`** — `python -m src.changelog_utils 1.20.0` extracts the release notes for a tag; used by the CI to populate the Release body.
+- **Docs refactor** — README went from 1583 → 1128 lines. New `docs/` directory: `ARCHITECTURE.md` (module map, data flow, learning loop, 7 quality gates, 5 design tenets), `COOKBOOK.md` (12 common workflows), `RELEASE_PROCESS.md` (CI flow). `CONTRIBUTING.md` rewritten with design tenets, commit-message style, and "adding a new X" pattern guides.
+- **533 → 579 tests** — `test_changelog_utils.py` (13), `test_release_workflow.py` (15), `test_docs_links.py` (18).
 
-## ✨ What's New in v1.10.0 (May 10, 2026)
+Current local suite at that release: `pytest -q` passed with 579 tests.
 
-**Live validation hardening after a full paid Sonnet run.**
+## ✨ What's New in v1.19.1 (May 27, 2026)
 
-- **Yahoo news parser fixed** — yfinance's current news shape uses `content.pubDate`; the app now parses it correctly, so large-move catalyst tables populate with real headlines again.
-- **Empty-news cache fixed** — transient empty headline responses are no longer cached for an hour, avoiding false "no news" catalyst gaps.
-- **Claude JSON resilience** — default `claude_max_tokens` raised to `24000`, Rule 32 now has strict string-length caps, news prompt payloads are tighter, and a one-time emergency compact JSON retry is available if Claude returns truncated JSON.
-- **Leveraged ETF duration wording fixed** — when an ETF entry predates the Activities export, the report now shows a lower bound such as `held at least 41 days` instead of either overstating it or saying only "unknown."
-- **Position Aging wording fixed** — reports no longer claim all positions are fresh/core when some entry dates are unknown.
-- **Exit sizing and critical actions polished** — SELL/TRIM rows now get deterministic share/proceeds fields, and quote mismatches are grouped into one Critical Actions item instead of flooding the top of the report.
-- **Paid validation** — successful full live Sonnet two-pass run on May 10, 2026 with 31 tracked tickers, enrichment enabled, 12 recommendation rows, 50,105 tokens, estimated cost `$0.6341`, cache hit, no JSON retry required.
+**Patch: close the v1.19 loose ends.**
 
-v1.10 validation suite passed with 167 tests.
+- **5 new CLI flags** the installer / scheduler already invoked: `--demo`, `--import-csv PATH`, `--session-type`, `--non-interactive`, `--force`. With `--non-interactive` and no session given, the CLI auto-picks `morning` (before noon) or `afternoon` based on local time, so headless launchd / Task Scheduler / cron runs no longer hang.
+- **Workspace export-as-zip** (`src/workspace_export.py`) — wired into the Privacy card's previously-stubbed "Export workspace" button. Secrets (`.env`, `API_KEYS.txt`, the temporary upload folder, anything looking like a key/PEM) are scrubbed automatically; reports / logs / journal / thesis log / cost log / settings.json are included.
+- **Desktop wizard hook** — the Tk desktop app now shows a one-time dialog on first launch pointing at the Streamlit wizard (where the full step-by-step flow lives).
+- **515 → 533 tests**. Two new test files: `test_cli_flags.py` (10) and `test_workspace_export.py` (8).
 
-## ✨ What's New in v1.9.0 (May 6, 2026)
+Current local suite: `pytest -q` passes with 533 tests in ~3 s.
 
-**All strategy gates now visible + thesis tracker + paper-trading mode.**
+## ✨ What's New in v1.19.0 (May 27, 2026)
 
-- **Markdown report shows everything** — Active Risk Modifiers banner at top, Position Aging table, Trailing Stops with breached/active sections, Sector Rotation leaders/laggards/arrows, Tranched Entry/Exit Plans inside each recommendation. CSV gets 3 new tranche columns.
-- **Thesis-decay tracker** — every BUY's original thesis is stored. Quarterly auto-reviews classify progress as `materialized`/`partial`/`not_yet`/`invalidated`. After 4 consecutive `not_yet` reviews (~12 months), the position is force-exited regardless of Claude's output. Frees capital from theses that haven't materialized.
-- **Paper-trading mode** (`./run.sh morning --paper`) — every Claude recommendation is applied to a simulated portfolio in `data/paper_portfolio.json`. Tracks cash, shares, fees, value history. Lets you quantify your **discretion penalty** — the gap between recommendations and what you actually traded.
+**Productisation — any Wealthsimple account holder can now install + use this, not just developers.**
 
-21 new tests, 147 total at that milestone; current suite is larger.
+- **🚀 First-run wizard** — six guided stages (Welcome → Anthropic API key → budgets → Wealthsimple CSV walkthrough → first run / demo → done). State is stamped to `config/settings.json` so a mid-wizard crash resumes where you left off. Streamlit short-circuits the dashboard until setup is complete; existing users are bypassed automatically (the `onboarding` block isn't present in their settings.json).
+- **🎬 Demo mode** — bundled `data/samples/` ships a realistic 5-position Wealthsimple holdings CSV + a cached Claude recommendation log. New users click "Try demo" on the launcher (or skip the wizard) to see a full report instantly with **zero setup, zero API key, zero cost**.
+- **💰 Spend tracker + monthly budget cap** — every run appends to `data/cost_log.jsonl`. New Spend sub-section in the Diagnostics tab shows total / MTD / projected monthly + a 30-day chart. `settings.json → monthly_budget_usd` soft-warns at 80%, hard-blocks at 100% (override via `ALLOW_OVERAGE=1`). Default is 0 (no cap) — opt-in.
+- **🔒 Privacy card** — clear explainer of what gets sent to Anthropic vs what stays local. Confirmation-gated "Delete all local data" button wipes reports / logs / journal / cache / thesis log / cost log in one go.
+- **🪟 Windows installer parity** — `installer_windows.iss` now consumes a real version from `src/version.py`, registers a per-user CSV file association so double-clicking a holdings export opens the app, adds a Start-Menu group with a separate "tech_stock (Demo mode)" shortcut, ships the samples component, includes optional Authenticode signing.
+- **🐧 Linux AppImage** — new `build_linux.sh` produces a portable AppImage (or tarball fallback) with a proper `.desktop` entry under `Categories=Finance;Office;`.
+- **467 → 515 tests**. Three new test files cover the wizard state machine, the cost tracker + budget enforcement, and static checks on the Windows / Linux installer artefacts.
 
-## ✨ What's New in v1.8.0 (May 6, 2026)
+Current local suite: `pytest -q` passes with 515 tests in ~2 s.
 
-**P2 polish — execution quality and weekly action density.**
+> **Older release notes** — see [`CHANGELOG.md`](CHANGELOG.md) for the full history (v1.0 → v1.19).
 
-- **Trailing stops** — stops automatically tighten as positions appreciate (+10% → breakeven, +20% → 8% trail, +40% → 12% trail). Breached stops auto-generate TRIM regardless of Claude's output. Locks in gains without manual intervention.
-- **Sector rotation rhythm** — sector ETFs ranked by 1-month relative strength. Detects leadership shifts vs the previous session ("rotating in" / "rotating out"). Generates timely rotation trades aligned with your weekly cadence.
-- **Tranched entry/exit plans** — every BUY/ADD now ships with a 3-step entry plan (40% now / 30% on pullback / 30% on confirmation). Same for SELL/TRIM exits. Lowers average entry by ~0.5–1% historically and turns each trade idea into 3 weekly small actions.
-- **Live USD→CAD FX rate** from FRED DEXCAUS — replaces the static 1.37 assumption (real range: 1.32–1.42). CAD-denominated holdings now valued accurately.
-- **Fixed:** News cache now date-keyed (no more stale headlines on the afternoon run); drift tracker now skips quick re-runs and prefers same-session-type from the previous trading day.
+---
 
-31 new tests, 111 total, all passing.
+## 📖 Documentation
 
-## ✨ What's New in v1.7.0 (May 6, 2026)
-
-**Strategy alignment — every recommendation now respects your trading rules deterministically.**
-
-- **Position aging** — Every holding is classified `fresh`/`core`/`mature`/`aged`/`stale`. Mature positions (6-12 months without a fresh catalyst) auto-drop conviction by 1; stale (>2 years) are force-converted to TRIM regardless of Claude's output.
-- **VIX-regime sizing** — `invest_amount_usd` automatically scales by VIX: 0.85× when 15–25, 0.6× when 25–35, 0.4× above 35.
-- **Drawdown circuit breaker** — When portfolio is ≥6% off its 30-day peak: ADDs halve, BUYs become HOLD-watch, and weak HOLDs (conviction <7) get forced to watch.
-- **Conviction sizing from your actual hit rates** — After 3+ mature trades per conviction bucket, position sizes follow your real edge, not just Claude's conviction prior.
-- **Catalyst windows** — Earnings ±5 days = lockdown; T-30 to T-5 = setup window; T+1 to T+3 = post-earnings drift. Plus session-level FOMC/CPI/NFP tags pre-position you 1-2 days before macro events.
-- **Cache pricing fixed** — Code uses 1-hour cache TTL; pricing table was billing at 5-minute rates (under-reported costs by ~25%).
-
-41 new tests, 80 total, all passing.
-
-## ✨ What's New in v1.6.0 (May 2026)
-
-**Native App Packaging + Unified Launcher:** Run tech_stock as a native macOS or Windows application — no terminal required.
-
-- **`./run.sh` Unified Entry Point** — Running `./run.sh` with no arguments now shows an interactive menu (CLI / Streamlit / Textual / Desktop). Existing callers with arguments (e.g. `./run.sh morning`) still work unchanged.
-- **Native macOS App** — `build_macos.sh` builds `dist/tech_stock.dmg` using PyInstaller. Double-click to install; dark-themed tkinter launcher window opens with three one-click buttons.
-- **Native Windows App** — `build_windows.bat` builds `dist\tech_stock\tech_stock.exe`. Optionally wrap in an Inno Setup installer via `installer_windows.iss`.
-- **GitHub Actions Release CI** — Push a version tag (`git tag v1.0.0 && git push --tags`) and GitHub Actions automatically builds both the `.dmg` and Windows `.exe`, then uploads them as release artifacts.
-- **Backtest On-Demand** — Backtest tab no longer blocks app startup; yfinance price fetches now happen only when you click "Run backtest".
-- **Report Rendering Fixed (Textual)** — Today's Report and History tabs now use the Textual `Markdown` widget (was `RichLog` — headings and tables previously appeared as raw text).
-
-## ✨ What's New in v1.5.1 (April 30, 2026)
-
-**Optional UI Layer:** Added and upgraded two extra interfaces without changing the original way to run the program.
-
-- **Original CLI Preserved** — `python src/main.py` and `./run.sh` still behave as before
-- **Streamlit Dashboard** — Run reports from a browser UI with live progress, CSV upload/preview, first-class dashboard metrics, markdown history/compare, structured backtests, downloads, connectivity checks, and config JSON validation
-- **Textual TUI** — Run reports from a terminal dashboard with live progress, dashboard tables, history, structured backtest tables, CSV discovery helpers, keyboard shortcuts, connectivity checks, and portfolio/config editing
-- **UI Launcher** — `./run.sh` (or `./run-ui.sh`) lets you choose CLI, Streamlit, or Textual from one menu
-- **Shared UI Runtime** — Both UIs call the same `src.main.run()` pipeline as the CLI, with auto-open disabled and generated artifact paths returned to the UI
-- **Latest JSON Dashboard** — Optional UIs surface `risk_dashboard`, `quality_warnings`, `priority_actions`, `hedge_suggestions`, `drift_vs_previous`, and Claude cost/tokens without requiring a long markdown scroll
-
-## ✨ What's New in v1.4.1 (April 30, 2026)
-
-**Runtime Stabilization:** Updated after a successful full portfolio run using the April 29 holdings and activities CSVs.
-
-- **Claude Output Budget** — This was originally stabilized at `16000`; v1.10 raises the default to `24000` and adds an emergency compact retry for news-heavy runs.
-- **Compact Recommendation Contract** — Rule 32 caps Claude at 12 recommendation rows focused on actionable trades and material risks; lower-signal tickers move to watchlist/warnings.
-- **Schema Resilience** — Missing required per-recommendation fields from Claude are normalized to safe defaults before schema validation, so one incomplete row does not kill the run.
-- **Correct Market Phase** — Overnight runs now label the context as "outside regular market hours — before next open" instead of pre-close.
-- **Observed Full-Run Cost** — Latest successful Sonnet two-pass run used 50,105 tokens and cost `$0.6341`; smaller portfolios or cached/shorter outputs may cost less.
-
-## ✨ What's New in v1.4.0 (April 30, 2026)
-
-**Unified Plan Follow-Through:** Applied the remaining quality-plan items around calibration, data enrichment, report UX, and Claude cost/performance behavior.
-
-- **Critical Actions Section** — Top-of-report checklist now consolidates high/medium quality warnings, manual catalyst reviews, leveraged ETF duration risk, and major drift items
-- **Stronger Quality Gates** — Catalyst gating now independently detects near-term earnings from enrichment data; hard downgrades force HOLD-watch and cap conviction at 5
-- **Range And Decision Checks** — Reversed Bear/Bull ranges remain visible as warnings after normalization, near-term range mismatches check both sides, and missing decision-tree language is flagged
-- **Sharper Track-Record Calibration** — Prompt now caps high conviction when historical conviction/action buckets have weak hit rates, and the backtest summary includes per-ticker stats plus recent realized examples
-- **Richer Market Data** — Adds premarket/after-hours moves, FCF yield, gross/operating margins, dividend yield, and ex-dividend dates where yfinance provides them
-- **More Enrichment Signals** — Finnhub analyst upgrade/downgrade events, deterministic macro calendar estimates for NFP/CPI/FOMC verification, and optional Polygon current snapshot fields
-- **Leveraged ETF Decay Estimate** — Daily-reset ETF warnings now include holding days plus an estimated volatility-decay drag when 20-day volatility is available
-- **Previous Session Execution Check** — The report compares prior actionable recommendations with recent activities CSV rows so you can see what was or was not executed
-- **Data Freshness Footnotes** — Quote-quality section explains provider quote vs daily-close fallback semantics before order entry
-- **Claude Cost/Performance** — Repeated user context is cache-marked for the second pass, and Opus can use extended thinking via `enable_opus_extended_thinking`
-
-## ✨ What's New in v1.3.0 (April 30, 2026)
-
-**Major Upgrade:** Deterministic quality gates, two-pass review, portfolio risk analytics, richer report structure, and CI coverage
-
-- **Report Quality Warnings** — Stale quotes, quote mismatches, missing catalysts, invalid horizons, and oversized exposures are surfaced near the top of the report
-- **Always-On Second Pass** — Claude revises its first JSON using quality warnings, drift, and previous-session context before final output
-- **Risk Controls** — Each recommendation now carries entry zone, stop-loss, take-profit, catalyst verification, catalyst source, and manual-review fields
-- **Portfolio Risk Dashboard** — Adds beta, volatility, drawdown estimate, top-3 concentration, correlated pairs, company-level exposure rollups, and hedge suggestions
-- **Richer Deterministic Market Data** — Adds SMA cross, ATR(14), 5/20-day volatility, fundamentals, benchmark beta inputs, and sector/cross-asset context
-- **Structured Enrichment Degradation** — External API failures are recorded and rendered instead of silently disappearing
-- **Priority Actions** — "Do This Today" ranked list replaces guesswork about order of execution
-- **Investment Sizing** — Exact USD amounts per trade ($50–$700 range), scaled by conviction
-- **Hold Tiers** — HOLD recommendations now labeled (watch / keep / add_on_dip) for clarity on next steps
-- **Earnings Alerts** — ⚠️ Automatically flags tickers with earnings within 7 days
-- **Exit Planning** — Every trade includes target exit date and Bear Case / Bull Case expected ranges
-- **6 Enrichment APIs** — Analyst consensus, insider activity, macro signals, crypto context, and previous-session Polygon VWAP context
-- **Extended Time Horizons** — Now supports 3-6 months, 6-12 months, 12-36 months for medium-term thesis
-- **Improved Setup** — `API_KEYS.txt` as the easy-to-find alternative to `.env` for new users
-- **Better CSV Export** — Trader-facing columns for Hold Tier, Invest USD, Bear/Bull Case, risk controls, catalyst gate, and quote audit fields
-- **Optional Slow Data Paths** — Alpha Vantage and options implied-move lookups are disabled by default; enable them only when needed
-- **Test Suite + CI** — Pytest coverage and GitHub Actions now run on push and pull requests
+- **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** — module map, data flow, the 7 quality gates, the learning loop, storage layout.
+- **[`docs/COOKBOOK.md`](docs/COOKBOOK.md)** — common workflows: demo mode, scheduling, budget caps, replaying old sessions, custom notifications.
+- **[`docs/RELEASE_PROCESS.md`](docs/RELEASE_PROCESS.md)** — how a `v*.*.*` tag triggers the three-platform CI build.
+- **[`CONTRIBUTING.md`](CONTRIBUTING.md)** — design tenets, daily workflow, commit-message style, where contributions are most welcome.
+- **[`CHANGELOG.md`](CHANGELOG.md)** — full release history.
 
 ---
 
@@ -223,7 +148,7 @@ Use this if you want the app-based macOS or Windows launcher:
 2. Download the latest macOS `.dmg` or Windows `.exe` / zipped app artifact.
 3. Put `API_KEYS.txt` beside the app, or in the project folder if you are running from source.
 
-Linux does not currently ship a `.deb`, `.rpm`, or AppImage. Use the Streamlit browser dashboard from source for the app-style Linux experience.
+Linux release builds provide an AppImage when `appimagetool` succeeds, with a tarball fallback. There is not currently a `.deb` or `.rpm`.
 
 **Option B: Clone the source**
 
@@ -281,8 +206,9 @@ Then open `dist/tech_stock.dmg`, drag `tech_stock.app` to Applications, and laun
 - Streamlit Web UI
 - Textual Terminal UI
 - Original CLI
+- Check Updates
 
-The **Desktop App** is fully embedded in the native application and does not need a browser. It includes Dashboard, Run Report, Report Viewer, History, Config Editor, and API Checks tabs.
+The **Desktop App** is fully embedded in the native application and does not need a browser. It includes Dashboard, Run Report, Report Viewer, History, Config Editor, API Checks, and Updates tabs.
 
 The **Streamlit Web UI** remains available for users who prefer a browser dashboard. It starts a local server and opens your default browser at a local URL such as `http://localhost:8501`. If your browser does not open automatically, the launcher shows the URL so you can paste it manually.
 
@@ -306,15 +232,18 @@ source .venv/bin/activate
 pip install -r requirements.txt
 chmod +x run.sh run-ui.sh
 
-# Interactive launcher: CLI / Streamlit / Textual / Desktop
+# Interactive launcher: CLI / Streamlit / Textual / Desktop / Update
 ./run.sh
 
 # Direct CLI
 ./run.sh morning
 ./run.sh afternoon --model opus
+./run.sh 5
 
 # Original Python entrypoint
 python src/main.py
+python src/main.py check-update
+python src/main.py update
 ```
 
 ### Linux
@@ -341,15 +270,18 @@ source .venv/bin/activate
 pip install -r requirements.txt
 chmod +x run.sh run-ui.sh
 
-# Interactive launcher: CLI / Streamlit / Textual / Desktop
+# Interactive launcher: CLI / Streamlit / Textual / Desktop / Update
 ./run.sh
 
 # Direct CLI
 ./run.sh morning
 ./run.sh afternoon --model opus
+./run.sh 5
 
 # Original Python entrypoint
 python src/main.py
+python src/main.py check-update
+python src/main.py update
 ```
 
 ### Windows
@@ -368,6 +300,8 @@ Then run:
 dist\tech_stock\tech_stock.exe
 ```
 
+The Windows launcher offers Desktop App, Streamlit Web UI, Textual Terminal UI, Command-Line mode, and Check Updates. The embedded Desktop App also has an Updates tab.
+
 If you want an installer-style package, use `installer_windows.iss` with Inno Setup after building.
 
 #### Windows Option 2 — Terminal-Based
@@ -385,6 +319,10 @@ python src\main.py
 # Direct CLI
 python src\main.py morning --holdings "$HOME\Downloads\holdings-report-YYYY-MM-DD.csv"
 python src\main.py afternoon --model opus --holdings "$HOME\Downloads\holdings-report-YYYY-MM-DD.csv"
+
+# Updates
+python src\main.py check-update
+python src\main.py update
 
 # Browser dashboard
 python -m streamlit run ui\streamlit_app.py
@@ -471,12 +409,16 @@ python src/main.py morning --holdings ~/Holdings.csv --model opus
 
 | Command | What happens |
 |---------|-------------|
-| `./run.sh` | Interactive menu — pick CLI / Streamlit / Textual / Desktop |
+| `./run.sh` | Interactive menu — pick CLI / Streamlit / Textual / Desktop / Update |
 | `./run.sh morning` | Skip menu → CLI, morning session |
 | `./run.sh afternoon --model opus` | Skip menu → CLI, Opus model |
 | `./run.sh 2` | Skip menu → Streamlit (browser opens automatically) |
 | `./run.sh 3` | Skip menu → Textual TUI |
 | `./run.sh 4` | Skip menu → embedded Desktop App |
+| `./run.sh 5` | Skip menu → check for updates |
+| `python src/main.py check-update` | Check GitHub Releases for a newer version |
+| `python src/main.py update` | Update a source checkout with `git pull --ff-only` or stage a packaged update |
+| `python src/main.py doctor --json` | Run preflight diagnostics: version, updater cache, API keys, CSV freshness, budget, release assets |
 
 **Windows PowerShell / Command Prompt:**
 
@@ -485,11 +427,14 @@ python src/main.py morning --holdings ~/Holdings.csv --model opus
 | `python src\main.py` | Interactive CLI |
 | `python src\main.py morning --holdings "%USERPROFILE%\Downloads\holdings-report-YYYY-MM-DD.csv"` | Direct morning CLI run |
 | `python src\main.py afternoon --model opus --holdings "%USERPROFILE%\Downloads\holdings-report-YYYY-MM-DD.csv"` | Direct afternoon CLI run with Opus |
+| `python src\main.py check-update` | Check GitHub Releases for a newer version |
+| `python src\main.py update` | Update a source checkout with `git pull --ff-only` or stage a packaged update |
+| `python src\main.py doctor --json` | Run preflight diagnostics: version, updater cache, API keys, CSV freshness, budget, release assets |
 | `python -m streamlit run ui\streamlit_app.py` | Streamlit browser dashboard |
 | `python ui\textual_app.py` | Textual terminal dashboard |
 | `python src\desktop_app.py` | Embedded desktop dashboard |
 
-All four interface options call the **same report engine** (`src/main.run()`). UI runs disable automatic file opening and return the generated markdown/CSV/JSON paths inside the interface.
+All four interface options call the **same report engine** through the shared `ReportPipeline` facade. UI runs disable automatic file opening and return the generated markdown/CSV/JSON paths inside the interface.
 
 ### Embedded Desktop App
 
@@ -502,14 +447,60 @@ python src/desktop_app.py
 The Desktop App is a native Tkinter dashboard that runs inside the application window. It does not start Streamlit and does not need a browser.
 
 Tabs:
-- **Dashboard** — Shows latest JSON-log metrics for risk, priority actions, quality warnings, and Claude cost
-- **Run Report** — Select session/model/budgets, choose Wealthsimple CSVs, preview holdings, and run the same report pipeline as CLI mode with live progress
-- **Report Viewer** — Opens the latest generated markdown report inside the app
-- **History** — Browse previous markdown reports from `reports/`
+- **Dashboard** — Shows the next action, portfolio/risk metric cards, Data Confidence, priority action queue, quality gates, stop breaches, drift, hedge ideas, market context, watchlist signals, and Claude cost
+- **Buy Signals** — Shows source-backed BUY/ADD and add-on-dip snapshots with readiness badges, Data Confidence, filters, overview cards, consensus/targets, catalysts/risks, and source notes
+- **Run Report** — Select session/model/budgets, confirm auto-detected Wealthsimple CSV paths, preview holdings, and run the same report pipeline as CLI mode with live progress
+- **Report Viewer** — Opens the latest generated markdown report with styled headings, readable paragraph spacing, aligned table blocks, native word search, highlighted matches, Next/Previous controls, and search paths behind **Show Search Paths**
+- **History** — Browse previous markdown reports from all configured report search folders and view/search them with the same styled markdown renderer
 - **Config Editor** — Edit `config/settings.json`, `config/watchlist.json`, or fallback `config/portfolio.json` with JSON validation
-- **API Checks** — Check Anthropic, yfinance, Finnhub, and Polygon connectivity
+- **API Checks** — Check Anthropic, yfinance, Finnhub, Polygon, Twelve Data, FRED, CoinGecko, and Alpha Vantage connectivity; show every API-key file path and active storage mode; add/update/delete API keys from the app
+- **Diagnostics** — Shows Preflight/doctor status, source degradation health, recent errors, a redacted support bundle, and Anthropic spend/budget telemetry
+- **Updates** — Check GitHub Releases, force-refresh the update cache, download/apply newer versions, verify release checksums when present, and view update logs
 
-The embedded viewer shows markdown as readable plain text. Use Streamlit if you specifically want browser-rendered markdown tables and download buttons.
+The embedded viewer is a native styled markdown reader. Use Streamlit if you specifically want browser-rendered markdown, side-by-side history comparison, and download buttons.
+
+Default file locations:
+- **Source checkout:** app data is saved inside the project folder, for example `<project>/data/`, `<project>/reports/`, `<project>/temporary_upload/`, and `<project>/config/`.
+- **Packaged desktop app:** app data is saved in `~/Documents/tech_stock/` by default, because `/Applications/tech_stock.app` is not a good writable data folder.
+- **Override:** set `TECH_STOCK_HOME=/your/path` before launching to force a different writable workspace.
+- **Uploaded/copied CSVs:** `temporary_upload/` under the active workspace
+- **Markdown/CSV reports:** `reports/` under the active workspace
+- **Recommendation JSON logs:** `data/recommendations_log/` under the active workspace
+- **Decision journal:** `data/decision_journal.json` under the active workspace
+
+Report search order for Report Viewer and History:
+1. Active workspace `reports/` folder
+2. Current working folder `reports/`
+3. `~/Documents/tech_stock/reports/`
+4. `~/Desktop/tech_stock/reports/`
+5. `~/Downloads/tech_stock/reports/`
+6. Source checkout `reports/` folder
+
+The Desktop App shows this exact list, with found/missing status and report counts, in History and behind **Show Search Paths** in Report Viewer.
+
+### Updating
+
+All interactive interfaces check GitHub Releases on startup and ask before applying a newer version. You can also check manually:
+
+- **Native launcher:** click **Check Updates**.
+- **Desktop App:** open the **Updates** tab.
+- **Streamlit:** use the **Updates** section in the sidebar.
+- **Textual:** open the **Updates** tab; startup checks show an Update now / Later prompt.
+- **Terminal:** run `python src/main.py check-update`, `python src/main.py update`, or `python src/main.py doctor --json`.
+- **Unified launcher:** run `./run.sh 5`.
+
+Data is stored separately from the app binary, so updating does not remove your `reports/`, `data/recommendations_log/`, `temporary_upload/`, `config/`, `decision_journal.json`, `API_KEYS.txt`, or `.env` files. Update logs are written under the app workspace in `logs/update.log`.
+
+Packaged macOS and Windows builds download the correct asset from the latest GitHub Release and verify it against `SHA256SUMS.txt` when the release provides checksums. Source checkouts update with `git pull --ff-only`. Startup checks may use a short-lived cache; manual checks in the app force-refresh GitHub Releases and show whether the result came from cache or live GitHub.
+
+API key search order:
+1. `~/Documents/tech_stock/API_KEYS.txt` or `.env` in packaged app mode
+2. The current working folder
+3. `~/Desktop/tech_stock/API_KEYS.txt` or `.env`
+4. `~/Downloads/tech_stock/API_KEYS.txt` or `.env`
+5. The source checkout folder
+
+Current API-key storage mode is file-based: `API_KEYS.txt` and `.env`. The API Checks tab shows this active storage mode plus the exact discovered key paths. OS credential stores such as macOS Keychain, Windows Credential Manager, and Linux Secret Service are planned as an optional future storage mode; the file-based mode remains the simple default.
 
 ### Streamlit Dashboard
 
@@ -632,11 +623,11 @@ Distribute the entire `dist\tech_stock\` folder. Users double-click `tech_stock.
 
 ### Pre-built Releases (GitHub Actions)
 
-Push a version tag to trigger automatic builds for both platforms:
+Push a version tag to trigger automatic builds:
 ```bash
-git tag v1.0.0 && git push --tags
+git tag v1.21.0 && git push --tags
 ```
-GitHub Actions builds `.dmg` (macOS runner) and `.exe` (Windows runner) and attaches them to a GitHub Release. Download from the [Releases page](https://github.com/pouyafath/tech_stock/releases).
+GitHub Actions runs the three-OS test gate first, then builds macOS `.dmg`, Windows installer/zip artifacts, Linux AppImage/tarball artifacts, and `SHA256SUMS.txt`. The workflow creates a **draft** GitHub Release. Download artifacts, smoke-open them, verify checksums, then publish the draft from the [Releases page](https://github.com/pouyafath/tech_stock/releases).
 
 Current macOS release artifacts are ad-hoc signed but not notarized. That means Apple Gatekeeper can block first launch until the user approves it in **System Settings → Privacy & Security → Open Anyway**. A warning-free macOS release requires an Apple Developer Program account, Developer ID signing, notarization, and stapling in the release workflow.
 
@@ -913,162 +904,9 @@ After 4–6 weeks, analyze:
 
 ## 🏗️ Architecture
 
-### Data Flow
+The deep architecture map — module-by-module purpose, data flow, the 7-layer quality gate, the learning loop, storage layout, and the five design tenets — now lives in **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**.
 
-```
-Wealthsimple CSVs
-    ↓
-[Portfolio Loader] → Holdings dict
-[Activity Loader] → Recent trades
-    ↓
-[Market Data]      ┐ (parallel fetching via ThreadPoolExecutor)
-[News Fetcher]     ├→ yfinance → prices, history, PE, headlines, news
-[Fee Calculator]   ┘
-    ↓
-[Portfolio Analytics] → risk dashboard, company exposure, hedge suggestions
-    ↓
-[Claude Analyst] → first-pass JSON → quality gates + drift → second-pass JSON
-    ↓
-[Report Generator] → markdown + CSV + JSON log
-    ↓
-[Optional UIs] → Streamlit browser dashboard / Textual terminal dashboard
-```
-
-**Performance:** Market data, news, and enrichment calls run in parallel where possible. Runtime depends on portfolio size, API coverage, cache state, and the two Claude passes. Slow optional sources such as options implied-move lookup are disabled by default.
-
-### Module Overview
-
-**Shared Utilities** (centralized, single source of truth):
-
-| Module | Purpose |
-|--------|---------|
-| `config.py` | Load and manage settings from `config/settings.json` |
-| `constants.py` | Shared constants: leveraged ETF leverage map, company/share-class groups, DEDUP_PAIRS, SKIP_MARKET_DATA, CDR_EXCHANGES |
-| `_utils.py` | Helper functions: `safe_float()`, `clean_csv_row()`, `parse_session_filename()` |
-
-**Data Loading & Calculation**:
-
-| Module | Purpose |
-|--------|---------|
-| `portfolio_loader.py` | Parse Wealthsimple Holdings CSV |
-| `activity_loader.py` | Parse Wealthsimple Activities CSV (trade history) |
-| `market_data.py` | Fetch live prices, pre/after-market fields, history, fundamentals, dividends, and indicators via yfinance |
-| `news_fetcher.py` | Fetch recent news headlines (parallel fetching with ThreadPoolExecutor) |
-| `fee_calculator.py` | Model Wealthsimple fees + bid-ask spreads |
-| `portfolio_analytics.py` | Company exposure rollups, volatility, beta, drawdown, correlation, and hedge suggestions |
-
-**Enrichment & Analysis**:
-
-| Module | Purpose |
-|--------|---------|
-| `enriched_data.py` | Orchestrate 6 enrichment APIs in parallel (Finnhub, Polygon, Twelve Data, FRED, CoinGecko) + optional sequential Alpha Vantage |
-| `finnhub_client.py` | Fetch analyst consensus, upgrade/downgrade events, earnings calendar, insider activity, news sentiment |
-| `polygon_client.py` | Fetch previous-day OHLCV + VWAP signals, plus optional current snapshot fields |
-| `twelve_data_client.py` | Fetch real-time quotes + earnings dates |
-| `fred_client.py` | Fetch macro context (Fed Funds, inflation, yield curve, VIX regime) and deterministic event-calendar estimates |
-| `coingecko_client.py` | Fetch BTC price, Fear & Greed Index, macro risk signal |
-| `alpha_vantage_client.py` | Fetch news sentiment (thread-safe rate limiter; optional, disabled by default) |
-
-**Analysis & Output**:
-
-| Module | Purpose |
-|--------|---------|
-| `claude_analyst.py` | 40-rule system prompt, build enriched prompt, run two Claude passes, recover once from truncated JSON, parse sizing/catalyst/risk/hedge/priority fields |
-| `report_quality.py` | Deterministic quality warnings and hard gates for stale quotes, missing catalysts, risk controls, and sizing issues |
-| `backtester.py` | Evaluate mature recommendations by action, conviction, ticker, and recent realized examples for calibration |
-| `report_generator.py` | Format markdown + CSV with priority actions, quality warnings, risk dashboard, hold tiers, earnings badges, risk controls, and Bear/Bull ranges |
-| `main.py` | CLI entry point, interactive setup, API key loading (API_KEYS.txt first, then .env), enrichment orchestration, risk analytics, and CSV export |
-| `ui_launcher.py` | Shell menu for choosing the original CLI, Streamlit, or Textual; called by `run.sh` |
-| `ui_support.py` | Shared helpers for UI progress streaming, report/log discovery, latest-log dashboards, holdings preview, JSON validation, connectivity checks, and canonical report runs |
-| `app_gui.py` | Native tkinter launcher window used by the PyInstaller `.app`/`.exe` bundle |
-
-**Optional UI Entry Points**:
-
-| File | Purpose |
-|------|---------|
-| `ui/streamlit_app.py` | Browser dashboard for CSV upload, report generation, markdown viewing, history, backtest, and JSON config editing |
-| `ui/textual_app.py` | Terminal dashboard for the same workflow using Textual widgets and scrollable panes |
-
-**Packaging**:
-
-| File | Purpose |
-|------|---------|
-| `tech_stock.spec` | PyInstaller build specification (data files, hidden imports, macOS `.app` bundle) |
-| `build_macos.sh` | One-command macOS build: installs deps → PyInstaller → `.app` → `.dmg` |
-| `build_windows.bat` | One-command Windows build: installs deps → PyInstaller → `.exe` |
-| `installer_windows.iss` | Optional Inno Setup script for a polished Windows installer |
-| `pyinstaller_hooks/` | Custom hooks to ensure Streamlit static assets are bundled |
-| `.github/workflows/build_release.yml` | CI release workflow: tags trigger `.dmg` + `.exe` builds |
-
-### Claude System Prompt (40 Rules)
-
-Claude receives a detailed system prompt with **40 strategic rules** governing analysis and output structure:
-
-**Input Data Claude Gets:**
-1. Portfolio snapshot — all holdings with cost basis, current value, P&L, unrealized gains (from portfolio_loader)
-2. Market data — current price, pre/after-market moves, 1d/5d/1mo changes, PE, FCF yield, margins, dividends, 52w highs/lows, last 5 closes (parallel fetch from market_data)
-3. Recent news — last 7 days of headlines per ticker (parallel fetch from news_fetcher)
-4. **Enriched intelligence** — analyst consensus, earnings calendars, insider activity, sentiment, macro context (from enriched_data.py)
-5. Fee snapshot — one-way and round-trip costs per ticker (from fee_calculator)
-6. Recent trades — your recent trading activity for prompt context plus full-export FIFO holding-age data when provided
-7. Session type — "morning" (pre-open) or "afternoon" (intraday + EOD positioning)
-8. Watchlist alerts — target entry/exit prices for monitored tickers (from config/watchlist.json)
-9. Quality warnings, previous-session drift/execution context, risk dashboard, company exposure rollup, and track-record calibration stats
-
-**Output Rules (Examples from the 40):**
-- **Rule 14 (Track Record Calibration):** Cap or reduce conviction when similar historical action/conviction buckets have weak returns or hit rates
-- **Rule 15 (Earnings Alert):** If earnings within 7 days, set `earnings_alert=true` and lead with "⚠️ EARNINGS [DATE]"
-- **Rule 17 (Enrichment Citation):** Cite analyst consensus, EPS beat streaks, insider activity in thesis statements
-- **Rule 18 (Investment Sizing):** Set `invest_amount_usd` based on conviction: 8–10 = 40% of session budget, 7 = 25%, 6 = 15%
-- **Rule 19 (Hold Tiers):** Every HOLD gets `hold_tier`: "watch" (conviction ≤5), "keep" (6–7), "add_on_dip" (≥8)
-- **Rule 20 (Time Horizons):** Exactly one of: intraday / next session / 1-3 trading days / 1-2 weeks / 1-3 months / 3-6 months / 6-12 months / 12-36 months
-- **Rule 21 (Exit Plan):** Every recommendation includes `target_exit_date` (e.g., "Jul 2026") and Bear/Bull range
-- **Rule 22 (Buy Signals):** Actively look for BUY opportunities — not just existing portfolio
-- **Rule 23 (Priority Actions):** Output `priority_actions` array — ordered "do this today" list by urgency
-- **Rule 27 (Risk Controls):** Include entry zone, stop-loss, and take-profit percentages
-- **Rule 28 (Catalyst Gate):** BUY/ADD on >5% movers or near-earnings names requires verified catalyst or manual review
-- **Rule 31 (Hedge Suggestions):** Include trim/rebalance and optional small inverse-ETF hedges when concentration or beta is high
-- **Rule 32 (Compact JSON):** Return at most 12 recommendation rows, use strict per-field length caps, and avoid repeating raw quote/news tables inside JSON strings
-
-The parser also normalizes missing per-row fields such as `action`, `conviction`, `net_expected_pct`, `fee_hurdle_pct`, and `time_horizon` to safe defaults before schema validation. Deterministic quality gates still flag unsupported recommendations after normalization.
-
-**Output JSON Structure:**
-```json
-{
-  "recommendations": [
-    {
-      "ticker": "NVDA",
-      "action": "ADD",
-      "conviction": 8,
-      "net_expected_pct": 14.89,
-      "invest_amount_usd": 500,
-      "time_horizon": "3-6 months",
-      "hold_tier": null,
-      "earnings_alert": false,
-      "target_exit_date": "Jul 2026",
-      "price_target_low_pct": -8.0,
-      "price_target_high_pct": 18.0,
-      "risk_controls": {
-        "entry_zone_low_pct": -3.0,
-        "entry_zone_high_pct": 1.0,
-        "stop_loss_pct": -7.0,
-        "take_profit_pct": 18.0
-      },
-      "catalyst_verified": true,
-      "catalyst_source": "Finnhub analyst consensus + earnings history",
-      "manual_review_required": false,
-      "thesis": "Core AI infrastructure. Analyst consensus: 66 analysts STRONG BUY. Beat estimates 4 quarters in a row. Insider buying strong."
-    }
-  ],
-  "priority_actions": [
-    {"order": 1, "ticker": "NVDA", "action": "ADD", "rationale": "Core position, good entry"},
-    {"order": 2, "ticker": "SOXL", "action": "SELL", "rationale": "Leveraged ETF decay and concentration risk"}
-  ],
-  "summary": "..."
-}
-```
-
----
+A one-paragraph summary: tech_stock reads your Wealthsimple holdings CSV, fans out to ~7 external data sources in parallel, runs a deterministic enrichment + drift + thesis-tracking pipeline, sends a single richly-contextualised user message to Claude (with prompt caching), runs a 7-layer quality gate, lets Claude review its own first pass with the warnings + drift surfaced, normalises the recommendation, sizes the trades deterministically, and writes a markdown report + CSV + JSON log. Past recommendations feed back via the backtester (Sharpe-dampened sizing multipliers + reliability diagram + walk-forward stability). User decisions feed back via the decision journal (per-horizon edge). The Learning tab visualises this loop.
 
 ## 🤔 FAQ
 
@@ -1227,6 +1065,7 @@ tech_stock/
 ├── src/
 │   ├── __init__.py
 │   ├── main.py                  ← Entry point (CLI + interactive, API key loading)
+│   ├── report_pipeline.py       ← ReportPipeline facade for shared UI runs
 │   ├── config.py                ← Load settings (single source of truth)
 │   ├── constants.py             ← Shared constants, company aliases, leveraged ETF leverage
 │   ├── _utils.py                ← Helper functions (safe_float, clean_csv_row, etc.)
@@ -1245,16 +1084,17 @@ tech_stock/
 │   ├── alpha_vantage_client.py  ← News sentiment (thread-safe rate limiter; optional)
 │   ├── backtester.py            ← Historical recommendation calibration
 │   ├── report_quality.py        ← Deterministic quality gates and warnings
+│   ├── data_confidence.py       ← Shared quote/source/catalyst/readiness trust summary
 │   ├── claude_analyst.py        ← 40-rule prompt, two-pass Claude review, JSON retry/parsing
 │   ├── report_generator.py      ← Priority actions table, hold tiers, earnings badges, markdown + CSV
+│   ├── view_models.py           ← Shared dashboard, Buy Signals, API health, journal view models
 │   ├── ui_support.py            ← Shared helpers for UI progress, dashboards, previews, validation, and connectivity
-│   └── ui_launcher.py           ← Interface chooser for CLI, Streamlit, and Textual
-├── ui/
-│   ├── streamlit_app.py         ← Optional browser dashboard
-│   └── textual_app.py           ← Optional terminal dashboard
-├── src/
+│   ├── preflight.py             ← Doctor command, release/update/API/CSV/budget/demo smoke checks
+│   ├── updater.py               ← GitHub Releases checks, downloads, checksums, update logs
+│   ├── version.py               ← App version for CLI, UIs, packaging, updater
+│   ├── desktop_app.py           ← Embedded no-browser dashboard
 │   ├── app_gui.py               ← Native tkinter launcher (used by .app/.exe bundle)
-│   └── ui_launcher.py           ← Shell menu wrapper (used by run.sh)
+│   └── ui_launcher.py           ← Shell menu wrapper (CLI / Streamlit / Textual / Desktop / Update)
 ├── ui/
 │   ├── streamlit_app.py         ← Optional browser dashboard
 │   └── textual_app.py           ← Optional terminal dashboard
@@ -1280,21 +1120,7 @@ tech_stock/
 
 ## 🤝 Contributing
 
-This is a personal tool but contributions are welcome. To contribute:
-
-1. Fork the repo
-2. Create a feature branch: `git checkout -b feature/your-idea`
-3. Make your changes
-4. Test thoroughly with your own Wealthsimple account (paper trading recommended)
-5. Commit with clear messages: `git commit -m "Add/fix: description"`
-6. Push and open a pull request
-
-**Areas for contribution:**
-- Support for other brokers (add new fee models)
-- Additional output formats (Excel, HTML, Discord webhooks)
-- Backtesting framework
-- Risk metrics (Sharpe ratio, max drawdown, volatility)
-- Mobile notifications
+Contribution guidelines, design tenets, the commit-message style we use, where contributions are most welcome, and the daily test/lint/format flow all live in **[`CONTRIBUTING.md`](CONTRIBUTING.md)**.
 
 ---
 
@@ -1322,6 +1148,8 @@ For issues or questions:
 
 ---
 
-**Last updated:** May 14, 2026 — OS-specific install paths for app-based and terminal-based use
-**Version:** 1.11.0
-**Status:** Production-ready — deterministic quality gates, current catalyst headlines, four interface options, native app distribution, paper-trading mode, decision journal
+**Last updated:** May 29, 2026 — v1.21.0 stabilization, doctor/preflight, data confidence, and V2 readiness gate.
+**Version:** 1.21.0
+**Status:** Production-ready v1 line — deterministic quality gates, trade-readiness classifier, Data Confidence, source-backed Buy Signals, doctor/preflight diagnostics, in-app updater with SHA-256 verification, API key manager, four interface options (CLI, Streamlit, Textual, native desktop), paper-trading mode, decision-journal scorecard. 588 tests expected in the local suite.
+
+See [CHANGELOG.md](CHANGELOG.md) for the per-release history.

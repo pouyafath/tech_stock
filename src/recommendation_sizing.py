@@ -1,4 +1,5 @@
 """Deterministic trade-size helpers for rendered recommendations."""
+
 from __future__ import annotations
 
 from copy import deepcopy

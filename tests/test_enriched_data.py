@@ -22,15 +22,15 @@ def test_enrichment_degradation_is_structured(monkeypatch):
 
 
 def test_enrichment_prompt_renders_degradation():
-    text = format_enrichment_for_prompt({
-        "per_ticker": {"MSFT": {}},
-        "macro": None,
-        "crypto": None,
-        "sources_active": [],
-        "degradation": [
-            {"source": "finnhub", "operation": "recommendation_trends", "ticker": "MSFT", "error": "down"}
-        ],
-    })
+    text = format_enrichment_for_prompt(
+        {
+            "per_ticker": {"MSFT": {}},
+            "macro": None,
+            "crypto": None,
+            "sources_active": [],
+            "degradation": [{"source": "finnhub", "operation": "recommendation_trends", "ticker": "MSFT", "error": "down"}],
+        }
+    )
 
     assert "Data Coverage / Degradation" in text
     assert "MSFT: finnhub.recommendation_trends unavailable" in text
