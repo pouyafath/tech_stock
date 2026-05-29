@@ -83,6 +83,8 @@ def test_architecture_doc_lists_v17_v18_v19_modules():
         "src/scheduling.py",
         "src/onboarding.py",
         "src/cost_tracker.py",
+        "src/preflight.py",
+        "src/data_confidence.py",
         "src/workspace_export.py",
     ]
     missing = [m for m in expected_modules if m not in text]

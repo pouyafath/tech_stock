@@ -15,16 +15,21 @@ def isolated_workspace(tmp_path, monkeypatch):
     observability.clear_diagnostics()
 
 
-def test_diagnostics_view_shape(isolated_workspace):
+def test_diagnostics_view_shape(isolated_workspace, monkeypatch):
     from src.observability import log_event
+    from src import ui_support
     from src.ui_support import diagnostics_view
 
     log_event("finnhub", "info", "ok", "fine")
     log_event("finnhub", "error", "http_500", "boom")
     log_event("polygon", "info", "ok", "fine")
+    monkeypatch.setattr(
+        ui_support, "build_preflight", lambda **_kwargs: {"summary_rows": [{"check": "Version", "status": "OK", "detail": "test"}]}
+    )
 
     view = diagnostics_view(hours=24)
-    assert set(view.keys()) >= {"sources", "recent_errors", "total_events", "log_path"}
+    assert set(view.keys()) >= {"sources", "recent_errors", "total_events", "log_path", "preflight"}
+    assert view["preflight"]["summary_rows"][0]["check"] == "Version"
     assert set(view["sources"].keys()) == {"finnhub", "polygon"}
     for bucket in view["sources"].values():
         for key in ("total", "errors", "success_rate", "last_error", "codes", "health"):

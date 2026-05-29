@@ -14,6 +14,28 @@ loads the bundled `data/samples/recommendation_log_sample.json`, and
 shows you a full report against a synthetic Wealthsimple-style portfolio.
 No API key, no CSV, no cost.
 
+## Run doctor / preflight diagnostics
+
+Use this before paid runs, before release testing, or when the app says it
+is on an older release than GitHub:
+
+```
+.venv/bin/python -m src.main doctor --json
+.venv/bin/python -m src.main doctor --json --force-refresh
+```
+
+The JSON payload includes installed version, latest published release,
+update-cache age/source, workspace paths, API-key discovery, API status,
+CSV freshness, monthly budget status, and release asset/checksum
+availability.
+
+To also validate bundled samples and view-model rendering without
+Anthropic spend:
+
+```
+.venv/bin/python -m src.main doctor --json --demo-smoke
+```
+
 ## Run a single CLI report
 
 ```
@@ -132,7 +154,7 @@ notifications.channels`. Use `general` to bypass channel gating.
 ## Run the test suite
 
 ```
-.venv/bin/python -m pytest -q                       # all tests
+.venv/bin/python -m pytest -q                       # all tests; v1.21 has 588 expected
 .venv/bin/python -m pytest tests/test_backtester_calibration.py -v
 .venv/bin/python -m pytest -k "horizon"             # match by name
 ```
@@ -153,7 +175,7 @@ Or open the Editor tab and delete the `onboarding` block from
 ## Generate a CHANGELOG release-notes blob
 
 ```
-python -m src.changelog_utils 1.19.1   # specific version
+python -m src.changelog_utils 1.21.0   # specific version
 python -m src.changelog_utils --latest # most recent
 python -m src.changelog_utils --list   # every version
 ```

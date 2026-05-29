@@ -18,6 +18,7 @@ from pathlib import Path
 
 from src.activity_loader import holding_days_by_ticker
 from src.constants import LEVERAGED_ETF_LEVERAGE, LEVERAGED_ETFS
+from src.data_confidence import build_data_confidence
 from src.portfolio_analytics import aggregate_company_exposure, aggregate_positions
 from src.recommendation_sizing import apply_trade_sizes
 
@@ -476,6 +477,61 @@ def _render_data_quality_section(market_data: dict) -> list[str]:
     ]
     for row in rows:
         lines.append("| " + " | ".join(_table_cell(v) for v in row) + " |")
+    lines += ["", "---", ""]
+    return lines
+
+
+def _render_data_confidence_section(recommendation: dict, market_data: dict, enriched: dict) -> list[str]:
+    confidence = recommendation.get("data_confidence") or build_data_confidence(
+        recommendations=recommendation.get("recommendations") or [],
+        market_data=market_data or {},
+        quality_warnings=recommendation.get("quality_warnings") or [],
+        enriched=enriched or {},
+    )
+    source_coverage = confidence.get("source_coverage") or {}
+    catalyst_coverage = confidence.get("catalyst_coverage") or {}
+    readiness = confidence.get("readiness_counts") or {}
+    rows = [
+        ("Data Confidence", confidence.get("label") or "N/A"),
+        ("Quote freshness", confidence.get("quote_freshness") or "N/A"),
+        (
+            "Quotes timestamped",
+            f"{confidence.get('timestamped_quotes', 0)}/{confidence.get('quote_total', 0)}",
+        ),
+        ("Fallback close quotes", confidence.get("fallback_quotes", 0)),
+        ("Quote errors", confidence.get("quote_errors", 0)),
+        ("Active optional sources", source_coverage.get("active_count", 0)),
+        ("Source degradation records", source_coverage.get("degradation_count", 0)),
+        (
+            "Catalysts verified",
+            f"{catalyst_coverage.get('verified_count', 0)}/{catalyst_coverage.get('relevant_count', 0)}",
+        ),
+        ("Manual-review recommendations", catalyst_coverage.get("manual_review_required", 0)),
+        ("Quality warnings", confidence.get("warning_count", 0)),
+    ]
+    if readiness:
+        rows.append(
+            (
+                "Buy-signal readiness",
+                f"{readiness.get('TRADE_READY', 0)} ready / {readiness.get('REVIEW_FIRST', 0)} review / {readiness.get('BLOCKED', 0)} blocked",
+            )
+        )
+
+    lines = [
+        "## Data Confidence",
+        "",
+        f"_{confidence.get('summary') or 'Deterministic data-confidence summary.'}_",
+        "",
+        "| Signal | Value |",
+        "|---|---:|",
+    ]
+    for label, value in rows:
+        lines.append(f"| {label} | {_table_cell(value)} |")
+    reasons = confidence.get("reasons") or []
+    if reasons:
+        lines += ["", "**Why it matters:**"]
+        for reason in reasons[:5]:
+            lines.append(f"- {reason}")
     lines += ["", "---", ""]
     return lines
 
@@ -951,6 +1007,7 @@ def generate_markdown(
     )
 
     # ── Data quality and cost assumptions ─────────────────────────────────
+    lines += _render_data_confidence_section(recommendation, market_data or {}, enriched or {})
     lines += _render_data_quality_section(market_data or {})
     lines += _render_data_coverage_section(enriched or {})
     lines += _render_fee_assumptions_section(settings)

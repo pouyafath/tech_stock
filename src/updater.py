@@ -13,7 +13,7 @@ import urllib.error
 import urllib.request
 import zipfile
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -46,6 +46,12 @@ class UpdateInfo:
     published_at: str | None = None
     body: str = ""
     error: str | None = None
+    from_cache: bool = False
+    cache_path: str | None = None
+    cache_age_seconds: int | None = None
+    asset_available: bool | None = None
+    checksum_available: bool | None = None
+    asset_names: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -173,6 +179,9 @@ def _serialize_update_info(info: "UpdateInfo") -> dict[str, Any]:
         "published_at": info.published_at,
         "body": info.body,
         "error": info.error,
+        "asset_available": info.asset_available,
+        "checksum_available": info.checksum_available,
+        "asset_names": info.asset_names,
     }
 
 
@@ -188,6 +197,9 @@ def _deserialize_update_info(payload: dict[str, Any]) -> "UpdateInfo":
         published_at=payload.get("published_at"),
         body=payload.get("body") or "",
         error=payload.get("error"),
+        asset_available=payload.get("asset_available"),
+        checksum_available=payload.get("checksum_available"),
+        asset_names=list(payload.get("asset_names") or []),
     )
 
 
@@ -208,7 +220,8 @@ def _load_cached_update_info(ttl_seconds: int) -> "UpdateInfo | None":
         cached_at = datetime.fromisoformat(cached_at_iso)
     except ValueError:
         return None
-    if (datetime.now() - cached_at).total_seconds() > ttl_seconds:
+    cache_age = (datetime.now() - cached_at).total_seconds()
+    if cache_age > ttl_seconds:
         return None
     # Invalidate stale-current-version entries: after the user updates,
     # the cache key on disk would otherwise lie about "available".
@@ -218,6 +231,9 @@ def _load_cached_update_info(ttl_seconds: int) -> "UpdateInfo | None":
     # An error result should not stick — let the next call retry the network path.
     if info.error:
         return None
+    info.from_cache = True
+    info.cache_path = str(cache_path)
+    info.cache_age_seconds = max(0, int(cache_age))
     return info
 
 
@@ -269,8 +285,11 @@ def check_for_update(
     asset_name = None
     asset_url = None
     checksum_url = None
+    asset_names: list[str] = []
     for asset in release.get("assets") or []:
         name = str(asset.get("name") or "")
+        if name:
+            asset_names.append(name)
         if name == "SHA256SUMS.txt":
             checksum_url = str(asset.get("browser_download_url") or "")
         if wanted_asset and name == wanted_asset:
@@ -288,6 +307,12 @@ def check_for_update(
         checksum_url=checksum_url,
         published_at=release.get("published_at"),
         body=str(release.get("body") or ""),
+        from_cache=False,
+        cache_path=str(_update_cache_path()),
+        cache_age_seconds=0,
+        asset_available=bool(asset_url),
+        checksum_available=bool(checksum_url),
+        asset_names=asset_names,
     )
     _save_update_cache(info)
     return info

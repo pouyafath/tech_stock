@@ -670,7 +670,7 @@ class DesktopApp(tk.Tk):
         metrics.pack(fill="x", padx=16)
         self.metric_vars: dict[str, tk.StringVar] = {}
         self.metric_hint_vars: dict[str, tk.StringVar] = {}
-        metric_labels = ["Portfolio", "P&L", "SPY Beta", "Annual Vol", "Top-3 Conc.", "Warnings", "Claude Cost"]
+        metric_labels = ["Portfolio", "P&L", "Data Conf.", "SPY Beta", "Annual Vol", "Top-3 Conc.", "Warnings", "Claude Cost"]
         for col in range(4):
             metrics.columnconfigure(col, weight=1, uniform="metrics")
         for index, label in enumerate(metric_labels):
@@ -1466,6 +1466,17 @@ class DesktopApp(tk.Tk):
         self.diagnostics_status = tk.StringVar(value="Open this tab to load the diagnostics view.")
         ttk.Label(toolbar, textvariable=self.diagnostics_status, style="Muted.TLabel").pack(side="left", padx=14)
 
+        # Preflight table
+        preflight_panel = self._panel(self.diagnostics_tab, "Preflight")
+        preflight_panel.pack(fill="x", padx=16, pady=(0, 12))
+        self.diagnostics_preflight_tree = self._make_tree(
+            preflight_panel,
+            ["check", "status", "detail"],
+            [170, 90, 760],
+            height=7,
+        )
+        self.diagnostics_preflight_tree.pack(fill="x")
+
         # Per-source table
         sources_panel = self._panel(self.diagnostics_tab, "Sources")
         sources_panel.pack(fill="x", padx=16, pady=(0, 12))
@@ -1527,6 +1538,11 @@ class DesktopApp(tk.Tk):
             f"{view.get('total_events', 0)} events in last {hours}h · "
             f"{len(sources)} source(s) · {ok} ok · {degraded} degraded · {down} down"
         )
+
+        preflight_rows = []
+        for row in (view.get("preflight") or {}).get("summary_rows") or []:
+            preflight_rows.append([row.get("check") or "", row.get("status") or "", row.get("detail") or ""])
+        self._replace_tree_rows(self.diagnostics_preflight_tree, preflight_rows)
 
         # — Sources table —
         source_rows = []
@@ -1767,13 +1783,22 @@ class DesktopApp(tk.Tk):
         self.update_text.configure(state="disabled")
 
     def _format_update_info(self, info: Any) -> str:
+        cache_source = "cache" if getattr(info, "from_cache", False) else "live GitHub Releases"
         lines = [
             f"Current version: {info.current_version}",
             f"Latest version: {info.latest_version or 'unknown'}",
             f"Release page: {info.release_url}",
+            f"Result source: {cache_source}",
         ]
+        if getattr(info, "cache_path", None):
+            lines.append(f"Update cache: {info.cache_path} (age {info.cache_age_seconds or 0}s)")
         if info.asset_name:
             lines.append(f"Platform asset: {info.asset_name}")
+        lines.append(f"Platform asset available: {bool(getattr(info, 'asset_available', False))}")
+        lines.append(f"Checksums available: {bool(getattr(info, 'checksum_available', False))}")
+        asset_names = getattr(info, "asset_names", []) or []
+        if asset_names:
+            lines.append(f"Release assets: {', '.join(asset_names)}")
         lines.extend(
             [
                 "",
@@ -2285,16 +2310,18 @@ class DesktopApp(tk.Tk):
             return
         candidates = payload.get("cards") or payload.get("candidates") or []
         counts = payload.get("counts") or {}
+        confidence = payload.get("data_confidence") or {}
         self.buy_signal_status.set(
             f"{len(candidates)} shown / {counts.get('total', len(candidates))} total "
             f"({counts.get('TRADE_READY', 0)} ready, {counts.get('REVIEW_FIRST', 0)} review, {counts.get('BLOCKED', 0)} blocked) "
-            f"from {payload.get('session_file', 'latest log')}"
+            f"· confidence {confidence.get('label', 'N/A')} · from {payload.get('session_file', 'latest log')}"
         )
         overview_rows = []
         consensus_rows = []
         catalyst_lines = []
         source_lines = [
             f"Session log: {payload.get('session_file', '')}",
+            f"Data confidence: {confidence.get('label', 'N/A')} — {confidence.get('summary', '')}",
             f"Fetched at: {payload.get('fetched_at', '')}",
             "",
             "Active enrichment sources:",
@@ -2703,6 +2730,7 @@ class DesktopApp(tk.Tk):
 
         risk = summary.get("risk_dashboard") or {}
         health = summary.get("portfolio_health") or {}
+        data_confidence = summary.get("data_confidence") or {}
         beta = risk.get("beta") or {}
         usage = summary.get("usage") or {}
         warnings = summary.get("quality_warnings") or []
@@ -2720,6 +2748,11 @@ class DesktopApp(tk.Tk):
             "Portfolio", self._fmt_money(health.get("total_value_usd_equivalent") or risk.get("total_value_usd")), "USD equivalent"
         )
         self._set_metric("P&L", self._fmt_pct(health.get("overall_pnl_pct"), signed=True), "overall")
+        self._set_metric(
+            "Data Conf.",
+            data_confidence.get("label") or "N/A",
+            data_confidence.get("summary") or "deterministic checks",
+        )
         self._set_metric("SPY Beta", str(beta.get("SPY", "N/A")), f"QQQ {beta.get('QQQ', 'N/A')} | SMH {beta.get('SMH', 'N/A')}")
         self._set_metric(
             "Annual Vol",
@@ -2831,12 +2864,13 @@ class DesktopApp(tk.Tk):
 
     def start_update_check(self, *, startup: bool = False) -> None:
         self.update_check_button.configure(state="disabled")
-        self.update_status.set("Checking GitHub Releases...")
+        force_refresh = not startup
+        self.update_status.set("Force-refreshing GitHub Releases..." if force_refresh else "Checking GitHub Releases...")
         if not startup:
             self.tabs.select(self.update_tab)
 
         def worker() -> None:
-            info = check_update_available()
+            info = check_update_available(force=force_refresh)
             self.progress_queue.put(("update_check_done", {"info": info, "startup": startup}))
 
         threading.Thread(target=worker, daemon=True).start()

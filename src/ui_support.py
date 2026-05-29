@@ -42,6 +42,7 @@ from src.main import (
 from src.market_data import get_market_data
 from src.news_fetcher import aggregate_sentiment, get_news_for_tickers
 from src.portfolio_loader import parse_holdings_csv
+from src.preflight import build_preflight, run_demo_smoke_test
 from src.report_pipeline import ReportPipeline
 from src.updater import UpdateInfo, UpdateResult, apply_update, check_for_update
 from src.version import APP_VERSION
@@ -312,7 +313,7 @@ def list_reports(limit: int = 25) -> list[Path]:
                 continue
             seen.add(key)
             reports.append(path)
-    reports = sorted(reports, key=lambda p: p.stat().st_mtime, reverse=True)
+    reports = sorted(reports, key=lambda p: (p.stat().st_mtime, p.name), reverse=True)
     return reports[:limit]
 
 
@@ -356,6 +357,8 @@ def latest_log_summary() -> dict[str, Any]:
         "usage": data.get("usage") or data.get("usage_summary") or {},
         "recommendations": data.get("recommendations") or [],
         "portfolio_health": portfolio_health,
+        "source_degradation": data.get("source_degradation") or data.get("degradation") or [],
+        "data_confidence": data.get("data_confidence") or {},
     }
 
 
@@ -527,6 +530,11 @@ def buy_signal_view(
     )
 
 
+def demo_smoke_view() -> dict[str, Any]:
+    """Run the no-spend demo smoke test for UI buttons."""
+    return run_demo_smoke_test()
+
+
 def read_text_file(path: str | Path | None) -> str:
     resolved = normalize_optional_path(path)
     if not resolved or not resolved.exists():
@@ -595,6 +603,18 @@ def diagnostics_view(*, hours: int = 24) -> dict[str, Any]:
             bucket["health"] = "degraded"
         else:
             bucket["health"] = "down"
+    try:
+        summary["preflight"] = build_preflight(force_update=False, live_api_checks=False, include_demo_smoke=False, timeout=4.0)
+    except Exception as exc:  # noqa: BLE001
+        summary["preflight"] = {
+            "summary_rows": [
+                {
+                    "check": "Preflight",
+                    "status": "FAIL",
+                    "detail": str(exc),
+                }
+            ]
+        }
     return summary
 
 

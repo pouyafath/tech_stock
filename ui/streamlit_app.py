@@ -440,6 +440,10 @@ with st.sidebar:
         st.caption(f"Update check failed: {update_info.error}")
     elif update_info:
         st.caption(f"✓ Up to date · v{update_info.current_version}")
+    if st.button("Force refresh updates", width="stretch", key="sidebar_force_update_refresh"):
+        with st.spinner("Checking published GitHub Releases..."):
+            st.session_state["update_info"] = check_update_available(timeout=6.0, force=True)
+        st.rerun()
 
     health_summary = st.session_state.get("boot_health_cache")
     if health_summary:
@@ -568,9 +572,10 @@ def _render_dashboard() -> None:
     risk = summary.get("risk_dashboard") or {}
     beta = risk.get("beta") or {}
     usage = summary.get("usage") or {}
+    data_confidence = summary.get("data_confidence") or {}
 
     # Hero metric strip
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     col1.metric(
         "Portfolio value",
         _format_currency(risk.get("total_value_usd")),
@@ -582,20 +587,33 @@ def _render_dashboard() -> None:
         help="Portfolio beta against SPY (S&P 500). >1 = more volatile than the market.",
     )
     col3.metric(
+        "Data confidence",
+        data_confidence.get("label") or "—",
+        help=data_confidence.get("summary") or "Deterministic quote/source/catalyst confidence.",
+    )
+    col4.metric(
         "Ann. volatility",
         _format_pct(risk.get("annualized_volatility_pct"), digits=1),
         help="Annualised standard deviation of daily returns (from holdings' 1y prices).",
     )
-    col4.metric(
+    col5.metric(
         "Max drawdown",
         _format_pct(risk.get("max_drawdown_estimate_pct"), signed=True, digits=1),
         help="Worst peak-to-trough decline estimated from 1y price history.",
     )
-    col5.metric(
+    col6.metric(
         "Top-3 concentration",
         _format_pct(risk.get("top3_concentration_pct"), digits=1),
         help="Weight of the three largest positions. >40% is a concentration flag.",
     )
+
+    if data_confidence:
+        reasons = data_confidence.get("reasons") or []
+        st.caption(
+            f"Data Confidence: **{data_confidence.get('label')}** · "
+            f"{data_confidence.get('timestamped_quotes', 0)}/{data_confidence.get('quote_total', 0)} timestamped quotes · "
+            f"{data_confidence.get('warning_count', 0)} quality warnings" + (f" · {'; '.join(reasons[:2])}" if reasons else "")
+        )
 
     st.markdown("### Priority Actions")
     priority = summary.get("priority_actions") or []
@@ -795,13 +813,17 @@ def _render_buy_signals() -> None:
         return
 
     counts = buy_data.get("counts") or {}
+    confidence = buy_data.get("data_confidence") or {}
     col_ready, col_review, col_blocked, col_total = st.columns(4)
     col_ready.metric("✅ Trade Ready", counts.get("TRADE_READY", 0))
     col_review.metric("⚠️ Review First", counts.get("REVIEW_FIRST", 0))
     col_blocked.metric("🛑 Blocked", counts.get("BLOCKED", 0))
     col_total.metric("Total", counts.get("total", len(buy_data.get("cards") or [])))
 
-    st.caption(f"Source: `{buy_data.get('session_file')}` · fetched {buy_data.get('fetched_at') or '—'}")
+    st.caption(
+        f"Source: `{buy_data.get('session_file')}` · fetched {buy_data.get('fetched_at') or '—'} · "
+        f"Data Confidence: **{confidence.get('label', 'N/A')}**"
+    )
 
     candidates = buy_data.get("cards") or buy_data.get("candidates") or []
     if not candidates:
@@ -1740,6 +1762,14 @@ def _render_diagnostics() -> None:
     if cache_key not in st.session_state:
         st.session_state[cache_key] = diagnostics_view(hours=int(window))
     view = st.session_state[cache_key]
+
+    preflight = view.get("preflight") or {}
+    rows = preflight.get("summary_rows") or []
+    st.markdown("### Preflight")
+    if rows:
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+    else:
+        _html(empty_state("Preflight unavailable", "Refresh diagnostics to rebuild the doctor payload."))
 
     sources = view.get("sources") or {}
     if not sources:

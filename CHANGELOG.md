@@ -4,6 +4,30 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.21.0] — 2026-05-29
+
+### Added — Stabilization, doctor, and V2 readiness gate
+
+Focused supportability release for the v1 line. This is intentionally **not** `v2.0.1`: V2 remains a readiness milestone until public releases, updater flow, demo mode, installer smoke tests, and migration rules are proven end-to-end.
+
+- **CLI doctor command** — `python src/main.py doctor --json` returns a structured preflight payload with installed version, latest GitHub release, update-cache metadata, workspace paths, API-key discovery, required/optional API status, CSV freshness, monthly budget status, release asset/checksum availability, and optional demo smoke results.
+- **Preflight surfaced in Diagnostics** — Desktop and Streamlit Diagnostics now show the same doctor summary as a Preflight card/table before paid runs.
+- **Force-refresh update checks** — manual UI checks bypass the update cache and explicitly show whether the result came from cached data or live GitHub Releases, plus asset/checksum coverage.
+- **No-spend demo smoke test** — validates bundled sample CSVs, sample recommendation JSON, markdown rendering, Dashboard view-model loading, and Buy Signals view-model loading without Anthropic calls.
+- **Data Confidence block** — reports, Dashboard, and Buy Signals now surface quote freshness, source coverage, catalyst coverage, warning counts, and readiness state as a top-level trust signal.
+
+### Fixed
+
+- **Release CI flake** — report history sorting now uses filename as a deterministic tie-breaker when filesystem mtimes are identical, fixing an Ubuntu-only `test_list_reports_returns_newest_first` failure that blocked the `v1.20.0` draft release.
+
+### Tests
+
+- **588 passing expected** after this release (579 → 588): new coverage for data confidence, doctor/preflight payloads, update-cache metadata, demo smoke, Diagnostics preflight, and report rendering.
+
+### Version bumped: 1.20.0 → 1.21.0
+
+---
+
 ## [1.20.0] — 2026-05-27
 
 ### Added — Release engineering + docs

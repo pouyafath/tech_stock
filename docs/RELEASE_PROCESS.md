@@ -14,7 +14,7 @@
 3. Bump `src/version.py`.
 4. Add a new section to the top of `CHANGELOG.md`:
    ```markdown
-   ## [1.20.0] — 2026-05-27
+   ## [1.21.0] — 2026-05-29
 
    ### Added
    - ...
@@ -26,7 +26,7 @@
 5. Commit + push the branch.
 6. When ready to release: tag and push.
    ```
-   git tag v1.20.0
+   git tag v1.21.0
    git push --tags
    ```
 
@@ -98,8 +98,8 @@ release is silently aborted — there's no draft to publish.
 
 ### release
 
-- Extracts the version from the tag (`refs/tags/v1.20.0` → `1.20.0`)
-- Runs `python -m src.changelog_utils 1.20.0` to extract the
+- Extracts the version from the tag (`refs/tags/v1.21.0` → `1.21.0`)
+- Runs `python -m src.changelog_utils 1.21.0` to extract the
   matching CHANGELOG section, falling back to `--latest` if the
   version isn't in the file yet
 - Downloads every artefact
@@ -112,19 +112,66 @@ release is silently aborted — there's no draft to publish.
 The release is intentionally drafted so a human can review the body
 and any attached binaries before publishing.
 
+## Draft release checklist
+
+Do not publish a draft release until these checks pass:
+
+1. Download every attached artifact: macOS `.dmg`, Windows installer/zip,
+   Linux AppImage or tarball, and `SHA256SUMS.txt`.
+2. Verify checksums:
+   ```
+   shasum -a 256 -c SHA256SUMS.txt
+   ```
+   On Windows, use `CertUtil -hashfile <artifact> SHA256` and compare to
+   `SHA256SUMS.txt`.
+3. Smoke-open each package on the target OS. Confirm the app starts,
+   opens the embedded Desktop App, and the Updates tab reports the
+   published version.
+4. Run `python src/main.py doctor --json --force-refresh --demo-smoke`
+   from a source checkout and confirm:
+   - latest public release equals the tag you are publishing
+   - update result is live, not cached
+   - release asset and checksum availability are true where expected
+   - demo smoke passes without API keys or Anthropic spend
+5. Publish the draft release only after the checklist is clean.
+
+If the in-app updater still sees an older public version, use
+`doctor --json --force-refresh` to separate a real GitHub Releases issue
+from a local update-cache issue.
+
 ## Hot fixes / re-tagging
 
 If something is wrong with an artefact:
 
 ```
-git tag -d v1.20.0
-git push --delete origin v1.20.0
+git tag -d v1.21.0
+git push --delete origin v1.21.0
 # fix
-git tag v1.20.0
+git tag v1.21.0
 git push --tags
 ```
 
-The CI re-runs end-to-end. The draft release is regenerated.
+The CI re-runs end-to-end. The draft release is regenerated. If a tag
+has already been published publicly, prefer a new patch/minor tag rather
+than reusing history.
+
+## V2 readiness gate
+
+Do not ship `v2.0.0` until all of these are true:
+
+- Latest public GitHub Release matches the repo version.
+- The in-app updater works from an older installed release to the new
+  release and preserves `reports/`, `data/`, `temporary_upload/`,
+  `config/`, `API_KEYS.txt`, `.env`, logs, and journals.
+- Demo mode and `doctor --json --demo-smoke` work without API keys.
+- Installers pass smoke tests on macOS, Windows, and Linux.
+- Workspace schema and recommendation-log schema are documented and
+  stable enough for migration rules.
+- Broker abstraction is no longer Wealthsimple-only.
+- Production installers are signed/notarized where the platform expects
+  it.
+
+Reserve `v2.0.1` for the first patch **after** a real public `v2.0.0`.
 
 ## Future tightening (planned)
 
@@ -132,14 +179,15 @@ The CI re-runs end-to-end. The draft release is regenerated.
   available (the workflow comment marks the spot).
 - Windows code-signing via `signtool` and a PFX certificate (the
   `build_windows.bat` already has the hook; CI just needs the secrets).
-- Snyk / `pip-audit` step as part of `test-gate` so dependency vulns
-  block releases.
+- `pip-audit` step as part of `test-gate` so dependency vulns block
+  releases after false-positive handling is documented.
 
 ## Files involved
 
 - `.github/workflows/build_release.yml` — the workflow
 - `.github/workflows/tests.yml` — runs on every push, not tied to releases
 - `src/changelog_utils.py` — CHANGELOG parser
+- `src/preflight.py` — doctor/preflight payload and demo smoke test
 - `build_macos.sh`, `build_windows.bat`, `build_linux.sh` — invoked
   locally for builds outside CI
 - `tech_stock.spec` — PyInstaller specification (consumed by macOS,

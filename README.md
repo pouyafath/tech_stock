@@ -34,6 +34,8 @@
 - ✅ **Portfolio Risk Dashboard** — Beta, volatility, drawdown estimate, company exposure rollups, and hedge suggestions
 - ✅ **Buy Signals View** — Source-backed BUY/ADD and add-on-dip snapshots with analyst consensus, targets, catalysts, quality warnings, and data-source notes
 - ✅ **Trade Readiness Badges** — Buy Signals are classified as Trade Ready / Review First / Blocked using deterministic quote, catalyst, quality-gate, and source checks
+- ✅ **Data Confidence** — Reports and dashboards show quote freshness, source coverage, catalyst coverage, warning counts, and readiness status before trade details
+- ✅ **Doctor / Preflight** — `python src/main.py doctor --json` checks version, update cache, API keys, CSV freshness, budget status, release assets, and demo smoke readiness
 - ✅ **Verified Updates** — Release downloads are checked against published SHA256 checksums when available
 - ✅ **8 Time Horizons** — Intraday / next session / 1-3 trading days / 1-2 weeks / 1-3 months / 3-6 months / 6-12 months / 12-36 months
 - ✅ **6 Enrichment APIs** — Parallel data from Finnhub, Polygon, Twelve Data, FRED, CoinGecko (+ optional Alpha Vantage)
@@ -50,6 +52,21 @@
 
 ---
 
+## ✨ What's New in v1.21.0 (May 29, 2026)
+
+**Stabilization, supportability, and V2 readiness gate.**
+
+- **Doctor / Preflight** — new `python src/main.py doctor --json` command reports installed version, latest GitHub release, update-cache age/source, workspace paths, API-key discovery, required/optional API status, CSV freshness, monthly budget state, and release asset/checksum availability.
+- **Diagnostics Preflight** — Desktop and Streamlit Diagnostics now show the same preflight table before paid runs, so missing keys, stale CSVs, cached updater results, or release-asset gaps are visible in-app.
+- **Force-refresh updates** — manual update checks bypass the 6-hour cache and show whether the result came from live GitHub Releases or local cache.
+- **Demo smoke test** — bundled samples, markdown rendering, Dashboard view models, and Buy Signals view models can be validated with no network spend.
+- **Data Confidence** — reports, Dashboard, and Buy Signals now surface quote freshness, source degradation, catalyst coverage, warning counts, and Trade Ready / Review First / Blocked readiness as a top-level trust signal.
+- **Release-line cleanup** — fixed a CI-only report history ordering flake that blocked the `v1.20.0` draft release on Ubuntu.
+
+Current local suite: `pytest -q` passes with 588 tests.
+
+> **V2 note:** do not call the next update `v2.0.1`. V2 should wait until public releases match repo version, updater flow works from older installs, demo mode works without keys, installers pass smoke tests on macOS/Windows/Linux, user-data migration rules are documented, and production installers are signed/notarized.
+
 ## ✨ What's New in v1.20.0 (May 27, 2026)
 
 **Release engineering + docs refactor — one tag = one release.**
@@ -59,7 +76,7 @@
 - **Docs refactor** — README went from 1583 → 1128 lines. New `docs/` directory: `ARCHITECTURE.md` (module map, data flow, learning loop, 7 quality gates, 5 design tenets), `COOKBOOK.md` (12 common workflows), `RELEASE_PROCESS.md` (CI flow). `CONTRIBUTING.md` rewritten with design tenets, commit-message style, and "adding a new X" pattern guides.
 - **533 → 579 tests** — `test_changelog_utils.py` (13), `test_release_workflow.py` (15), `test_docs_links.py` (18).
 
-Current local suite: `pytest -q` passes with 579 tests in ~2 s.
+Current local suite at that release: `pytest -q` passed with 579 tests.
 
 ## ✨ What's New in v1.19.1 (May 27, 2026)
 
@@ -131,7 +148,7 @@ Use this if you want the app-based macOS or Windows launcher:
 2. Download the latest macOS `.dmg` or Windows `.exe` / zipped app artifact.
 3. Put `API_KEYS.txt` beside the app, or in the project folder if you are running from source.
 
-Linux does not currently ship a `.deb`, `.rpm`, or AppImage. Use the Streamlit browser dashboard from source for the app-style Linux experience.
+Linux release builds provide an AppImage when `appimagetool` succeeds, with a tarball fallback. There is not currently a `.deb` or `.rpm`.
 
 **Option B: Clone the source**
 
@@ -401,6 +418,7 @@ python src/main.py morning --holdings ~/Holdings.csv --model opus
 | `./run.sh 5` | Skip menu → check for updates |
 | `python src/main.py check-update` | Check GitHub Releases for a newer version |
 | `python src/main.py update` | Update a source checkout with `git pull --ff-only` or stage a packaged update |
+| `python src/main.py doctor --json` | Run preflight diagnostics: version, updater cache, API keys, CSV freshness, budget, release assets |
 
 **Windows PowerShell / Command Prompt:**
 
@@ -411,6 +429,7 @@ python src/main.py morning --holdings ~/Holdings.csv --model opus
 | `python src\main.py afternoon --model opus --holdings "%USERPROFILE%\Downloads\holdings-report-YYYY-MM-DD.csv"` | Direct afternoon CLI run with Opus |
 | `python src\main.py check-update` | Check GitHub Releases for a newer version |
 | `python src\main.py update` | Update a source checkout with `git pull --ff-only` or stage a packaged update |
+| `python src\main.py doctor --json` | Run preflight diagnostics: version, updater cache, API keys, CSV freshness, budget, release assets |
 | `python -m streamlit run ui\streamlit_app.py` | Streamlit browser dashboard |
 | `python ui\textual_app.py` | Textual terminal dashboard |
 | `python src\desktop_app.py` | Embedded desktop dashboard |
@@ -428,14 +447,15 @@ python src/desktop_app.py
 The Desktop App is a native Tkinter dashboard that runs inside the application window. It does not start Streamlit and does not need a browser.
 
 Tabs:
-- **Dashboard** — Shows the next action, portfolio/risk metric cards, priority action queue, quality gates, stop breaches, drift, hedge ideas, market context, watchlist signals, and Claude cost
-- **Buy Signals** — Shows source-backed BUY/ADD and add-on-dip snapshots with readiness badges, filters, overview cards, consensus/targets, catalysts/risks, and source notes
+- **Dashboard** — Shows the next action, portfolio/risk metric cards, Data Confidence, priority action queue, quality gates, stop breaches, drift, hedge ideas, market context, watchlist signals, and Claude cost
+- **Buy Signals** — Shows source-backed BUY/ADD and add-on-dip snapshots with readiness badges, Data Confidence, filters, overview cards, consensus/targets, catalysts/risks, and source notes
 - **Run Report** — Select session/model/budgets, confirm auto-detected Wealthsimple CSV paths, preview holdings, and run the same report pipeline as CLI mode with live progress
 - **Report Viewer** — Opens the latest generated markdown report with styled headings, readable paragraph spacing, aligned table blocks, native word search, highlighted matches, Next/Previous controls, and search paths behind **Show Search Paths**
 - **History** — Browse previous markdown reports from all configured report search folders and view/search them with the same styled markdown renderer
 - **Config Editor** — Edit `config/settings.json`, `config/watchlist.json`, or fallback `config/portfolio.json` with JSON validation
 - **API Checks** — Check Anthropic, yfinance, Finnhub, Polygon, Twelve Data, FRED, CoinGecko, and Alpha Vantage connectivity; show every API-key file path and active storage mode; add/update/delete API keys from the app
-- **Updates** — Check GitHub Releases, download/apply newer versions, verify release checksums when present, and view update logs
+- **Diagnostics** — Shows Preflight/doctor status, source degradation health, recent errors, a redacted support bundle, and Anthropic spend/budget telemetry
+- **Updates** — Check GitHub Releases, force-refresh the update cache, download/apply newer versions, verify release checksums when present, and view update logs
 
 The embedded viewer is a native styled markdown reader. Use Streamlit if you specifically want browser-rendered markdown, side-by-side history comparison, and download buttons.
 
@@ -466,12 +486,12 @@ All interactive interfaces check GitHub Releases on startup and ask before apply
 - **Desktop App:** open the **Updates** tab.
 - **Streamlit:** use the **Updates** section in the sidebar.
 - **Textual:** open the **Updates** tab; startup checks show an Update now / Later prompt.
-- **Terminal:** run `python src/main.py check-update` or `python src/main.py update`.
+- **Terminal:** run `python src/main.py check-update`, `python src/main.py update`, or `python src/main.py doctor --json`.
 - **Unified launcher:** run `./run.sh 5`.
 
 Data is stored separately from the app binary, so updating does not remove your `reports/`, `data/recommendations_log/`, `temporary_upload/`, `config/`, `decision_journal.json`, `API_KEYS.txt`, or `.env` files. Update logs are written under the app workspace in `logs/update.log`.
 
-Packaged macOS and Windows builds download the correct asset from the latest GitHub Release and verify it against `SHA256SUMS.txt` when the release provides checksums. Source checkouts update with `git pull --ff-only`.
+Packaged macOS and Windows builds download the correct asset from the latest GitHub Release and verify it against `SHA256SUMS.txt` when the release provides checksums. Source checkouts update with `git pull --ff-only`. Startup checks may use a short-lived cache; manual checks in the app force-refresh GitHub Releases and show whether the result came from cache or live GitHub.
 
 API key search order:
 1. `~/Documents/tech_stock/API_KEYS.txt` or `.env` in packaged app mode
@@ -603,11 +623,11 @@ Distribute the entire `dist\tech_stock\` folder. Users double-click `tech_stock.
 
 ### Pre-built Releases (GitHub Actions)
 
-Push a version tag to trigger automatic builds for both platforms:
+Push a version tag to trigger automatic builds:
 ```bash
-git tag v1.0.0 && git push --tags
+git tag v1.21.0 && git push --tags
 ```
-GitHub Actions builds `.dmg` (macOS runner) and `.exe` (Windows runner) and attaches them to a GitHub Release. Download from the [Releases page](https://github.com/pouyafath/tech_stock/releases).
+GitHub Actions runs the three-OS test gate first, then builds macOS `.dmg`, Windows installer/zip artifacts, Linux AppImage/tarball artifacts, and `SHA256SUMS.txt`. The workflow creates a **draft** GitHub Release. Download artifacts, smoke-open them, verify checksums, then publish the draft from the [Releases page](https://github.com/pouyafath/tech_stock/releases).
 
 Current macOS release artifacts are ad-hoc signed but not notarized. That means Apple Gatekeeper can block first launch until the user approves it in **System Settings → Privacy & Security → Open Anyway**. A warning-free macOS release requires an Apple Developer Program account, Developer ID signing, notarization, and stapling in the release workflow.
 
@@ -1064,10 +1084,12 @@ tech_stock/
 │   ├── alpha_vantage_client.py  ← News sentiment (thread-safe rate limiter; optional)
 │   ├── backtester.py            ← Historical recommendation calibration
 │   ├── report_quality.py        ← Deterministic quality gates and warnings
+│   ├── data_confidence.py       ← Shared quote/source/catalyst/readiness trust summary
 │   ├── claude_analyst.py        ← 40-rule prompt, two-pass Claude review, JSON retry/parsing
 │   ├── report_generator.py      ← Priority actions table, hold tiers, earnings badges, markdown + CSV
 │   ├── view_models.py           ← Shared dashboard, Buy Signals, API health, journal view models
 │   ├── ui_support.py            ← Shared helpers for UI progress, dashboards, previews, validation, and connectivity
+│   ├── preflight.py             ← Doctor command, release/update/API/CSV/budget/demo smoke checks
 │   ├── updater.py               ← GitHub Releases checks, downloads, checksums, update logs
 │   ├── version.py               ← App version for CLI, UIs, packaging, updater
 │   ├── desktop_app.py           ← Embedded no-browser dashboard
@@ -1126,8 +1148,8 @@ For issues or questions:
 
 ---
 
-**Last updated:** May 24, 2026 — audit-driven hardening (v1.14.2).
-**Version:** 1.14.2
-**Status:** Production-ready — 40 system-prompt rules, 7-layer deterministic quality gate, trade-readiness classifier, source-backed Buy Signals, in-app updater with SHA-256 verification, API key manager, four interface options (CLI, Streamlit, Textual, native desktop), paper-trading mode, decision-journal scorecard. 236 tests in the local suite.
+**Last updated:** May 29, 2026 — v1.21.0 stabilization, doctor/preflight, data confidence, and V2 readiness gate.
+**Version:** 1.21.0
+**Status:** Production-ready v1 line — deterministic quality gates, trade-readiness classifier, Data Confidence, source-backed Buy Signals, doctor/preflight diagnostics, in-app updater with SHA-256 verification, API key manager, four interface options (CLI, Streamlit, Textual, native desktop), paper-trading mode, decision-journal scorecard. 588 tests expected in the local suite.
 
-See [CHANGELOG.md](CHANGELOG.md) for the per-release history (v1.12 → v1.14 added decision-journal scorecards, the embedded desktop app, the in-app updater, source-backed Buy Signals, full API health checks + key manager, and CI hardening).
+See [CHANGELOG.md](CHANGELOG.md) for the per-release history.

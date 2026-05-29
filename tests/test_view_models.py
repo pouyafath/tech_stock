@@ -81,6 +81,7 @@ def test_build_buy_signals_view_filters_action_and_readiness():
     assert view["counts"][REVIEW_FIRST] == 1
     assert view["counts"][BLOCKED] == 1
     assert [row["ticker"] for row in view["overview_rows"]] == ["MSFT"]
+    assert view["data_confidence"]["readiness_counts"][BLOCKED] == 1
 
 
 def test_api_and_decision_journal_view_models():

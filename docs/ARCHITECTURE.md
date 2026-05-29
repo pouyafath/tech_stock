@@ -59,6 +59,7 @@ write; Claude API call).
 | `src/enriched_data.py` | Phase 1 (parallel) + Phase 2 (sequential) external enrichment dispatcher |
 | `src/claude_analyst.py` | Prompt construction, two-pass Claude review, JSON parsing, recommendation normalisation |
 | `src/report_quality.py` | The 7-layer quality gate (catalyst, stale-position, thesis decay, trailing stop, VIX regime, conviction sizing, drawdown) |
+| `src/data_confidence.py` | Shared quote/source/catalyst/readiness trust summary for reports and UIs |
 | `src/report_generator.py` | Markdown + CSV + JSON log output |
 | `src/recommendation_sizing.py` | Deterministic share/fraction sizing for SELL/TRIM |
 | **API clients (all observability-logged)** | |
@@ -82,6 +83,7 @@ write; Claude API call).
 | **Productisation (v1.19)** | |
 | `src/onboarding.py` | First-run wizard state machine |
 | `src/cost_tracker.py` | Anthropic spend log + monthly budget enforcement |
+| `src/preflight.py` | Doctor command, update/API/CSV/budget/release checks, and no-spend demo smoke test |
 | `src/workspace_export.py` | Sanitised zip export of the user's workspace |
 | `src/notifications.py` | Cross-platform desktop notifications (macOS osascript / Linux notify-send / Windows BurntToast) |
 | `src/scheduling.py` | Per-user launchd / Task Scheduler / cron installer |
@@ -92,7 +94,7 @@ write; Claude API call).
 | `src/app_gui.py` | Native launcher (PyInstaller entry) |
 | `src/ui_launcher.py` | Shell launcher used by `./run.sh` |
 | `src/ui_theme.py` | Shared palette + HTML helpers + Streamlit CSS bundle |
-| `src/ui_support.py` | UI-facing data aggregators (`learning_view`, `diagnostics_view`, `decision_scorecard_summary`, etc.) |
+| `src/ui_support.py` | UI-facing data aggregators (`learning_view`, `diagnostics_view`, `decision_scorecard_summary`, preflight surfaces, etc.) |
 | **Infra** | |
 | `src/updater.py` | GitHub Releases auto-update + checksum verification |
 | `src/changelog_utils.py` | CHANGELOG section parser (used by CI release workflow) |
@@ -130,10 +132,13 @@ write; Claude API call).
 8. **Size** — `recommendation_sizing.apply_trade_sizes` computes
    deterministic share counts for SELL/TRIM (the Claude prompt deals in
    percentages; we materialise them).
-9. **Render** — `report_generator.generate_markdown` writes the
+9. **Confidence** — `data_confidence.build_data_confidence` summarizes
+   quote freshness, source coverage, catalyst coverage, warning counts,
+   and readiness so reports and UIs can show the same trust signal.
+10. **Render** — `report_generator.generate_markdown` writes the
    user-facing report; `save_report` puts it in `reports/`;
    `save_recommendations_csv` writes the structured CSV.
-10. **Record** — write the JSON log to
+11. **Record** — write the JSON log to
     `data/recommendations_log/`, seed new entries into the decision
     journal, append the cost record to `data/cost_log.jsonl`, fire any
     matching notification channels.

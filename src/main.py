@@ -1006,6 +1006,22 @@ def run(
         holdings_by_ticker,
     )
 
+    # Store the deterministic confidence summary in the JSON log so every UI
+    # can show the same trade-readiness/data-coverage status without rerunning
+    # market or enrichment fetches.
+    try:
+        from src.data_confidence import build_data_confidence
+
+        recommendation["source_degradation"] = enriched.get("degradation") or []
+        recommendation["data_confidence"] = build_data_confidence(
+            recommendations=recommendation.get("recommendations") or [],
+            market_data=market_data,
+            quality_warnings=recommendation.get("quality_warnings") or [],
+            enriched=enriched,
+        )
+    except Exception:
+        pass
+
     log_path = save_recommendation_log(recommendation, session_type)
     if settings.get("enable_decision_journal", True):
         seeded = seed_from_recommendation_log(
@@ -1171,6 +1187,11 @@ def _maybe_fire_notifications(recommendation: dict, session_type: str, report_pa
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "doctor":
+        from src.preflight import cli_doctor
+
+        raise SystemExit(cli_doctor(sys.argv[2:]))
+
     if len(sys.argv) > 1 and sys.argv[1] in {"update", "check-update"}:
         raise SystemExit(cli_update_check(apply=sys.argv[1] == "update"))
 
@@ -1183,6 +1204,7 @@ Run without arguments for interactive mode (recommended).
 CLI examples:
   python src/main.py morning --holdings ~/Downloads/holdings-report-2026-04-23.csv
   python src/main.py morning --holdings ~/Downloads/holdings-report.csv --activities ~/Downloads/activities-export.csv
+  python src/main.py doctor --json
   python src/main.py check-update
   python src/main.py update
         """,

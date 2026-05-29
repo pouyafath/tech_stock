@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.data_confidence import build_data_confidence
+
 TRADE_READY = "TRADE_READY"
 REVIEW_FIRST = "REVIEW_FIRST"
 BLOCKED = "BLOCKED"
@@ -129,6 +131,13 @@ def build_buy_signals_view(
         "ADD_ON_DIP": sum(1 for item in cards if item.get("action_group") == "ADD_ON_DIP"),
     }
 
+    data_confidence = build_data_confidence(
+        recommendations=cards,
+        quality_warnings=[warning for item in cards for warning in (item.get("quality_warnings") or [])],
+        enriched={"degradation": raw.get("degradation") or [], "sources_active": raw.get("sources_active") or []},
+        readiness_counts=counts,
+    )
+
     overview_rows = []
     consensus_rows = []
     for item in filtered:
@@ -176,6 +185,7 @@ def build_buy_signals_view(
         "overview_rows": overview_rows,
         "consensus_rows": consensus_rows,
         "counts": counts,
+        "data_confidence": data_confidence,
         "active_filters": {
             "action": action_filter,
             "readiness": readiness_filter,
@@ -189,6 +199,11 @@ def build_dashboard_view(summary: dict[str, Any]) -> dict[str, Any]:
     health = summary.get("portfolio_health") or {}
     usage = summary.get("usage") or {}
     warnings = summary.get("quality_warnings") or []
+    data_confidence = summary.get("data_confidence") or build_data_confidence(
+        recommendations=summary.get("recommendations") or [],
+        quality_warnings=warnings,
+        enriched={"degradation": summary.get("source_degradation") or []},
+    )
     return {
         "session_file": summary.get("session_file"),
         "session_summary": summary.get("session_summary") or "",
@@ -203,6 +218,7 @@ def build_dashboard_view(summary: dict[str, Any]) -> dict[str, Any]:
         ],
         "priority_actions": summary.get("priority_actions") or [],
         "quality_warnings": warnings,
+        "data_confidence": data_confidence,
         "hedge_suggestions": summary.get("hedge_suggestions") or [],
         "drift": summary.get("drift") or [],
         "market_context_snapshot": summary.get("market_context_snapshot") or {},

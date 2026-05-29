@@ -119,6 +119,22 @@ def test_release_publishes_as_draft(data):
         pytest.fail("No softprops/action-gh-release step found")
 
 
+def test_release_uploads_platform_artifacts_and_checksums(data):
+    steps = data["jobs"]["release"]["steps"]
+    for step in steps:
+        if step.get("uses", "").startswith("softprops/action-gh-release"):
+            files = (step.get("with") or {}).get("files", "")
+            assert "*.dmg" in files
+            assert "*.zip" in files
+            assert "*.exe" in files
+            assert "*.AppImage" in files
+            assert "*.tar.gz" in files
+            assert "SHA256SUMS.txt" in files
+            break
+    else:
+        pytest.fail("No softprops/action-gh-release step found")
+
+
 def test_macos_step_packages_dmg(data):
     macos_steps = data["jobs"]["build-macos"]["steps"]
     run_block = " ".join(step.get("run", "") for step in macos_steps if step.get("run"))

@@ -43,6 +43,9 @@ def test_check_for_update_selects_platform_asset(monkeypatch):
     assert info.asset_name == "tech_stock.dmg"
     assert info.asset_url == "https://example.test/app.dmg"
     assert info.checksum_url == "https://example.test/SHA256SUMS.txt"
+    assert info.asset_available is True
+    assert info.checksum_available is True
+    assert info.asset_names == ["tech_stock-windows.zip", "SHA256SUMS.txt", "tech_stock.dmg"]
 
 
 def test_apply_update_preserves_workspace_for_no_update(tmp_path, monkeypatch):
@@ -189,6 +192,10 @@ def test_check_for_update_uses_disk_cache_when_fresh(tmp_path, monkeypatch):
     assert call_counter["n"] == 1, "second call should have read the disk cache"
     assert first.latest_version == "9.9.9"
     assert second.latest_version == "9.9.9"
+    assert first.from_cache is False
+    assert second.from_cache is True
+    assert second.cache_path == str(tmp_path / "cache" / "update_check.json")
+    assert second.cache_age_seconds is not None
     assert (tmp_path / "cache" / "update_check.json").exists()
 
 

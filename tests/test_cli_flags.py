@@ -67,6 +67,7 @@ def test_help_still_advertises_pre_existing_flags():
     assert "--model" in body
     assert "--paper" in body
     assert "--version" in body
+    assert "doctor --json" in body
 
 
 # ── --version still works ──────────────────────────────────────────────────
