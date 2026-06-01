@@ -27,6 +27,16 @@ REQUIRED_ACTIVITIES_COLUMNS = {
     "net_cash_amount",
 }
 
+HOLDINGS_EXPORT_COLUMNS = {
+    "symbol",
+    "quantity",
+    "market price",
+    "market price currency",
+    "book value (market)",
+    "market value",
+    "market unrealized returns",
+}
+
 
 def parse_activities_csv(
     csv_path: str | Path,
@@ -72,13 +82,20 @@ def parse_activities_csv(
     # ── Validate CSV schema ─────────────────────────────────────────────
     if reader.fieldnames:
         actual_cols = {c.strip().strip('"') for c in reader.fieldnames}
+        normalised_cols = {c.lower() for c in actual_cols}
+        if HOLDINGS_EXPORT_COLUMNS <= normalised_cols:
+            raise ValueError(
+                "This file looks like a Wealthsimple Holdings CSV, but it was selected as the Activities CSV. "
+                "Choose an activities-export CSV for the Activities field, and put this holdings-report CSV in the "
+                "Holdings field instead."
+            )
         missing = REQUIRED_ACTIVITIES_COLUMNS - actual_cols
         if missing:
             raise ValueError(
                 f"Activities CSV is missing required columns: {sorted(missing)}. "
                 f"Wealthsimple may have changed the export format. "
                 f"Got columns: {sorted(actual_cols)}. "
-                f"Update REQUIRED_ACTIVITIES_COLUMNS in activity_loader.py if intentional."
+                f"Expected an activities-export CSV."
             )
     else:
         raise ValueError(f"Activities CSV has no header row. Expected columns: {sorted(REQUIRED_ACTIVITIES_COLUMNS)}")
