@@ -117,3 +117,18 @@ def test_holdings_missing_required_columns_fails(tmp_path):
 
     with pytest.raises(ValueError, match="missing required columns"):
         parse_holdings_csv(path)
+
+
+def test_holdings_parser_detects_activities_export(tmp_path):
+    path = tmp_path / "activities-export-2026-06-01.csv"
+    path.write_text(
+        "\n".join(
+            [
+                "account_id,account_type,activity_sub_type,activity_type,commission,currency,direction,name,net_cash_amount,quantity,settlement_date,symbol,transaction_date,unit_price",
+                "1,TFSA,BUY,Trade,0,USD,LONG,NVIDIA,-100,1,2026-06-01,NVDA,2026-06-01,100",
+            ]
+        )
+    )
+
+    with pytest.raises(ValueError, match="Activities CSV.*Holdings CSV"):
+        parse_holdings_csv(path)

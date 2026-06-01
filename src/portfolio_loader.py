@@ -32,6 +32,20 @@ REQUIRED_HOLDINGS_COLUMNS = {
     "Market Unrealized Returns",
 }
 
+ACTIVITIES_EXPORT_COLUMNS = {
+    "transaction_date",
+    "activity_type",
+    "activity_sub_type",
+    "symbol",
+    "quantity",
+    "unit_price",
+    "net_cash_amount",
+}
+
+
+def _normalise_columns(columns: set[str]) -> set[str]:
+    return {column.strip().strip('"').lower() for column in columns}
+
 
 def parse_holdings_csv(csv_path: str | Path) -> dict:
     """
@@ -87,13 +101,20 @@ def parse_holdings_csv(csv_path: str | Path) -> dict:
     # ── Validate CSV schema — fail loudly if Wealthsimple changed the format ─
     if reader.fieldnames:
         actual_cols = {c.strip().strip('"') for c in reader.fieldnames}
+        normalised_cols = _normalise_columns(actual_cols)
+        if ACTIVITIES_EXPORT_COLUMNS <= normalised_cols:
+            raise ValueError(
+                "This file looks like a Wealthsimple Activities CSV, but it was selected as the Holdings CSV. "
+                "Choose a holdings-report CSV for the Holdings field, and put this activities-export CSV in the "
+                "Activities field instead."
+            )
         missing = REQUIRED_HOLDINGS_COLUMNS - actual_cols
         if missing:
             raise ValueError(
                 f"Holdings CSV is missing required columns: {sorted(missing)}. "
                 f"Wealthsimple may have changed the export format. "
                 f"Got columns: {sorted(actual_cols)}. "
-                f"Update REQUIRED_HOLDINGS_COLUMNS in portfolio_loader.py if this is intentional."
+                f"Expected a holdings-report CSV export."
             )
     else:
         raise ValueError(f"Holdings CSV has no header row. Expected columns: {sorted(REQUIRED_HOLDINGS_COLUMNS)}")

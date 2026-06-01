@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
 
+import pytest
+
 from src.activity_loader import holding_days_by_ticker, parse_activities_csv
 
 
@@ -36,3 +38,18 @@ def test_parse_activities_csv_can_parse_full_export(tmp_path):
 
     assert len(full) == 1
     assert full[0]["ticker"] == "SOXL"
+
+
+def test_activities_parser_detects_holdings_export(tmp_path):
+    csv_path = tmp_path / "holdings-report-2026-06-01.csv"
+    csv_path.write_text(
+        "\n".join(
+            [
+                "Symbol,Quantity,Market Price,Market Price Currency,Book Value (Market),Market Value,Market Unrealized Returns",
+                "NVDA,1,100,USD,90,100,10",
+            ]
+        )
+    )
+
+    with pytest.raises(ValueError, match="Holdings CSV.*Activities CSV"):
+        parse_activities_csv(csv_path, days=None)

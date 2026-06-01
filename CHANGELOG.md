@@ -4,6 +4,21 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.21.1] — 2026-06-01
+
+### Fixed
+
+- **CSV input diagnostics** — Detect when a Wealthsimple `activities-export` CSV is accidentally selected as the Holdings CSV and show a direct "put this in Activities instead" message instead of a generic missing-columns schema error.
+- **Symmetric swapped-file guard** — Detect when a `holdings-report` CSV is selected as the Activities CSV and point the user back to the correct field.
+
+### Tests
+
+- **590 passing expected** after this patch: added regression coverage for swapped holdings/activities CSV detection.
+
+### Version bumped: 1.21.0 → 1.21.1
+
+---
+
 ## [1.21.0] — 2026-05-29
 
 ### Added — Stabilization, doctor, and V2 readiness gate
