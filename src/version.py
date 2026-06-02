@@ -1,4 +1,4 @@
 """Application version metadata."""
 
-APP_VERSION = "1.21.1"
+APP_VERSION = "1.21.2"
 APP_VERSION_TAG = f"v{APP_VERSION}"
