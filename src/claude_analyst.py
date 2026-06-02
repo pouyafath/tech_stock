@@ -1272,9 +1272,9 @@ def _create_message(client, model: str, settings: dict, messages: list[dict]):
         "messages": messages,
     }
     if "opus" in model.lower() and settings.get("enable_opus_extended_thinking", True):
-        budget = min(int(settings.get("opus_thinking_budget_tokens", 4096)), max_tokens - 1024)
-        if budget >= 1024:
-            kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
+        kwargs["thinking"] = {"type": "adaptive"}
+        effort = settings.get("opus_thinking_effort", "medium")
+        kwargs["output_config"] = {"effort": effort}
     return client.messages.create(**kwargs)
 
 
