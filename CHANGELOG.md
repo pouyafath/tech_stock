@@ -4,6 +4,16 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.21.2] — 2026-06-02
+
+### Fixed
+
+- **Opus extended thinking** — Updated to the new `thinking.type="adaptive"` + `output_config.effort` API; the previous `thinking.type="enabled"` with `budget_tokens` is no longer accepted by Opus 4.x and raised a 400 error.
+
+### Version bumped: 1.21.1 → 1.21.2
+
+---
+
 ## [1.21.1] — 2026-06-01
 
 ### Fixed
