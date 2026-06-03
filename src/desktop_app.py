@@ -140,6 +140,364 @@ def find_search_offsets(text: str, query: str, limit: int = SEARCH_MATCH_LIMIT) 
     return matches, truncated
 
 
+class _Tooltip:
+    """Hover tooltip for any Tkinter widget."""
+
+    _DELAY_MS = 400
+
+    def __init__(self, widget: tk.Widget, text: str, *, bg: str = "", fg: str = "", outline: str = "") -> None:
+        self.widget = widget
+        self.text = text
+        self.bg = bg or "#1c1f2e"
+        self.fg = fg or "#e6e9f2"
+        self.outline = outline or "#272b3c"
+        self._tip_window: tk.Toplevel | None = None
+        self._after_id: str | None = None
+        widget.bind("<Enter>", self._schedule, add="+")
+        widget.bind("<Leave>", self._cancel, add="+")
+        widget.bind("<Button>", self._cancel, add="+")
+
+    def _schedule(self, _event: object) -> None:
+        self._cancel()
+        self._after_id = self.widget.after(self._DELAY_MS, self._show)
+
+    def _cancel(self, _event: object = None) -> None:
+        if self._after_id:
+            self.widget.after_cancel(self._after_id)
+            self._after_id = None
+        self._hide()
+
+    def _show(self) -> None:
+        if self._tip_window:
+            return
+        x = self.widget.winfo_rootx() + 10
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        screen_w = self.widget.winfo_screenwidth()
+        screen_h = self.widget.winfo_screenheight()
+        tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        try:
+            tw.wm_attributes("-topmost", True)
+        except tk.TclError:
+            pass
+        tw.configure(bg=self.outline)
+        label = tk.Label(
+            tw,
+            text=self.text,
+            bg=self.bg,
+            fg=self.fg,
+            font=("TkDefaultFont", 11),
+            wraplength=320,
+            justify="left",
+            padx=10,
+            pady=6,
+        )
+        label.pack(padx=1, pady=1)
+        tw.update_idletasks()
+        tip_w = tw.winfo_width()
+        tip_h = tw.winfo_height()
+        if x + tip_w > screen_w:
+            x = screen_w - tip_w - 4
+        if y + tip_h > screen_h:
+            y = self.widget.winfo_rooty() - tip_h - 4
+        tw.wm_geometry(f"+{x}+{y}")
+        self._tip_window = tw
+
+    def _hide(self) -> None:
+        if self._tip_window:
+            self._tip_window.destroy()
+            self._tip_window = None
+
+
+class _OnboardingWizard(tk.Toplevel):
+    """Native 6-stage setup wizard using the onboarding state machine."""
+
+    _STAGES = ("welcome", "api_key", "budgets", "csv_walkthrough", "first_run", "done")
+
+    def __init__(self, parent: "DesktopApp") -> None:
+        super().__init__(parent)
+        self.app = parent
+        self.title("Setup — tech_stock")
+        self.geometry("680x520")
+        self.resizable(False, False)
+        self.configure(bg=PALETTE.bg)
+        self.transient(parent)
+        self.grab_set()
+
+        self._api_key_var = tk.StringVar()
+        self._budget_claude_var = tk.StringVar(value="10")
+        self._budget_usd_var = tk.StringVar(value="0")
+        self._budget_cad_var = tk.StringVar(value="3000")
+        self._csv_path_var = tk.StringVar()
+
+        try:
+            defaults = find_default_csvs()
+            if defaults.get("holdings"):
+                self._csv_path_var.set(str(defaults["holdings"]))
+        except Exception:
+            pass
+
+        try:
+            from src.onboarding import current_state
+
+            state = current_state()
+            self._current = state.stage if state.stage in self._STAGES else "welcome"
+        except Exception:
+            self._current = "welcome"
+
+        self._content = tk.Frame(self, bg=PALETTE.bg)
+        self._content.pack(fill="both", expand=True, padx=30, pady=20)
+        self._render()
+
+    def _render(self) -> None:
+        for w in self._content.winfo_children():
+            w.destroy()
+
+        # Progress dots
+        dot_frame = tk.Frame(self._content, bg=PALETTE.bg)
+        dot_frame.pack(fill="x", pady=(0, 20))
+        labels = ["Welcome", "API Key", "Budget", "CSV", "First Run", "Done"]
+        for i, (stage, label) in enumerate(zip(self._STAGES, labels)):
+            idx = self._STAGES.index(self._current)
+            if self._STAGES.index(stage) < idx:
+                color = PALETTE.accent
+            elif stage == self._current:
+                color = PALETTE.text_strong
+            else:
+                color = PALETTE.border
+            tk.Label(dot_frame, text=f"● {label}", bg=PALETTE.bg, fg=color, font=("TkDefaultFont", 10)).pack(side="left", padx=(0, 14))
+
+        try:
+            from src.onboarding import stage_guidance
+
+            guidance = stage_guidance(self._current)
+        except Exception:
+            self.destroy()
+            return
+
+        # Title
+        tk.Label(
+            self._content,
+            text=guidance.title,
+            bg=PALETTE.bg,
+            fg=PALETTE.text_strong,
+            font=("TkDefaultFont", 20, "bold"),
+            anchor="w",
+        ).pack(fill="x", pady=(0, 10))
+
+        # Body
+        tk.Label(
+            self._content,
+            text=guidance.body,
+            bg=PALETTE.bg,
+            fg=PALETTE.text,
+            font=("TkDefaultFont", 12),
+            wraplength=600,
+            justify="left",
+            anchor="nw",
+        ).pack(fill="x", pady=(0, 14))
+
+        # Stage-specific inputs
+        self._render_inputs()
+
+        # Helper text
+        if guidance.helper_text:
+            tk.Label(
+                self._content,
+                text=guidance.helper_text,
+                bg=PALETTE.bg,
+                fg=PALETTE.muted,
+                font=("TkDefaultFont", 10),
+                wraplength=600,
+                justify="left",
+            ).pack(fill="x", pady=(8, 0))
+
+        # Buttons
+        btn_frame = tk.Frame(self._content, bg=PALETTE.bg)
+        btn_frame.pack(fill="x", side="bottom", pady=(16, 0))
+
+        if guidance.external_url:
+            link = tk.Label(
+                btn_frame,
+                text="Open in browser →",
+                bg=PALETTE.bg,
+                fg=PALETTE.info,
+                font=("TkDefaultFont", 11, "underline"),
+                cursor="hand2",
+            )
+            link.pack(side="left")
+            link.bind("<Button-1>", lambda _e, url=guidance.external_url: self._open_url(url))
+
+        if guidance.secondary_action:
+            tk.Button(
+                btn_frame,
+                text=guidance.secondary_action,
+                bg=PALETTE.card,
+                fg=PALETTE.text,
+                font=("TkDefaultFont", 12),
+                relief="flat",
+                padx=16,
+                pady=8,
+                command=self._secondary,
+            ).pack(side="right", padx=(8, 0))
+
+        tk.Button(
+            btn_frame,
+            text=guidance.primary_action,
+            bg=PALETTE.accent,
+            fg=PALETTE.bg,
+            font=("TkDefaultFont", 12, "bold"),
+            relief="flat",
+            padx=20,
+            pady=8,
+            command=self._primary,
+        ).pack(side="right")
+
+    def _render_inputs(self) -> None:
+        if self._current == "api_key":
+            frame = tk.Frame(self._content, bg=PALETTE.bg)
+            frame.pack(fill="x", pady=(4, 0))
+            tk.Label(frame, text="API Key:", bg=PALETTE.bg, fg=PALETTE.muted, font=("TkDefaultFont", 11)).pack(side="left")
+            entry = tk.Entry(
+                frame,
+                textvariable=self._api_key_var,
+                show="*",
+                bg=PALETTE.card,
+                fg=PALETTE.text,
+                insertbackground=PALETTE.text,
+                font=("TkDefaultFont", 12),
+                width=44,
+                relief="flat",
+            )
+            entry.pack(side="left", padx=(8, 0), ipady=4)
+            entry.focus_set()
+
+        elif self._current == "budgets":
+            frame = tk.Frame(self._content, bg=PALETTE.bg)
+            frame.pack(fill="x", pady=(4, 0))
+            for label, var in [
+                ("Monthly Claude budget (USD)", self._budget_claude_var),
+                ("Trade budget (USD)", self._budget_usd_var),
+                ("Trade budget (CAD)", self._budget_cad_var),
+            ]:
+                row = tk.Frame(frame, bg=PALETTE.bg)
+                row.pack(fill="x", pady=3)
+                tk.Label(row, text=label, bg=PALETTE.bg, fg=PALETTE.muted, font=("TkDefaultFont", 11), width=28, anchor="w").pack(
+                    side="left"
+                )
+                tk.Entry(
+                    row,
+                    textvariable=var,
+                    bg=PALETTE.card,
+                    fg=PALETTE.text,
+                    insertbackground=PALETTE.text,
+                    font=("TkDefaultFont", 12),
+                    width=12,
+                    relief="flat",
+                ).pack(side="left", padx=(8, 0), ipady=3)
+
+        elif self._current == "csv_walkthrough":
+            frame = tk.Frame(self._content, bg=PALETTE.bg)
+            frame.pack(fill="x", pady=(4, 0))
+            tk.Label(frame, text="Holdings CSV:", bg=PALETTE.bg, fg=PALETTE.muted, font=("TkDefaultFont", 11)).pack(side="left")
+            tk.Entry(
+                frame,
+                textvariable=self._csv_path_var,
+                bg=PALETTE.card,
+                fg=PALETTE.text,
+                insertbackground=PALETTE.text,
+                font=("TkDefaultFont", 11),
+                width=36,
+                relief="flat",
+            ).pack(side="left", padx=(8, 0), ipady=3)
+            tk.Button(
+                frame,
+                text="Browse...",
+                bg=PALETTE.card,
+                fg=PALETTE.text,
+                font=("TkDefaultFont", 11),
+                relief="flat",
+                padx=10,
+                command=self._browse_csv,
+            ).pack(side="left", padx=(8, 0))
+
+    def _browse_csv(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Choose Holdings CSV",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+        )
+        if path:
+            self._csv_path_var.set(path)
+
+    def _open_url(self, url: str) -> None:
+        import webbrowser
+
+        webbrowser.open(url)
+
+    def _advance(self, *, skip_demo: bool = False) -> None:
+        try:
+            from src.onboarding import advance
+
+            state = advance(current=self._current, skip_demo=skip_demo)
+            self._current = state.stage
+        except Exception:
+            idx = self._STAGES.index(self._current)
+            self._current = self._STAGES[min(idx + 1, len(self._STAGES) - 1)]
+        if self._current == "done":
+            self._finish()
+        else:
+            self._render()
+
+    def _primary(self) -> None:
+        if self._current == "api_key":
+            key = self._api_key_var.get().strip()
+            if key:
+                try:
+                    save_api_key("ANTHROPIC_API_KEY", key)
+                except Exception:
+                    pass
+            self._advance()
+        elif self._current == "budgets":
+            try:
+                import json
+
+                settings_path = Path(__file__).resolve().parents[1] / "config" / "settings.json"
+                settings = json.loads(settings_path.read_text(encoding="utf-8")) if settings_path.exists() else {}
+                try:
+                    settings["budget_cad"] = float(self._budget_cad_var.get() or 3000)
+                except ValueError:
+                    pass
+                settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+            except Exception:
+                pass
+            self._advance()
+        elif self._current == "csv_walkthrough":
+            csv_path = self._csv_path_var.get().strip()
+            if csv_path and hasattr(self.app, "holdings_var"):
+                self.app.holdings_var.set(csv_path)
+            self._advance()
+        elif self._current == "first_run":
+            self._advance()
+            if hasattr(self.app, "start_report_run"):
+                self.app.start_report_run()
+        else:
+            self._advance()
+
+    def _secondary(self) -> None:
+        if self._current == "welcome":
+            self._advance(skip_demo=False)
+        else:
+            self._advance(skip_demo=True)
+
+    def _finish(self) -> None:
+        self.grab_release()
+        self.destroy()
+        try:
+            self.app.tabs.select(self.app.dashboard_tab)
+        except tk.TclError:
+            pass
+
+
 class DesktopApp(tk.Tk):
     """Native desktop dashboard for users who do not want a browser UI."""
 
@@ -177,31 +535,25 @@ class DesktopApp(tk.Tk):
         self.latest_update_info: Any = None
         self.search_state: dict[str, dict[str, Any]] = {}
         self._warmed_tabs: set[str] = set()
+        self._report_elapsed_id: str | None = None
+        self._report_start_time: float | None = None
 
         self._configure_style()
         self._build_menu()
         self._build_header()
         self._build_tabs()
+        self._build_status_bar()
 
-        # Universal accelerators — the menu also binds these, but bind_all
-        # ensures they work even before the menu is realised on macOS.
+        # Universal accelerators
         self.bind_all(f"<{MOD_KEY}-f>", self.focus_active_search)
         self.bind_all(f"<{MOD_KEY}-r>", lambda _e: self._refresh_active_tab())
-        self.bind_all(f"<{MOD_KEY}-comma>", lambda _e: self._jump_to_tab(self.editor_tab))
-        self.bind_all(f"<{MOD_KEY}-n>", lambda _e: self._jump_to_tab(self.run_tab))
+        self.bind_all(f"<{MOD_KEY}-comma>", lambda _e: self._jump_to_settings())
+        self.bind_all(f"<{MOD_KEY}-n>", lambda _e: self._jump_to_tab(self.reports_tab, sub=self.run_subtab))
         self.bind_all(f"<{MOD_KEY}-l>", lambda _e: self.load_report(latest_report(), select_tab=True))
 
-        # Drain the progress queue every 100ms — cheap, must run on the Tk loop.
         self.after(100, self._drain_progress_queue)
-
-        # Defer ALL non-essential startup work to after the first paint.
-        # The window now appears instantly; heavy I/O happens behind the scenes.
         self.after_idle(self._post_paint_warmup)
-
-        # v1.19.1: show a "use the wizard" hint on first launch.  The full
-        # wizard lives in Streamlit so the Tk window doesn't have to
-        # reimplement the whole flow; we just tell the user where to go.
-        self.after(800, self._maybe_show_onboarding_hint)
+        self.after(800, self._maybe_show_onboarding)
 
     def _configure_style(self) -> None:
         style = ttk.Style(self)
@@ -343,6 +695,29 @@ class DesktopApp(tk.Tk):
             arrowcolor=self.muted,
         )
         style.configure(
+            "Sub.TNotebook",
+            background=self.bg,
+            borderwidth=0,
+        )
+        style.configure(
+            "Sub.TNotebook.Tab",
+            padding=(10, 5),
+            font=fonts["small"],
+            background=self.panel,
+            foreground=self.muted,
+        )
+        style.map(
+            "Sub.TNotebook.Tab",
+            background=[("selected", self.surface)],
+            foreground=[("selected", self.accent)],
+        )
+        style.configure(
+            "Status.TLabel",
+            background=self.panel,
+            foreground=self.muted,
+            font=fonts["small"],
+        )
+        style.configure(
             "TPanedwindow",
             background=self.bg,
         )
@@ -365,7 +740,7 @@ class DesktopApp(tk.Tk):
             app_menu.add_command(label="About tech_stock", command=self._show_about_dialog)
             menubar.add_cascade(menu=app_menu)
             # Wire up the system Preferences shortcut (⌘,)
-            self.createcommand("tk::mac::ShowPreferences", lambda: self._jump_to_tab(self.editor_tab))
+            self.createcommand("tk::mac::ShowPreferences", self._jump_to_settings)
             self.createcommand("tk::mac::Quit", self.destroy)
 
         # — File menu —
@@ -373,7 +748,7 @@ class DesktopApp(tk.Tk):
         file_menu.add_command(
             label="New Report…",
             accelerator=f"{MOD_LABEL}N",
-            command=lambda: self._jump_to_tab(self.run_tab),
+            command=lambda: self._jump_to_tab(self.reports_tab, sub=self.run_subtab),
         )
         file_menu.add_command(
             label="Open Latest Report",
@@ -391,11 +766,11 @@ class DesktopApp(tk.Tk):
 
         # — View menu —
         view_menu = tk.Menu(menubar, tearoff=0)
-        view_menu.add_command(label="Dashboard", command=lambda: self._jump_to_tab(self.dashboard_tab))
-        view_menu.add_command(label="Buy Signals", command=lambda: self._jump_to_tab(self.buy_signals_tab))
-        view_menu.add_command(label="Report Viewer", command=lambda: self._jump_to_tab(self.report_tab))
-        view_menu.add_command(label="History", command=lambda: self._jump_to_tab(self.history_tab))
-        view_menu.add_command(label="Config Editor", accelerator=f"{MOD_LABEL},", command=lambda: self._jump_to_tab(self.editor_tab))
+        view_menu.add_command(label="Home", command=lambda: self._jump_to_tab(self.dashboard_tab))
+        view_menu.add_command(label="Signals", command=lambda: self._jump_to_tab(self.buy_signals_tab))
+        view_menu.add_command(label="Reports", command=lambda: self._jump_to_tab(self.reports_tab))
+        view_menu.add_command(label="Performance", command=lambda: self._jump_to_tab(self.performance_tab))
+        view_menu.add_command(label="Settings", accelerator=f"{MOD_LABEL},", command=self._jump_to_settings)
         view_menu.add_separator()
         view_menu.add_command(
             label="Refresh Current Tab",
@@ -444,7 +819,7 @@ class DesktopApp(tk.Tk):
 
         right = tk.Frame(header, bg=self.bg)
         right.pack(side="right", anchor="e")
-        self.header_status_var = tk.StringVar(value="Warming up…")
+        self.header_status_var = tk.StringVar(value="Loading...")
         self.header_status_label = tk.Label(
             right,
             textvariable=self.header_status_var,
@@ -453,39 +828,63 @@ class DesktopApp(tk.Tk):
             font=self.fonts["small"],
         )
         self.header_status_label.pack(side="right", pady=(12, 0))
+        self._tip(self.header_status_label, "Shows session cost, warning count, and data quality from the latest report")
 
         separator = tk.Frame(self, bg=self.border, height=1)
         separator.pack(fill="x", padx=24, pady=(8, 0))
 
     def _build_tabs(self) -> None:
         self.tabs = ttk.Notebook(self)
-        self.tabs.pack(fill="both", expand=True, padx=20, pady=(10, 16))
+        self.tabs.pack(fill="both", expand=True, padx=20, pady=(10, 0))
 
         self.dashboard_tab = ttk.Frame(self.tabs)
         self.buy_signals_tab = ttk.Frame(self.tabs)
-        self.run_tab = ttk.Frame(self.tabs)
-        self.report_tab = ttk.Frame(self.tabs)
-        self.history_tab = ttk.Frame(self.tabs)
+        self.reports_tab = ttk.Frame(self.tabs)
         self.performance_tab = ttk.Frame(self.tabs)
         self.learning_tab = ttk.Frame(self.tabs)
         self.diagnostics_tab = ttk.Frame(self.tabs)
-        self.schedule_tab = ttk.Frame(self.tabs)
-        self.editor_tab = ttk.Frame(self.tabs)
-        self.health_tab = ttk.Frame(self.tabs)
-        self.update_tab = ttk.Frame(self.tabs)
+        self.settings_tab = ttk.Frame(self.tabs)
 
-        self.tabs.add(self.dashboard_tab, text=" Dashboard ")
+        self.tabs.add(self.dashboard_tab, text=" Home ")
         self.tabs.add(self.buy_signals_tab, text=" Signals ")
-        self.tabs.add(self.run_tab, text=" New Report ")
-        self.tabs.add(self.report_tab, text=" Viewer ")
-        self.tabs.add(self.history_tab, text=" History ")
+        self.tabs.add(self.reports_tab, text=" Reports ")
         self.tabs.add(self.performance_tab, text=" Performance ")
         self.tabs.add(self.learning_tab, text=" Learning ")
         self.tabs.add(self.diagnostics_tab, text=" Diagnostics ")
-        self.tabs.add(self.schedule_tab, text=" Schedule ")
-        self.tabs.add(self.editor_tab, text=" Config ")
-        self.tabs.add(self.health_tab, text=" APIs ")
-        self.tabs.add(self.update_tab, text=" Updates ")
+        self.tabs.add(self.settings_tab, text=" Settings ")
+
+        # Reports sub-notebook: Run / Latest / History
+        self.reports_sub = ttk.Notebook(self.reports_tab, style="Sub.TNotebook")
+        self.reports_sub.pack(fill="both", expand=True, padx=4, pady=4)
+        self.run_subtab = ttk.Frame(self.reports_sub)
+        self.report_subtab = ttk.Frame(self.reports_sub)
+        self.history_subtab = ttk.Frame(self.reports_sub)
+        self.reports_sub.add(self.run_subtab, text=" Run ")
+        self.reports_sub.add(self.report_subtab, text=" Latest ")
+        self.reports_sub.add(self.history_subtab, text=" History ")
+
+        # Settings sub-notebook: Preferences / API Keys / Schedule / Advanced Editor / Updates
+        self.settings_sub = ttk.Notebook(self.settings_tab, style="Sub.TNotebook")
+        self.settings_sub.pack(fill="both", expand=True, padx=4, pady=4)
+        self.prefs_subtab = ttk.Frame(self.settings_sub)
+        self.health_subtab = ttk.Frame(self.settings_sub)
+        self.schedule_subtab = ttk.Frame(self.settings_sub)
+        self.editor_subtab = ttk.Frame(self.settings_sub)
+        self.update_subtab = ttk.Frame(self.settings_sub)
+        self.settings_sub.add(self.prefs_subtab, text=" Preferences ")
+        self.settings_sub.add(self.health_subtab, text=" API Keys ")
+        self.settings_sub.add(self.schedule_subtab, text=" Schedule ")
+        self.settings_sub.add(self.editor_subtab, text=" Advanced Editor ")
+        self.settings_sub.add(self.update_subtab, text=" Updates ")
+
+        # Alias old tab references for internal methods
+        self.run_tab = self.run_subtab
+        self.report_tab = self.report_subtab
+        self.history_tab = self.history_subtab
+        self.editor_tab = self.editor_subtab
+        self.health_tab = self.health_subtab
+        self.schedule_tab = self.schedule_subtab
+        self.update_tab = self.update_subtab
 
         self._build_dashboard_tab()
         self._build_buy_signals_tab()
@@ -495,6 +894,7 @@ class DesktopApp(tk.Tk):
         self._build_performance_tab()
         self._build_learning_tab()
         self._build_diagnostics_tab()
+        self._build_preferences_tab()
         self._build_schedule_tab()
         self._build_editor_tab()
         self._build_health_tab()
@@ -503,30 +903,48 @@ class DesktopApp(tk.Tk):
     # ── Lazy-warm-up & menu helpers ─────────────────────────────────────────
     def _post_paint_warmup(self) -> None:
         """Run after the first paint; load lightweight context, defer heavy work."""
-        # 1. Cheap: read the latest report path from disk (~1ms)
+        self._set_status("Loading your latest data...")
         self.latest_report_path = latest_report()
 
-        # 2. Cheap: paint dashboard from the most recent JSON log
         self.refresh_dashboard()
         self.refresh_history()
         self.load_report(self.latest_report_path, select_tab=False)
         self._update_header_status()
+        self._update_status_bar()
 
-        # 3. Background: CSV detection toast (350 ms after paint)
         self.after(350, self.confirm_detected_csv_paths)
 
-        # 4. Background: cached update check after 1.2 s
         if os.environ.get("TECH_STOCK_SKIP_UPDATE_CHECK") != "1":
             self.after(1200, lambda: self.start_update_check(startup=True))
 
-        # 5. Buy-signal refresh is deferred until the tab is *actually opened*.
         self.tabs.bind("<<NotebookTabChanged>>", self._on_tab_changed, add="+")
+        self.settings_sub.bind("<<NotebookTabChanged>>", self._on_settings_sub_changed, add="+")
+
+        # Welcome-back message for returning users
+        try:
+            from src.onboarding import needs_onboarding
+
+            if not needs_onboarding():
+                self._set_status("Welcome back!", tone="success")
+                self.after(3000, lambda: self._set_status(f"Ready — press {MOD_LABEL}N to generate a report."))
+            else:
+                self._set_status(f"Ready — press {MOD_LABEL}N to generate a report.")
+        except Exception:
+            self._set_status(f"Ready — press {MOD_LABEL}N to generate a report.")
 
     def _tab_name(self) -> str:
-        """Return the active tab name, stripped of padding spaces."""
+        """Return the active primary tab name, stripped of padding spaces."""
         try:
             selected = self.tabs.select()
             return self.tabs.tab(selected, "text").strip()
+        except tk.TclError:
+            return ""
+
+    def _sub_tab_name(self, notebook: ttk.Notebook) -> str:
+        """Return the active sub-tab name for a nested notebook."""
+        try:
+            selected = notebook.select()
+            return notebook.tab(selected, "text").strip()
         except tk.TclError:
             return ""
 
@@ -538,7 +956,7 @@ class DesktopApp(tk.Tk):
         self._warmed_tabs.add(tab_text)
         if tab_text == "Signals":
             self.start_buy_signal_refresh()
-        elif tab_text == "APIs":
+        elif tab_text == "Settings":
             self.refresh_api_key_manager()
         elif tab_text == "Learning":
             self.refresh_learning_tab()
@@ -546,7 +964,14 @@ class DesktopApp(tk.Tk):
             self.refresh_diagnostics_tab()
         elif tab_text == "Performance":
             self.refresh_performance_tab()
-        elif tab_text == "Schedule":
+
+    def _on_settings_sub_changed(self, _event: object) -> None:
+        sub = self._sub_tab_name(self.settings_sub)
+        key = f"settings:{sub}"
+        if key in self._warmed_tabs:
+            return
+        self._warmed_tabs.add(key)
+        if sub == "Schedule":
             self.refresh_schedule_tab()
 
     def _refresh_active_tab(self) -> None:
@@ -554,28 +979,65 @@ class DesktopApp(tk.Tk):
         tab_text = self._tab_name()
         if not tab_text:
             return
+        if tab_text == "Reports":
+            sub = self._sub_tab_name(self.reports_sub)
+            sub_actions: dict[str, callable] = {
+                "Latest": lambda: self.load_report(latest_report(), select_tab=True),
+                "History": self.refresh_history,
+            }
+            handler = sub_actions.get(sub)
+            if handler:
+                handler()
+            return
+        if tab_text == "Settings":
+            sub = self._sub_tab_name(self.settings_sub)
+            sub_actions = {
+                "Schedule": self.refresh_schedule_tab,
+                "Advanced Editor": self.load_editor_file,
+                "API Keys": self.start_connectivity_check,
+                "Updates": lambda: self.start_update_check(startup=False),
+            }
+            handler = sub_actions.get(sub)
+            if handler:
+                handler()
+            return
         actions: dict[str, callable] = {
-            "Dashboard": self.refresh_dashboard,
+            "Home": self.refresh_dashboard,
             "Signals": self.start_buy_signal_refresh,
-            "Viewer": lambda: self.load_report(latest_report(), select_tab=True),
-            "History": self.refresh_history,
             "Performance": self.refresh_performance_tab,
             "Learning": self.refresh_learning_tab,
             "Diagnostics": self.refresh_diagnostics_tab,
-            "Schedule": self.refresh_schedule_tab,
-            "Config": self.load_editor_file,
-            "APIs": self.start_connectivity_check,
-            "Updates": lambda: self.start_update_check(startup=False),
         }
         handler = actions.get(tab_text)
         if handler is not None:
             handler()
 
-    def _jump_to_tab(self, tab_frame: ttk.Frame) -> None:
+    def _jump_to_tab(self, tab_frame: ttk.Frame, *, sub: ttk.Frame | None = None) -> None:
         try:
-            self.tabs.select(tab_frame)
+            if tab_frame in (self.run_subtab, self.report_subtab, self.history_subtab):
+                self.tabs.select(self.reports_tab)
+                self.reports_sub.select(tab_frame)
+            elif tab_frame in (
+                self.prefs_subtab,
+                self.health_subtab,
+                self.schedule_subtab,
+                self.editor_subtab,
+                self.update_subtab,
+            ):
+                self.tabs.select(self.settings_tab)
+                self.settings_sub.select(tab_frame)
+            else:
+                self.tabs.select(tab_frame)
+                if sub is not None:
+                    if tab_frame is self.reports_tab:
+                        self.reports_sub.select(sub)
+                    elif tab_frame is self.settings_tab:
+                        self.settings_sub.select(sub)
         except tk.TclError:
             pass
+
+    def _jump_to_settings(self) -> None:
+        self._jump_to_tab(self.settings_tab, sub=self.prefs_subtab)
 
     def _update_header_status(self) -> None:
         """Refresh the small status pill at the top-right of the window."""
@@ -599,59 +1061,86 @@ class DesktopApp(tk.Tk):
             parts.append("✓ clean")
         self.header_status_var.set(" · ".join(parts) or "Ready.")
 
-    def _maybe_show_onboarding_hint(self) -> None:
-        """v1.19.1: nudge first-time users toward the Streamlit wizard.
+    def _build_status_bar(self) -> None:
+        bar = tk.Frame(self, bg=self.panel, height=26)
+        bar.pack(side="bottom", fill="x")
+        bar.pack_propagate(False)
 
-        The Tk app shows a dialog once with two options: launch Streamlit
-        (where the full wizard lives) or skip and continue in the Desktop
-        flow. A flag is stamped to settings.json so the dialog never fires
-        twice for the same user.
-        """
+        self._status_dot = tk.Label(bar, text="●", bg=self.panel, fg=self.accent, font=("TkDefaultFont", 9))
+        self._status_dot.pack(side="left", padx=(12, 4))
+        self._status_msg = tk.StringVar(value="Loading...")
+        tk.Label(bar, textvariable=self._status_msg, bg=self.panel, fg=self.muted, font=self.fonts["small"]).pack(side="left")
+
+        sep1 = tk.Label(bar, text="|", bg=self.panel, fg=self.border, font=self.fonts["small"])
+        sep1.pack(side="left", padx=10)
+        self._status_report = tk.StringVar(value="")
+        tk.Label(bar, textvariable=self._status_report, bg=self.panel, fg=self.muted, font=self.fonts["small"]).pack(side="left")
+
+        sep2 = tk.Label(bar, text="|", bg=self.panel, fg=self.border, font=self.fonts["small"])
+        sep2.pack(side="left", padx=10)
+        self._status_cost = tk.StringVar(value="")
+        tk.Label(bar, textvariable=self._status_cost, bg=self.panel, fg=self.muted, font=self.fonts["small"]).pack(side="left")
+
+        version_label = tk.Label(
+            bar,
+            text=f"v{current_app_version()}",
+            bg=self.panel,
+            fg=self.subtle,
+            font=self.fonts["small"],
+        )
+        version_label.pack(side="right", padx=12)
+
+    def _set_status(self, message: str, *, tone: str = "neutral") -> None:
+        colors = {
+            "success": self.accent,
+            "warning": self.warning,
+            "error": self.danger,
+            "neutral": self.muted,
+        }
+        self._status_msg.set(message)
+        self._status_dot.configure(fg=colors.get(tone, self.muted))
+
+    def _update_status_bar(self) -> None:
+        report = self.latest_report_path
+        if report and report.exists():
+            import time
+
+            mtime = report.stat().st_mtime
+            age = time.time() - mtime
+            if age < 86400:
+                from datetime import datetime
+
+                ts = datetime.fromtimestamp(mtime).strftime("%I:%M %p").lstrip("0")
+                self._status_report.set(f"Last report: Today {ts}")
+            else:
+                from datetime import datetime
+
+                ts = datetime.fromtimestamp(mtime).strftime("%b %d, %I:%M %p").lstrip("0")
+                self._status_report.set(f"Last report: {ts}")
+        else:
+            self._status_report.set("No reports yet")
+
+        summary = latest_log_summary() or {}
+        usage = summary.get("usage") or {}
+        cost = usage.get("cost_usd")
+        if cost is not None:
+            self._status_cost.set(f"Session: ${cost:.2f}")
+        else:
+            self._status_cost.set("")
+
+    def _tip(self, widget: tk.Widget, text: str) -> _Tooltip:
+        return _Tooltip(widget, text, bg=self.card, fg=self.text, outline=self.border)
+
+    def _maybe_show_onboarding(self) -> None:
+        """Show the native onboarding wizard on first launch."""
         try:
-            from src.onboarding import current_state, needs_onboarding
-        except Exception:
-            return
-        try:
+            from src.onboarding import needs_onboarding
+
             if not needs_onboarding():
                 return
-            state = current_state()
-            # If the user already declined once (advanced past 'welcome'),
-            # respect that and don't pop the dialog again.
-            if "welcome" in (state.completed or []):
-                return
         except Exception:
             return
-
-        from tkinter import messagebox
-
-        should_launch = messagebox.askyesno(
-            "Welcome to tech_stock",
-            "Looks like this is your first time. We have a 3-minute setup "
-            "wizard (Anthropic API key, monthly budget, where to find your "
-            "Wealthsimple CSV) that lives in the Streamlit UI.\n\n"
-            "Open the wizard now? (You can also keep using the Desktop app — "
-            "just paste your API key into config/.env when you're ready.)",
-        )
-        # Mark welcome as completed either way so this only fires once.
-        try:
-            from src.onboarding import advance
-
-            advance(current="welcome", skip_demo=not should_launch)
-        except Exception:
-            pass
-        if should_launch:
-            # Reuse the Streamlit dispatch path from the launcher.
-            try:
-                import subprocess
-
-                import sys
-
-                subprocess.Popen(
-                    [sys.executable, "-m", "src.main", "--demo"] if hasattr(sys, "executable") else ["tech_stock", "--demo"],
-                    start_new_session=(sys.platform != "win32"),
-                )
-            except Exception:
-                pass
+        self.after(200, lambda: _OnboardingWizard(self))
 
     def _show_about_dialog(self) -> None:
         from tkinter import messagebox
@@ -677,7 +1166,7 @@ class DesktopApp(tk.Tk):
         if report is None:
             from tkinter import messagebox
 
-            messagebox.showinfo("No report yet", "Generate a report first from the Run Report tab.")
+            messagebox.showinfo("No report yet", "Generate a report first from the Reports > Run tab.")
             return
         self._reveal_in_finder(report)
 
@@ -756,7 +1245,9 @@ class DesktopApp(tk.Tk):
 
         top = tk.Frame(content, bg=self.bg)
         top.pack(fill="x", padx=16, pady=(14, 10))
-        ttk.Button(top, text="Refresh Dashboard", command=self.refresh_dashboard).pack(side="left")
+        refresh_btn = ttk.Button(top, text="Refresh", command=self.refresh_dashboard)
+        refresh_btn.pack(side="left")
+        self._tip(refresh_btn, "Reload dashboard data from the latest report")
         self.dashboard_caption = ttk.Label(top, text="", style="Muted.TLabel")
         self.dashboard_caption.pack(side="left", padx=12)
 
@@ -767,8 +1258,8 @@ class DesktopApp(tk.Tk):
         signal_body = tk.Frame(signal, bg=self.card, padx=18, pady=16)
         signal_body.pack(side="left", fill="both", expand=True)
         self.signal_kicker = tk.StringVar(value="ACTION PULSE")
-        self.signal_title = tk.StringVar(value="No report loaded")
-        self.signal_body = tk.StringVar(value="Run a report to populate action signals.")
+        self.signal_title = tk.StringVar(value="Welcome to tech_stock")
+        self.signal_body = tk.StringVar(value="Generate your first report to see your portfolio analysis here.")
         self.signal_meta = tk.StringVar(value="")
         tk.Label(
             signal_body,
@@ -806,6 +1297,16 @@ class DesktopApp(tk.Tk):
         self.metric_vars: dict[str, tk.StringVar] = {}
         self.metric_hint_vars: dict[str, tk.StringVar] = {}
         metric_labels = ["Portfolio", "P&L", "Data Conf.", "SPY Beta", "Annual Vol", "Top-3 Conc.", "Warnings", "Claude Cost"]
+        metric_tips = {
+            "Portfolio": "Total market value of all your holdings.",
+            "P&L": "Unrealized profit or loss across your portfolio.",
+            "Data Conf.": "How fresh and complete the market data is.",
+            "SPY Beta": "Portfolio volatility vs S&P 500. >1 = more volatile than the market.",
+            "Annual Vol": "Estimated annualized portfolio volatility (20-day rolling).",
+            "Top-3 Conc.": "Weight of your three largest positions. High concentration = higher risk.",
+            "Warnings": "Number of quality-gate alerts from the latest report.",
+            "Claude Cost": "How much this report cost in Claude API usage (USD).",
+        }
         for col in range(4):
             metrics.columnconfigure(col, weight=1, uniform="metrics")
         for index, label in enumerate(metric_labels):
@@ -845,31 +1346,34 @@ class DesktopApp(tk.Tk):
                 fg=self.muted,
                 font=self.fonts["small"],
             ).pack(anchor="w", pady=(4, 0))
+            if label in metric_tips:
+                self._tip(box, metric_tips[label])
 
-        action_panel, self.action_cards = self._dashboard_panel(content, "Action Queue")
+        action_panel, self.action_cards = self._dashboard_panel(content, "Recommended Actions")
         action_panel.pack(fill="x", padx=16, pady=(16, 10))
 
         middle = ttk.Frame(content)
         middle.pack(fill="both", expand=True, padx=16, pady=(0, 10))
-        left, self.warning_cards = self._dashboard_panel(middle, "Quality Gates")
+        left, self.warning_cards = self._dashboard_panel(middle, "Risk Alerts")
         left.pack(side="left", fill="both", expand=True, padx=(0, 8))
-        right, risk_body = self._dashboard_panel(middle, "Risk & Exposure")
+        right, risk_body = self._dashboard_panel(middle, "Portfolio Risk Summary")
         right.pack(side="left", fill="both", expand=True, padx=(8, 0))
         self.risk_text = self._readonly_text(risk_body, height=11)
 
         lower = ttk.Frame(content)
         lower.pack(fill="both", expand=True, padx=16, pady=(0, 16))
-        trailing_panel, self.stop_cards = self._dashboard_panel(lower, "Stops & Breaches")
+        trailing_panel, self.stop_cards = self._dashboard_panel(lower, "Price Alerts")
         trailing_panel.pack(side="left", fill="both", expand=True, padx=(0, 8))
-        drift_panel, signal_text_body = self._dashboard_panel(lower, "Drift, Hedges & Market Signals")
+        drift_panel, signal_text_body = self._dashboard_panel(lower, "Market Overview")
         drift_panel.pack(side="left", fill="both", expand=True, padx=(8, 0))
         self.signal_text = self._readonly_text(signal_text_body, height=11)
 
     def _build_buy_signals_tab(self) -> None:
         top = ttk.Frame(self.buy_signals_tab)
         top.pack(fill="x", padx=16, pady=16)
-        self.buy_signal_button = ttk.Button(top, text="Refresh Buy Signals", command=self.start_buy_signal_refresh)
+        self.buy_signal_button = ttk.Button(top, text="Check for Opportunities", command=self.start_buy_signal_refresh)
         self.buy_signal_button.pack(side="left")
+        self._tip(self.buy_signal_button, "Refresh buy and add signals from the latest report and live market data")
         self.buy_action_filter = tk.StringVar(value="All actions")
         self.buy_readiness_filter = tk.StringVar(value="All readiness")
         ttk.Combobox(
@@ -946,11 +1450,29 @@ class DesktopApp(tk.Tk):
 
         actions = ttk.Frame(form, style="Panel.TFrame")
         actions.pack(fill="x", pady=(12, 0))
-        self.run_button = ttk.Button(actions, text="Run Report", style="Accent.TButton", command=self.start_report_run)
+        self.run_button = ttk.Button(actions, text="Generate Report", style="Accent.TButton", command=self.start_report_run)
         self.run_button.pack(side="left")
-        ttk.Button(actions, text="Preview Holdings", command=self.preview_holdings).pack(side="left", padx=8)
-        self.run_status = tk.StringVar(value="Ready.")
+        self._tip(self.run_button, "Run AI-powered portfolio analysis (~$0.22 with Sonnet, ~90 seconds)")
+        preview_btn = ttk.Button(actions, text="Preview My Holdings", command=self.preview_holdings)
+        preview_btn.pack(side="left", padx=8)
+        self._tip(preview_btn, "Show a preview of positions from your holdings CSV")
+        self.run_status = tk.StringVar(value=f"Ready — press {MOD_LABEL}N to get started.")
         ttk.Label(actions, textvariable=self.run_status, background=self.panel, foreground=self.muted).pack(side="left", padx=12)
+
+        # Progress bar (hidden until report runs)
+        self._report_progress_frame = tk.Frame(form, bg=self.panel)
+        self._report_progress_frame.pack(fill="x", pady=(10, 0))
+        self._report_progress = ttk.Progressbar(self._report_progress_frame, mode="indeterminate", length=400)
+        self._report_progress.pack(side="left")
+        self._report_elapsed_var = tk.StringVar(value="")
+        tk.Label(
+            self._report_progress_frame,
+            textvariable=self._report_elapsed_var,
+            bg=self.panel,
+            fg=self.muted,
+            font=self.fonts["small"],
+        ).pack(side="left", padx=10)
+        self._report_progress_frame.pack_forget()
 
         locations = self._panel(self.run_tab, "File Locations")
         locations.pack(fill="x", padx=16, pady=(0, 16))
@@ -1511,6 +2033,168 @@ class DesktopApp(tk.Tk):
                 coords.extend([x, y])
             canvas.create_line(*coords, fill=colour, width=2, smooth=True)
 
+    # ── Preferences tab (v1.23) ──────────────────────────────────────────────
+    def _build_preferences_tab(self) -> None:
+        """Form-based settings for common options."""
+        import json
+
+        settings_path = Path(__file__).resolve().parents[1] / "config" / "settings.json"
+        try:
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        except Exception:
+            settings = {}
+
+        content = self._scrollable_frame(self.prefs_subtab)
+
+        # Account section
+        acct = self._panel(content, "Account")
+        acct.pack(fill="x", padx=16, pady=(16, 10))
+        grid = ttk.Frame(acct, style="Panel.TFrame")
+        grid.pack(fill="x")
+        self._pref_budget_cad = tk.StringVar(value=str(settings.get("budget_cad", 3000)))
+        self._pref_risk = tk.StringVar(value=settings.get("risk_tolerance", "aggressive"))
+        self._pref_account = tk.StringVar(value=settings.get("account_type", "wealthsimple_premium_usd"))
+
+        for col, (label, var, widget_type, options) in enumerate(
+            [
+                ("Investment budget (CAD)", self._pref_budget_cad, "entry", None),
+                ("Risk tolerance", self._pref_risk, "combo", ["conservative", "moderate", "aggressive"]),
+                ("Account type", self._pref_account, "combo", ["wealthsimple_premium_usd", "other"]),
+            ]
+        ):
+            ttk.Label(grid, text=label, background=self.panel, foreground=self.muted).grid(row=0, column=col, sticky="w", padx=(0, 14))
+            if widget_type == "combo":
+                w = ttk.Combobox(grid, textvariable=var, values=options, state="readonly", width=24)
+            else:
+                w = ttk.Entry(grid, textvariable=var, width=16)
+            w.grid(row=1, column=col, sticky="ew", padx=(0, 14))
+            grid.columnconfigure(col, weight=1)
+
+        # AI Model section
+        model = self._panel(content, "AI Model")
+        model.pack(fill="x", padx=16, pady=(0, 10))
+        mgrid = ttk.Frame(model, style="Panel.TFrame")
+        mgrid.pack(fill="x")
+        current_model = settings.get("claude_model", "claude-sonnet-4-6")
+        model_display = "Opus (deeper, ~$1.80/report)" if "opus" in current_model else "Sonnet (faster, ~$0.22/report)"
+        self._pref_model = tk.StringVar(value=model_display)
+        self._pref_two_pass = tk.BooleanVar(value=settings.get("enable_two_pass_review", True))
+
+        ttk.Label(mgrid, text="AI model", background=self.panel, foreground=self.muted).grid(row=0, column=0, sticky="w", padx=(0, 14))
+        model_combo = ttk.Combobox(
+            mgrid,
+            textvariable=self._pref_model,
+            values=["Sonnet (faster, ~$0.22/report)", "Opus (deeper, ~$1.80/report)"],
+            state="readonly",
+            width=30,
+        )
+        model_combo.grid(row=1, column=0, sticky="ew", padx=(0, 14))
+        self._tip(model_combo, "Sonnet is fast and cost-effective. Opus gives deeper analysis for complex portfolios.")
+        mgrid.columnconfigure(0, weight=1)
+
+        two_pass = ttk.Checkbutton(mgrid, text="Two-pass review (higher quality)", variable=self._pref_two_pass)
+        two_pass.grid(row=1, column=1, sticky="w", padx=(0, 14))
+        self._tip(two_pass, "First pass generates recommendations, second pass critiques them against quality gates.")
+        mgrid.columnconfigure(1, weight=1)
+
+        # Risk Controls section
+        risk = self._panel(content, "Risk Controls")
+        risk.pack(fill="x", padx=16, pady=(0, 10))
+        rgrid = ttk.Frame(risk, style="Panel.TFrame")
+        rgrid.pack(fill="x")
+        self._pref_max_pos = tk.StringVar(value=str(settings.get("max_position_pct", 25)))
+        self._pref_min_return = tk.StringVar(value=str(settings.get("min_net_expected_return_pct", 0.5)))
+
+        for col, (label, var, tip) in enumerate(
+            [
+                ("Max position size (%)", self._pref_max_pos, "Largest any single stock can be as a percentage of your portfolio."),
+                (
+                    "Min expected return (%)",
+                    self._pref_min_return,
+                    "The trade must beat this return threshold after fees to be recommended.",
+                ),
+            ]
+        ):
+            ttk.Label(rgrid, text=label, background=self.panel, foreground=self.muted).grid(row=0, column=col, sticky="w", padx=(0, 14))
+            w = ttk.Entry(rgrid, textvariable=var, width=10)
+            w.grid(row=1, column=col, sticky="w", padx=(0, 14))
+            self._tip(w, tip)
+            rgrid.columnconfigure(col, weight=1)
+
+        # Features section
+        features = self._panel(content, "Features")
+        features.pack(fill="x", padx=16, pady=(0, 10))
+        self._pref_journal = tk.BooleanVar(value=settings.get("enable_decision_journal", True))
+        self._pref_sentiment = tk.BooleanVar(value=settings.get("enable_sentiment", True))
+        self._pref_enrichment = tk.BooleanVar(value=settings.get("enable_enrichment", True))
+
+        for var, label, tip in [
+            (self._pref_journal, "Track decision outcomes", "Record what happened after each recommendation to improve future accuracy."),
+            (self._pref_sentiment, "Analyze news sentiment", "Score news headlines to detect market mood shifts per stock."),
+            (
+                self._pref_enrichment,
+                "Use enrichment APIs (Finnhub, Polygon, etc.)",
+                "Fetch analyst ratings, earnings calendars, and options data from third-party APIs.",
+            ),
+        ]:
+            cb = ttk.Checkbutton(features, text=label, variable=var)
+            cb.pack(anchor="w", pady=2)
+            self._tip(cb, tip)
+
+        # Save / Reset buttons
+        btn_frame = ttk.Frame(content)
+        btn_frame.pack(fill="x", padx=16, pady=(10, 20))
+        save_btn = ttk.Button(btn_frame, text="Save Preferences", style="Accent.TButton", command=self._save_preferences)
+        save_btn.pack(side="left")
+        self._tip(save_btn, "Save your preferences to config/settings.json")
+        self._pref_status = tk.StringVar(value="")
+        ttk.Label(btn_frame, textvariable=self._pref_status, style="Muted.TLabel").pack(side="left", padx=14)
+
+    def _save_preferences(self) -> None:
+        import json
+
+        settings_path = Path(__file__).resolve().parents[1] / "config" / "settings.json"
+        try:
+            settings = json.loads(settings_path.read_text(encoding="utf-8")) if settings_path.exists() else {}
+        except Exception:
+            settings = {}
+
+        try:
+            settings["budget_cad"] = float(self._pref_budget_cad.get() or 3000)
+        except ValueError:
+            pass
+        settings["risk_tolerance"] = self._pref_risk.get()
+        settings["account_type"] = self._pref_account.get()
+
+        model_choice = self._pref_model.get()
+        if "Opus" in model_choice:
+            settings["claude_model"] = "claude-opus-4-7"
+        else:
+            settings["claude_model"] = "claude-sonnet-4-6"
+        settings["enable_two_pass_review"] = self._pref_two_pass.get()
+
+        try:
+            settings["max_position_pct"] = float(self._pref_max_pos.get() or 25)
+        except ValueError:
+            pass
+        try:
+            settings["min_net_expected_return_pct"] = float(self._pref_min_return.get() or 0.5)
+        except ValueError:
+            pass
+
+        settings["enable_decision_journal"] = self._pref_journal.get()
+        settings["enable_sentiment"] = self._pref_sentiment.get()
+        settings["enable_enrichment"] = self._pref_enrichment.get()
+
+        try:
+            settings_path.parent.mkdir(parents=True, exist_ok=True)
+            settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+            self._pref_status.set("Preferences saved.")
+            self._set_status("Preferences saved.", tone="success")
+        except Exception as exc:
+            self._pref_status.set(f"Save failed: {exc}")
+            self._set_status("Failed to save preferences.", tone="error")
+
     # ── Schedule tab (v1.18) ────────────────────────────────────────────────
     def _build_schedule_tab(self) -> None:
         """Per-user scheduled-run installer (launchd / Task Scheduler / cron)."""
@@ -1867,7 +2551,9 @@ class DesktopApp(tk.Tk):
     def _build_health_tab(self) -> None:
         top = ttk.Frame(self.health_tab)
         top.pack(fill="x", padx=16, pady=16)
-        ttk.Button(top, text="Check APIs", command=self.start_connectivity_check).pack(side="left")
+        check_btn = ttk.Button(top, text="Test Connections", command=self.start_connectivity_check)
+        check_btn.pack(side="left")
+        self._tip(check_btn, "Verify all API keys are working and data sources are reachable")
         self.health_status = tk.StringVar(value="Ready.")
         ttk.Label(top, textvariable=self.health_status, style="Muted.TLabel").pack(side="left", padx=12)
 
@@ -2124,12 +2810,12 @@ class DesktopApp(tk.Tk):
 
     def focus_active_search(self, _event: object | None = None) -> str:
         tab_text = self._tab_name()
-        if tab_text == "History":
-            key = "history"
+        if tab_text == "Reports":
+            sub = self._sub_tab_name(self.reports_sub)
+            key = "history" if sub == "History" else "report"
         else:
             key = "report"
-            if tab_text != "Viewer":
-                self.tabs.select(self.report_tab)
+            self._jump_to_tab(self.reports_tab, sub=self.report_subtab)
         state = self.search_state.get(key)
         entry = state.get("entry") if state else None
         if entry:
@@ -2522,8 +3208,17 @@ class DesktopApp(tk.Tk):
 
         self.run_button.configure(state="disabled")
         self.console_text.delete("1.0", "end")
-        self.run_status.set("Running report...")
-        self.tabs.select(self.run_tab)
+        self.run_status.set("Generating your portfolio report... usually takes about 90 seconds.")
+        self._set_status("Analyzing your portfolio with Claude...", tone="warning")
+        self._jump_to_tab(self.reports_tab, sub=self.run_subtab)
+
+        # Show progress bar
+        import time as _time
+
+        self._report_start_time = _time.time()
+        self._report_progress_frame.pack(fill="x", pady=(10, 0))
+        self._report_progress.start(15)
+        self._tick_elapsed()
 
         holdings = self.holdings_var.get().strip() or None
         activities = self.activities_var.get().strip() or None
@@ -2541,6 +3236,26 @@ class DesktopApp(tk.Tk):
             self.progress_queue.put(("done", result))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _tick_elapsed(self) -> None:
+        import time as _time
+
+        if self._report_start_time is None:
+            return
+        elapsed = int(_time.time() - self._report_start_time)
+        self._report_elapsed_var.set(f"Elapsed: {elapsed}s")
+        self._report_elapsed_id = self.after(1000, self._tick_elapsed)
+
+    def _stop_progress(self) -> None:
+        self._report_start_time = None
+        if self._report_elapsed_id:
+            self.after_cancel(self._report_elapsed_id)
+            self._report_elapsed_id = None
+        try:
+            self._report_progress.stop()
+            self._report_progress_frame.pack_forget()
+        except tk.TclError:
+            pass
 
     def _drain_progress_queue(self) -> None:
         try:
@@ -2564,21 +3279,25 @@ class DesktopApp(tk.Tk):
         self.after(100, self._drain_progress_queue)
 
     def _report_run_done(self, result: Any) -> None:
+        self._stop_progress()
         self.run_button.configure(state="normal")
         if not result.ok:
-            self.run_status.set("Report failed.")
+            self.run_status.set("Report could not be generated. Check the console output below for details.")
+            self._set_status("Report failed.", tone="error")
             if result.console:
                 self.console_text.insert("end", "\n" + result.console)
             messagebox.showerror("Report failed", result.error or "Unknown error.")
             return
-        self.run_status.set("Report completed.")
+        self.run_status.set("Report ready! Switch to Reports > Latest to read your recommendations.")
+        self._set_status("Report complete!", tone="success")
         self.latest_report_path = result.report_path
         self.load_report(result.report_path, select_tab=True)
         self.refresh_dashboard()
         self.refresh_history()
+        self._update_status_bar()
         messagebox.showinfo(
-            "Report completed",
-            "Report generated successfully.\n\n"
+            "Report ready",
+            "Your portfolio report has been generated.\n\n"
             f"Markdown: {relative_to_root(result.report_path)}\n"
             f"CSV: {relative_to_root(result.csv_path)}\n"
             f"JSON: {relative_to_root(result.log_path)}",
@@ -2589,7 +3308,7 @@ class DesktopApp(tk.Tk):
         if not hasattr(self, "buy_signal_button"):
             return
         self.buy_signal_button.configure(state="disabled")
-        self.buy_signal_status.set("Refreshing buy signals from source data...")
+        self.buy_signal_status.set("Checking real-time market data for buy opportunities...")
         action_filter = self._buy_action_filter_value()
         readiness_filter = self._buy_readiness_filter_value()
 
@@ -3036,17 +3755,17 @@ class DesktopApp(tk.Tk):
             self._update_header_status()
         summary = latest_log_summary()
         if not summary:
-            self.dashboard_caption.configure(text="No recommendation JSON logs found yet.")
+            self.dashboard_caption.configure(text="Welcome! Generate your first report to see your portfolio analysis here.")
             self.signal_accent.configure(bg=self.muted)
             self.signal_kicker.set("ACTION PULSE")
-            self.signal_title.set("No report loaded")
-            self.signal_body.set("Run a report to populate action signals.")
+            self.signal_title.set("Welcome to tech_stock")
+            self.signal_body.set("Generate your first report to see your portfolio analysis here.")
             self.signal_meta.set("")
             for label in self.metric_vars:
                 self._set_metric(label, "N/A")
-            self._empty_dashboard_section(self.action_cards, "Run a report to populate priority actions.")
-            self._empty_dashboard_section(self.warning_cards, "Run a report to populate quality gates.")
-            self._empty_dashboard_section(self.stop_cards, "Run a report to populate stop breaches.")
+            self._empty_dashboard_section(self.action_cards, "Generate a report to see recommended actions.")
+            self._empty_dashboard_section(self.warning_cards, "Generate a report to see risk alerts.")
+            self._empty_dashboard_section(self.stop_cards, "Generate a report to see price alerts.")
             self._set_readonly_text(self.risk_text, "No risk dashboard available yet.")
             self._set_readonly_text(self.signal_text, "No drift or market signals available yet.")
             return
@@ -3113,13 +3832,13 @@ class DesktopApp(tk.Tk):
             self._render_markdown(self.report_text, "## No report found yet\n\nRun a report or choose one from History.")
             self._refresh_search_after_text_change("report")
             if select_tab:
-                self.tabs.select(self.report_tab)
+                self._jump_to_tab(self.reports_tab, sub=self.report_subtab)
             return
         self.report_path_label.configure(text=relative_to_root(path))
         self._render_markdown(self.report_text, text)
         self._refresh_search_after_text_change("report")
         if select_tab:
-            self.tabs.select(self.report_tab)
+            self._jump_to_tab(self.reports_tab, sub=self.report_subtab)
 
     def refresh_history(self) -> None:
         self.refresh_report_paths_text()
@@ -3165,7 +3884,7 @@ class DesktopApp(tk.Tk):
         self.editor_status.set(f"Saved {relative_to_root(path)}")
 
     def start_connectivity_check(self) -> None:
-        self.health_status.set("Checking APIs...")
+        self.health_status.set("Testing connectivity to all data sources...")
         self.refresh_api_paths_text()
         self.refresh_api_key_manager()
         self._replace_tree_rows(self.health_tree, [])
@@ -3194,7 +3913,7 @@ class DesktopApp(tk.Tk):
         force_refresh = not startup
         self.update_status.set("Force-refreshing GitHub Releases..." if force_refresh else "Checking GitHub Releases...")
         if not startup:
-            self.tabs.select(self.update_tab)
+            self._jump_to_tab(self.settings_tab, sub=self.update_subtab)
 
         def worker() -> None:
             info = check_update_available(force=force_refresh)
@@ -3241,7 +3960,7 @@ class DesktopApp(tk.Tk):
         self.update_check_button.configure(state="disabled")
         self.update_apply_button.configure(state="disabled")
         self.update_status.set(f"Updating to version {info.latest_version}...")
-        self.tabs.select(self.update_tab)
+        self._jump_to_tab(self.settings_tab, sub=self.update_subtab)
 
         def worker() -> None:
             result = apply_available_update(info, restart=True)

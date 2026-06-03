@@ -4,6 +4,27 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.23.0] — 2026-06-03
+
+### Changed — B2C user-friendliness overhaul
+
+Major UX improvements to make the desktop app consumer-ready.
+
+- **Tab reorganization (12 to 7)** — Reduced from 12 flat tabs to 7 primary tabs. Reports tab combines Run/Latest/History as sub-tabs. Settings tab combines Preferences/API Keys/Schedule/Advanced Editor/Updates as sub-tabs. Dashboard renamed to "Home". Less overwhelming for new users.
+- **Native onboarding wizard** — New 6-stage setup wizard built directly in the desktop app using the existing `onboarding.py` state machine. Walks through Welcome, API Key, Budget, CSV, First Run, and Done stages with progress dots and inline inputs. Replaces the old redirect-to-Streamlit dialog.
+- **Tooltip system** — New `_Tooltip` class provides hover tooltips throughout the app. Applied to ~35 widgets: dashboard metric cards, run tab fields, toolbar buttons, settings form fields, and the header status pill. Explains financial terms like beta, volatility, and conviction in plain English.
+- **Progress indicators** — Indeterminate progress bar with elapsed timer during report generation. Shows "Elapsed: 42s" and animates while Claude analyzes. Progress bar hides when complete.
+- **Status bar** — Persistent bottom bar showing connection status, last report timestamp, session cost, and app version. Updates on report completion and operation changes. Color-coded status dot (green/amber/red).
+- **Friendly settings panel** — New Preferences sub-tab with form-based settings for common options: investment budget, risk tolerance, AI model choice, two-pass review toggle, max position size, min expected return, and feature flags (decision journal, sentiment, enrichment). Replaces raw JSON editing for everyday settings.
+- **Consumer-friendly labels** — "Run Report" → "Generate Report", "Preview Holdings" → "Preview My Holdings", "Check APIs" → "Test Connections", "Refresh Buy Signals" → "Check for Opportunities". Section headers: "Action Queue" → "Recommended Actions", "Quality Gates" → "Risk Alerts", "Stops & Breaches" → "Price Alerts".
+- **Welcome-back greeting** — Returning users see "Welcome back!" in the status bar for 3 seconds before normal status.
+- **Friendlier empty states** — "No recommendation JSON logs found yet" → "Welcome! Generate your first report to see your portfolio analysis here."
+- **Better status messages** — "Running report..." → "Generating your portfolio report... usually takes about 90 seconds." "Report completed." → "Report ready! Switch to Reports > Latest to read your recommendations."
+
+### Version bumped: 1.22.0 → 1.23.0
+
+---
+
 ## [1.22.0] — 2026-06-03
 
 ### Changed — macOS desktop UI overhaul

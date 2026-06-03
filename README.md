@@ -52,6 +52,20 @@
 
 ---
 
+## ✨ What's New in v1.23.0 (June 3, 2026)
+
+**B2C user-friendliness overhaul — consumer-ready desktop experience.**
+
+- **Simplified navigation** — 12 tabs reduced to 7 with sub-notebooks. Reports tab groups Run/Latest/History. Settings tab groups Preferences/API Keys/Schedule/Advanced Editor/Updates. Dashboard renamed to "Home".
+- **Native onboarding wizard** — 6-stage setup wizard built into the desktop app (Welcome → API Key → Budget → CSV → First Run → Done). No more redirect to Streamlit.
+- **Tooltips everywhere** — Hover tooltips on ~35 widgets explaining financial terms (beta, volatility, conviction) and button actions in plain English.
+- **Progress indicators** — Animated progress bar with elapsed timer during report generation. Visual feedback replaces the old silent "Running report..." text.
+- **Status bar** — Persistent bottom bar showing connection status, last report time, session cost, and version.
+- **Friendly settings** — New Preferences panel with form-based controls for budget, risk tolerance, model choice, and feature toggles. Raw JSON editor preserved as "Advanced Editor".
+- **Consumer-friendly labels** — "Run Report" → "Generate Report", "Quality Gates" → "Risk Alerts", "Stops & Breaches" → "Price Alerts", etc.
+
+Current local suite: `pytest -q` passes with 587 tests (4 desktop-specific tests require tkinter display).
+
 ## ✨ What's New in v1.22.0 (June 3, 2026)
 
 **macOS desktop UI overhaul — professional, consistent, dark-themed.**
@@ -61,8 +75,6 @@
 - **PALETTE token consistency** — Eliminated ~30 hardcoded hex colour literals. Every surface traces back to shared design tokens.
 - **Refined panels & cards** — Uppercase muted section labels with separator lines. Metric cards with proper typographic hierarchy. Cleaner tab labels.
 - **Polished chrome** — Improved header, styled comboboxes/entries/scrollbars, clam theme for full dark-mode control.
-
-Current local suite: `pytest -q` passes with 588 tests.
 
 > **V2 note:** do not call the next update `v2.0.1`. V2 should wait until public releases match repo version, updater flow works from older installs, demo mode works without keys, installers pass smoke tests on macOS/Windows/Linux, user-data migration rules are documented, and production installers are signed/notarized.
 
