@@ -4,6 +4,27 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.22.0] — 2026-06-03
+
+### Changed — macOS desktop UI overhaul
+
+Visual quality and consistency pass for the embedded desktop application. Every surface now speaks the same design language.
+
+- **Consistent font ladder** — Replaced all hardcoded `("Helvetica", N)` font tuples throughout the desktop app with the platform-aware font ladder (`SF Pro` on macOS, `Segoe UI` on Windows, system default on Linux). Every label, card, metric, and text widget now uses `self.fonts[...]` for a uniform typographic hierarchy.
+- **Unified dark theme** — The report viewer and history panes were light-themed (`#f8fafc` background, dark text) while everything else was dark. Now the entire app uses the shared PALETTE dark surface for all text widgets, report rendering, and markdown tags. Search highlights adjusted for dark backgrounds.
+- **PALETTE token consistency** — Eliminated ~30 hardcoded hex colour literals (`#171827`, `#0f172a`, `#0b1020`, `#e5e7eb`, `#2b2d42`, `#303044`, `#64748b`, etc.) across dashboard cards, signal banners, metric boxes, panels, editors, console, diagnostics, schedule, and update views. Every colour now traces back to `PALETTE` tokens or `self.*` aliases.
+- **Refined panel headers** — Section panels now use uppercase muted labels with separator lines instead of bold inline titles, matching professional dashboard conventions.
+- **Polished metric cards** — Dashboard and performance metric cards use the `subtle` token for labels and `text_strong` for values, with consistent border and padding.
+- **Better tab bar** — Tab labels shortened and padded (`Dashboard`, `Signals`, `New Report`, `Viewer`, `History`, `Performance`, `Learning`, `Diagnostics`, `Schedule`, `Config`, `APIs`, `Updates`) for cleaner scanning.
+- **Improved header** — Title uses `text_strong` instead of accent green, version pill in accent, right-aligned status. Thin separator line below header.
+- **Better widget styling** — Treeview headings use muted uppercase text with flat backgrounds. Comboboxes, entries, checkbuttons, spinboxes, scrollbars, and paned windows all receive PALETTE-derived styling via `_configure_style`. Selected treeview rows use `border` background.
+- **Larger default window** — 1280×880 default (was 1200×840), 1024×720 minimum (was 980×680).
+- **clam theme on all platforms** — Switched from macOS `aqua` to `clam` everywhere for full control over the dark theme. The aqua theme conflicted with custom dark styling.
+
+### Version bumped: 1.21.2 → 1.22.0
+
+---
+
 ## [1.21.2] — 2026-06-02
 
 ### Fixed

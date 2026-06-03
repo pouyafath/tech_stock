@@ -146,8 +146,8 @@ class DesktopApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("tech_stock")
-        self.geometry("1200x840")
-        self.minsize(980, 680)
+        self.geometry("1280x880")
+        self.minsize(1024, 720)
 
         # Shared palette (Streamlit + Textual + Tkinter all read the same tokens)
         self.bg = PALETTE.bg
@@ -156,15 +156,17 @@ class DesktopApp(tk.Tk):
         self.text = PALETTE.text
         self.text_strong = PALETTE.text_strong
         self.muted = PALETTE.muted
+        self.subtle = PALETTE.subtle
         self.accent = PALETTE.accent
         self.accent_hover = PALETTE.accent_hover
         self.danger = PALETTE.danger
         self.warning = PALETTE.warn
+        self.info = PALETTE.info
         self.good = PALETTE.accent
         self.card = PALETTE.card
         self.border = PALETTE.border
         self.border_strong = PALETTE.border_strong
-        self.table_bg = "#0f172a"
+        self.table_bg = self.surface
         self.configure(bg=self.bg)
 
         # Platform-aware font ladder
@@ -204,22 +206,75 @@ class DesktopApp(tk.Tk):
     def _configure_style(self) -> None:
         style = ttk.Style(self)
         try:
-            # 'aqua' is macOS's native theme and respects system dark mode
-            # better than 'clam'. Fall back if it isn't available.
-            preferred = "aqua" if IS_MACOS and "aqua" in style.theme_names() else "clam"
-            style.theme_use(preferred)
+            style.theme_use("clam")
         except tk.TclError:
             pass
         fonts = self.fonts
         style.configure("TFrame", background=self.bg)
         style.configure("Panel.TFrame", background=self.panel)
-        style.configure("TLabel", background=self.bg, foreground=self.text, font=fonts["body"])
-        style.configure("Muted.TLabel", background=self.bg, foreground=self.muted, font=fonts["small"])
-        style.configure("Title.TLabel", background=self.bg, foreground=self.accent, font=fonts["title"])
-        style.configure("TButton", padding=(12, 7), font=fonts["body"])
-        style.configure("Accent.TButton", padding=(14, 8), font=fonts["subheading"])
-        style.configure("TNotebook", background=self.bg, borderwidth=0)
-        style.configure("TNotebook.Tab", padding=(18, 9), font=fonts["body"])
+        style.configure("Card.TFrame", background=self.card)
+        style.configure(
+            "TLabel",
+            background=self.bg,
+            foreground=self.text,
+            font=fonts["body"],
+        )
+        style.configure(
+            "Muted.TLabel",
+            background=self.bg,
+            foreground=self.muted,
+            font=fonts["small"],
+        )
+        style.configure(
+            "Title.TLabel",
+            background=self.bg,
+            foreground=self.text_strong,
+            font=fonts["title"],
+        )
+        style.configure(
+            "Subtitle.TLabel",
+            background=self.bg,
+            foreground=self.muted,
+            font=fonts["small"],
+        )
+        style.configure(
+            "TButton",
+            padding=(14, 7),
+            font=fonts["body"],
+            background=self.card,
+            foreground=self.text,
+            borderwidth=1,
+            relief="flat",
+        )
+        style.map(
+            "TButton",
+            background=[("active", self.border_strong), ("pressed", self.border)],
+            foreground=[("active", self.accent)],
+        )
+        style.configure(
+            "Accent.TButton",
+            padding=(18, 9),
+            font=fonts["subheading"],
+            background=self.accent,
+            foreground=self.bg,
+        )
+        style.map(
+            "Accent.TButton",
+            background=[("active", self.accent_hover)],
+        )
+        style.configure(
+            "TNotebook",
+            background=self.bg,
+            borderwidth=0,
+            tabmargins=[0, 0, 0, 0],
+        )
+        style.configure(
+            "TNotebook.Tab",
+            padding=(16, 8),
+            font=fonts["body"],
+            background=self.panel,
+            foreground=self.muted,
+        )
         style.map(
             "TNotebook.Tab",
             background=[("selected", self.surface)],
@@ -227,21 +282,75 @@ class DesktopApp(tk.Tk):
         )
         style.configure(
             "Treeview",
-            rowheight=28,
-            background=self.table_bg,
-            fieldbackground=self.table_bg,
+            rowheight=30,
+            background=self.surface,
+            fieldbackground=self.surface,
             foreground=self.text,
             borderwidth=0,
             font=fonts["body"],
         )
         style.configure(
             "Treeview.Heading",
-            background=self.surface,
-            foreground=self.text_strong,
-            font=fonts["subheading"],
+            background=self.panel,
+            foreground=self.muted,
+            font=fonts["small"],
             relief="flat",
+            padding=(8, 6),
         )
-        style.map("Treeview.Heading", background=[("active", self.panel)])
+        style.map(
+            "Treeview",
+            background=[("selected", self.border)],
+            foreground=[("selected", self.text_strong)],
+        )
+        style.map("Treeview.Heading", background=[("active", self.card)])
+        style.configure(
+            "TCombobox",
+            fieldbackground=self.card,
+            background=self.card,
+            foreground=self.text,
+            arrowcolor=self.muted,
+            borderwidth=1,
+        )
+        style.map(
+            "TCombobox",
+            fieldbackground=[("readonly", self.card)],
+            foreground=[("readonly", self.text)],
+        )
+        style.configure(
+            "TEntry",
+            fieldbackground=self.card,
+            foreground=self.text,
+            insertcolor=self.text,
+            borderwidth=1,
+        )
+        style.configure(
+            "TCheckbutton",
+            background=self.bg,
+            foreground=self.text,
+            font=fonts["body"],
+        )
+        style.configure(
+            "TSpinbox",
+            fieldbackground=self.card,
+            foreground=self.text,
+            arrowcolor=self.muted,
+        )
+        style.configure(
+            "Vertical.TScrollbar",
+            background=self.panel,
+            troughcolor=self.bg,
+            borderwidth=0,
+            arrowcolor=self.muted,
+        )
+        style.configure(
+            "TPanedwindow",
+            background=self.bg,
+        )
+        style.configure(
+            "Sash",
+            sashthickness=6,
+            background=self.border,
+        )
 
     def _build_menu(self) -> None:
         """Build the native macOS menu bar (also works on Windows/Linux)."""
@@ -313,30 +422,44 @@ class DesktopApp(tk.Tk):
         self.config(menu=menubar)
 
     def _build_header(self) -> None:
-        header = ttk.Frame(self)
-        header.pack(fill="x", padx=22, pady=(18, 8))
+        header = tk.Frame(self, bg=self.bg)
+        header.pack(fill="x", padx=24, pady=(20, 6))
 
-        left = ttk.Frame(header)
+        left = tk.Frame(header, bg=self.bg)
         left.pack(side="left", anchor="w")
-        ttk.Label(left, text="tech_stock", style="Title.TLabel").pack(side="left")
-        ttk.Label(
+        tk.Label(
             left,
-            text=f"v{current_app_version()} · embedded desktop dashboard",
-            style="Muted.TLabel",
-        ).pack(side="left", padx=(14, 0), pady=(14, 0))
+            text="tech_stock",
+            bg=self.bg,
+            fg=self.text_strong,
+            font=self.fonts["title"],
+        ).pack(side="left")
+        tk.Label(
+            left,
+            text=f"v{current_app_version()}",
+            bg=self.bg,
+            fg=self.accent,
+            font=self.fonts["small"],
+        ).pack(side="left", padx=(12, 0), pady=(12, 0))
 
-        # Status pill on the right shows API health summary once warmed up.
-        self.header_status_var = tk.StringVar(value="● Warming up…")
-        self.header_status_label = ttk.Label(
-            header,
+        right = tk.Frame(header, bg=self.bg)
+        right.pack(side="right", anchor="e")
+        self.header_status_var = tk.StringVar(value="Warming up…")
+        self.header_status_label = tk.Label(
+            right,
             textvariable=self.header_status_var,
-            style="Muted.TLabel",
+            bg=self.bg,
+            fg=self.muted,
+            font=self.fonts["small"],
         )
-        self.header_status_label.pack(side="right", padx=(0, 6), pady=(14, 0))
+        self.header_status_label.pack(side="right", pady=(12, 0))
+
+        separator = tk.Frame(self, bg=self.border, height=1)
+        separator.pack(fill="x", padx=24, pady=(8, 0))
 
     def _build_tabs(self) -> None:
         self.tabs = ttk.Notebook(self)
-        self.tabs.pack(fill="both", expand=True, padx=18, pady=(0, 18))
+        self.tabs.pack(fill="both", expand=True, padx=20, pady=(10, 16))
 
         self.dashboard_tab = ttk.Frame(self.tabs)
         self.buy_signals_tab = ttk.Frame(self.tabs)
@@ -351,18 +474,18 @@ class DesktopApp(tk.Tk):
         self.health_tab = ttk.Frame(self.tabs)
         self.update_tab = ttk.Frame(self.tabs)
 
-        self.tabs.add(self.dashboard_tab, text="Dashboard")
-        self.tabs.add(self.buy_signals_tab, text="Buy Signals")
-        self.tabs.add(self.run_tab, text="Run Report")
-        self.tabs.add(self.report_tab, text="Report Viewer")
-        self.tabs.add(self.history_tab, text="History")
-        self.tabs.add(self.performance_tab, text="Performance")
-        self.tabs.add(self.learning_tab, text="Learning")
-        self.tabs.add(self.diagnostics_tab, text="Diagnostics")
-        self.tabs.add(self.schedule_tab, text="Schedule")
-        self.tabs.add(self.editor_tab, text="Config Editor")
-        self.tabs.add(self.health_tab, text="API Checks")
-        self.tabs.add(self.update_tab, text="Updates")
+        self.tabs.add(self.dashboard_tab, text=" Dashboard ")
+        self.tabs.add(self.buy_signals_tab, text=" Signals ")
+        self.tabs.add(self.run_tab, text=" New Report ")
+        self.tabs.add(self.report_tab, text=" Viewer ")
+        self.tabs.add(self.history_tab, text=" History ")
+        self.tabs.add(self.performance_tab, text=" Performance ")
+        self.tabs.add(self.learning_tab, text=" Learning ")
+        self.tabs.add(self.diagnostics_tab, text=" Diagnostics ")
+        self.tabs.add(self.schedule_tab, text=" Schedule ")
+        self.tabs.add(self.editor_tab, text=" Config ")
+        self.tabs.add(self.health_tab, text=" APIs ")
+        self.tabs.add(self.update_tab, text=" Updates ")
 
         self._build_dashboard_tab()
         self._build_buy_signals_tab()
@@ -399,24 +522,23 @@ class DesktopApp(tk.Tk):
         # 5. Buy-signal refresh is deferred until the tab is *actually opened*.
         self.tabs.bind("<<NotebookTabChanged>>", self._on_tab_changed, add="+")
 
-    def _on_tab_changed(self, _event: object) -> None:
-        """Warm up a tab the first time the user actually visits it.
-
-        Saves 2-5 s of yfinance / API calls when the user just wants to read
-        the latest report and never opens Buy Signals or API Checks.
-        """
+    def _tab_name(self) -> str:
+        """Return the active tab name, stripped of padding spaces."""
         try:
             selected = self.tabs.select()
-            tab_text = self.tabs.tab(selected, "text")
+            return self.tabs.tab(selected, "text").strip()
         except tk.TclError:
-            return
-        if tab_text in self._warmed_tabs:
+            return ""
+
+    def _on_tab_changed(self, _event: object) -> None:
+        """Warm up a tab the first time the user actually visits it."""
+        tab_text = self._tab_name()
+        if not tab_text or tab_text in self._warmed_tabs:
             return
         self._warmed_tabs.add(tab_text)
-        if tab_text == "Buy Signals":
+        if tab_text == "Signals":
             self.start_buy_signal_refresh()
-        elif tab_text == "API Checks":
-            # Refresh the API key inventory; live connectivity probe stays manual.
+        elif tab_text == "APIs":
             self.refresh_api_key_manager()
         elif tab_text == "Learning":
             self.refresh_learning_tab()
@@ -429,22 +551,20 @@ class DesktopApp(tk.Tk):
 
     def _refresh_active_tab(self) -> None:
         """⌘R handler — re-run the data-load for whichever tab is in front."""
-        try:
-            selected = self.tabs.select()
-            tab_text = self.tabs.tab(selected, "text")
-        except tk.TclError:
+        tab_text = self._tab_name()
+        if not tab_text:
             return
         actions: dict[str, callable] = {
             "Dashboard": self.refresh_dashboard,
-            "Buy Signals": self.start_buy_signal_refresh,
-            "Report Viewer": lambda: self.load_report(latest_report(), select_tab=True),
+            "Signals": self.start_buy_signal_refresh,
+            "Viewer": lambda: self.load_report(latest_report(), select_tab=True),
             "History": self.refresh_history,
             "Performance": self.refresh_performance_tab,
             "Learning": self.refresh_learning_tab,
             "Diagnostics": self.refresh_diagnostics_tab,
             "Schedule": self.refresh_schedule_tab,
-            "Config Editor": self.load_editor_file,
-            "API Checks": self.start_connectivity_check,
+            "Config": self.load_editor_file,
+            "APIs": self.start_connectivity_check,
             "Updates": lambda: self.start_update_check(startup=False),
         }
         handler = actions.get(tab_text)
@@ -588,20 +708,33 @@ class DesktopApp(tk.Tk):
         webbrowser.open("https://github.com/pouyafath/tech_stock/issues/new")
 
     def _panel(self, parent: tk.Widget, title: str | None = None) -> ttk.Frame:
-        frame = ttk.Frame(parent, style="Panel.TFrame", padding=14)
+        frame = ttk.Frame(parent, style="Panel.TFrame", padding=16)
         if title:
-            ttk.Label(frame, text=title, font=("Helvetica", 14, "bold"), background=self.panel, foreground=self.text).pack(
-                anchor="w", pady=(0, 8)
-            )
+            tk.Label(
+                frame,
+                text=title.upper(),
+                bg=self.panel,
+                fg=self.muted,
+                font=self.fonts["small"],
+                anchor="w",
+            ).pack(fill="x", pady=(0, 10))
+            tk.Frame(frame, bg=self.border, height=1).pack(fill="x", pady=(0, 10))
         return frame
 
     def _dashboard_panel(self, parent: tk.Widget, title: str) -> tuple[tk.Frame, tk.Frame]:
-        panel = tk.Frame(parent, bg=self.panel, highlightthickness=1, highlightbackground="#2b2d42")
+        panel = tk.Frame(parent, bg=self.panel, highlightthickness=1, highlightbackground=self.border)
         header = tk.Frame(panel, bg=self.panel)
-        header.pack(fill="x", padx=14, pady=(12, 6))
-        tk.Label(header, text=title, bg=self.panel, fg=self.text, font=("Helvetica", 14, "bold")).pack(anchor="w")
+        header.pack(fill="x", padx=16, pady=(14, 4))
+        tk.Label(
+            header,
+            text=title.upper(),
+            bg=self.panel,
+            fg=self.muted,
+            font=self.fonts["small"],
+        ).pack(anchor="w")
+        tk.Frame(panel, bg=self.border, height=1).pack(fill="x", padx=16, pady=(6, 0))
         body = tk.Frame(panel, bg=self.panel)
-        body.pack(fill="both", expand=True, padx=14, pady=(0, 14))
+        body.pack(fill="both", expand=True, padx=16, pady=(10, 16))
         return panel, body
 
     def _scrollable_frame(self, parent: tk.Widget) -> ttk.Frame:
@@ -627,11 +760,11 @@ class DesktopApp(tk.Tk):
         self.dashboard_caption = ttk.Label(top, text="", style="Muted.TLabel")
         self.dashboard_caption.pack(side="left", padx=12)
 
-        signal = tk.Frame(content, bg="#171827", highlightthickness=1, highlightbackground="#303044")
-        signal.pack(fill="x", padx=16, pady=(0, 12))
-        self.signal_accent = tk.Frame(signal, bg=self.accent, width=5)
+        signal = tk.Frame(content, bg=self.card, highlightthickness=1, highlightbackground=self.border)
+        signal.pack(fill="x", padx=16, pady=(0, 14))
+        self.signal_accent = tk.Frame(signal, bg=self.accent, width=4)
         self.signal_accent.pack(side="left", fill="y")
-        signal_body = tk.Frame(signal, bg="#171827", padx=16, pady=14)
+        signal_body = tk.Frame(signal, bg=self.card, padx=18, pady=16)
         signal_body.pack(side="left", fill="both", expand=True)
         self.signal_kicker = tk.StringVar(value="ACTION PULSE")
         self.signal_title = tk.StringVar(value="No report loaded")
@@ -640,30 +773,32 @@ class DesktopApp(tk.Tk):
         tk.Label(
             signal_body,
             textvariable=self.signal_kicker,
-            bg="#171827",
-            fg=self.muted,
-            font=("Helvetica", 10, "bold"),
+            bg=self.card,
+            fg=self.subtle,
+            font=self.fonts["small"],
         ).pack(anchor="w")
-        ttk.Label(
+        tk.Label(
             signal_body,
             textvariable=self.signal_title,
-            background="#171827",
-            foreground=self.accent,
-            font=("Helvetica", 20, "bold"),
-        ).pack(anchor="w", pady=(3, 0))
-        ttk.Label(
+            bg=self.card,
+            fg=self.accent,
+            font=self.fonts["heading"],
+        ).pack(anchor="w", pady=(6, 0))
+        tk.Label(
             signal_body,
             textvariable=self.signal_body,
-            background="#171827",
-            foreground=self.text,
-            wraplength=1040,
+            bg=self.card,
+            fg=self.text,
+            font=self.fonts["body"],
+            wraplength=1080,
             justify="left",
         ).pack(anchor="w", fill="x", pady=(8, 0))
-        ttk.Label(
+        tk.Label(
             signal_body,
             textvariable=self.signal_meta,
-            background="#171827",
-            foreground=self.muted,
+            bg=self.card,
+            fg=self.muted,
+            font=self.fonts["small"],
         ).pack(anchor="w", pady=(10, 0))
 
         metrics = tk.Frame(content, bg=self.bg)
@@ -676,15 +811,40 @@ class DesktopApp(tk.Tk):
         for index, label in enumerate(metric_labels):
             row = index // 4
             col = index % 4
-            box = tk.Frame(metrics, bg=self.card, highlightthickness=1, highlightbackground="#2b2d42", padx=14, pady=12)
-            box.grid(row=row, column=col, sticky="ew", padx=(0 if col == 0 else 8, 0), pady=(0, 8))
-            tk.Label(box, text=label.upper(), bg=self.card, fg=self.muted, font=("Helvetica", 10, "bold")).pack(anchor="w")
-            var = tk.StringVar(value="N/A")
+            box = tk.Frame(
+                metrics,
+                bg=self.card,
+                highlightthickness=1,
+                highlightbackground=self.border,
+                padx=16,
+                pady=14,
+            )
+            box.grid(row=row, column=col, sticky="ew", padx=(0 if col == 0 else 6, 0), pady=(0, 6))
+            tk.Label(
+                box,
+                text=label.upper(),
+                bg=self.card,
+                fg=self.subtle,
+                font=self.fonts["small"],
+            ).pack(anchor="w")
+            var = tk.StringVar(value="—")
             hint = tk.StringVar(value="")
             self.metric_vars[label] = var
             self.metric_hint_vars[label] = hint
-            tk.Label(box, textvariable=var, bg=self.card, fg=self.text, font=("Helvetica", 20, "bold")).pack(anchor="w", pady=(4, 0))
-            tk.Label(box, textvariable=hint, bg=self.card, fg=self.muted, font=("Helvetica", 10)).pack(anchor="w", pady=(4, 0))
+            tk.Label(
+                box,
+                textvariable=var,
+                bg=self.card,
+                fg=self.text_strong,
+                font=self.fonts["heading"],
+            ).pack(anchor="w", pady=(6, 0))
+            tk.Label(
+                box,
+                textvariable=hint,
+                bg=self.card,
+                fg=self.muted,
+                font=self.fonts["small"],
+            ).pack(anchor="w", pady=(4, 0))
 
         action_panel, self.action_cards = self._dashboard_panel(content, "Action Queue")
         action_panel.pack(fill="x", padx=16, pady=(16, 10))
@@ -794,12 +954,33 @@ class DesktopApp(tk.Tk):
 
         locations = self._panel(self.run_tab, "File Locations")
         locations.pack(fill="x", padx=16, pady=(0, 16))
-        self.locations_text = tk.Text(locations, height=6, wrap="word", bg="#0f172a", fg="#e5e7eb")
+        self.locations_text = tk.Text(
+            locations,
+            height=6,
+            wrap="word",
+            bg=self.surface,
+            fg=self.text,
+            font=self.fonts["small"],
+            relief="flat",
+            padx=10,
+            pady=8,
+        )
         self.locations_text.pack(fill="x")
         self.locations_text.insert("1.0", self._locations_summary())
         self.locations_text.configure(state="disabled")
 
-        self.console_text = ScrolledText(self.run_tab, height=22, wrap="word", bg="#0f172a", fg="#e5e7eb", insertbackground="#e5e7eb")
+        self.console_text = ScrolledText(
+            self.run_tab,
+            height=22,
+            wrap="word",
+            bg=self.surface,
+            fg=self.text,
+            font=self.fonts["mono"],
+            insertbackground=self.text,
+            relief="flat",
+            padx=12,
+            pady=10,
+        )
         self.console_text.pack(fill="both", expand=True, padx=16, pady=(0, 16))
 
     def _build_report_tab(self) -> None:
@@ -817,19 +998,30 @@ class DesktopApp(tk.Tk):
 
         self.report_paths_panel = self._panel(self.report_tab, "Report Search Paths")
         self.report_paths_visible = False
-        self.report_paths_text = tk.Text(self.report_paths_panel, height=5, wrap="none", bg="#0f172a", fg="#e5e7eb")
+        self.report_paths_text = tk.Text(
+            self.report_paths_panel,
+            height=5,
+            wrap="none",
+            bg=self.surface,
+            fg=self.text,
+            font=self.fonts["small"],
+            relief="flat",
+            padx=8,
+            pady=6,
+        )
         self.report_paths_text.pack(fill="x")
         self.refresh_report_paths_text()
 
         self.report_text = ScrolledText(
             self.report_tab,
             wrap="word",
-            bg="#f8fafc",
-            fg="#111827",
-            insertbackground="#111827",
+            bg=self.panel,
+            fg=self.text,
+            insertbackground=self.text,
             relief="flat",
-            padx=18,
-            pady=16,
+            padx=20,
+            pady=18,
+            font=self.fonts["body"],
         )
         self.report_text.pack(fill="both", expand=True, padx=16, pady=(0, 16))
         self._configure_markdown_tags(self.report_text)
@@ -846,9 +1038,28 @@ class DesktopApp(tk.Tk):
         ttk.Button(left, text="Refresh", command=self.refresh_history).pack(anchor="w", pady=(0, 8))
         paths_panel = self._panel(left, "History Search Paths")
         paths_panel.pack(fill="x", pady=(0, 8))
-        self.history_paths_text = tk.Text(paths_panel, height=8, wrap="none", bg="#0f172a", fg="#e5e7eb")
+        self.history_paths_text = tk.Text(
+            paths_panel,
+            height=8,
+            wrap="none",
+            bg=self.surface,
+            fg=self.text,
+            font=self.fonts["small"],
+            relief="flat",
+            padx=8,
+            pady=6,
+        )
         self.history_paths_text.pack(fill="x")
-        self.history_list = tk.Listbox(left, bg="#0f172a", fg="#e5e7eb", activestyle="dotbox")
+        self.history_list = tk.Listbox(
+            left,
+            bg=self.surface,
+            fg=self.text,
+            selectbackground=self.border,
+            selectforeground=self.text_strong,
+            font=self.fonts["small"],
+            activestyle="none",
+            relief="flat",
+        )
         self.history_list.pack(fill="both", expand=True)
         self.history_list.bind("<<ListboxSelect>>", self._history_selected)
         self.history_paths: list[Path] = []
@@ -860,12 +1071,13 @@ class DesktopApp(tk.Tk):
         self.history_text = ScrolledText(
             right,
             wrap="word",
-            bg="#f8fafc",
-            fg="#111827",
-            insertbackground="#111827",
+            bg=self.panel,
+            fg=self.text,
+            insertbackground=self.text,
             relief="flat",
-            padx=18,
-            pady=16,
+            padx=20,
+            pady=18,
+            font=self.fonts["body"],
         )
         self.history_text.pack(fill="both", expand=True)
         self._configure_markdown_tags(self.history_text)
@@ -892,10 +1104,13 @@ class DesktopApp(tk.Tk):
             edge_panel,
             height=4,
             wrap="word",
-            bg=self.table_bg,
+            bg=self.surface,
             fg=self.text,
+            font=self.fonts["mono"],
             insertbackground=self.text,
             relief="flat",
+            padx=10,
+            pady=8,
         )
         self.learning_edge_text.pack(fill="x")
         self.learning_edge_text.configure(state="disabled")
@@ -946,11 +1161,12 @@ class DesktopApp(tk.Tk):
         self.learning_drift_text = tk.Text(
             drift_panel,
             wrap="word",
-            bg=self.table_bg,
+            bg=self.surface,
             fg=self.text,
+            font=self.fonts["body"],
             insertbackground=self.text,
             relief="flat",
-            padx=8,
+            padx=10,
             pady=8,
         )
         self.learning_drift_text.pack(fill="both", expand=True)
@@ -1119,27 +1335,39 @@ class DesktopApp(tk.Tk):
         ):
             var = tk.StringVar(value="—")
             self.performance_metric_vars[label] = var
-            cell = tk.Frame(grid, bg=self.card, padx=14, pady=10, highlightthickness=1, highlightbackground=self.border)
+            cell = tk.Frame(grid, bg=self.card, padx=16, pady=12, highlightthickness=1, highlightbackground=self.border)
             cell.grid(row=i // 4, column=i % 4, sticky="ew", padx=4, pady=4)
             grid.columnconfigure(i % 4, weight=1, uniform="perf_metrics")
-            tk.Label(cell, text=label.upper(), bg=self.card, fg=self.muted, font=self.fonts["small"]).pack(anchor="w")
-            tk.Label(cell, textvariable=var, bg=self.card, fg=self.text_strong, font=self.fonts["heading"]).pack(anchor="w", pady=(4, 0))
+            tk.Label(
+                cell,
+                text=label.upper(),
+                bg=self.card,
+                fg=self.subtle,
+                font=self.fonts["small"],
+            ).pack(anchor="w")
+            tk.Label(
+                cell,
+                textvariable=var,
+                bg=self.card,
+                fg=self.text_strong,
+                font=self.fonts["heading"],
+            ).pack(anchor="w", pady=(6, 0))
 
         # Sparkline canvas — portfolio (and SPY) rebased to 100 at start.
         chart_panel = self._panel(self.performance_tab, "Portfolio value (rebased to 100 at start)")
         chart_panel.pack(fill="x", padx=16, pady=(0, 12))
         self.performance_canvas = tk.Canvas(
             chart_panel,
-            height=160,
-            bg=self.table_bg,
+            height=180,
+            bg=self.surface,
             highlightthickness=0,
             bd=0,
         )
         self.performance_canvas.pack(fill="x", expand=True)
-        legend = ttk.Frame(chart_panel, style="Panel.TFrame")
-        legend.pack(fill="x", pady=(6, 0))
+        legend = tk.Frame(chart_panel, bg=self.panel)
+        legend.pack(fill="x", pady=(8, 0))
         tk.Label(legend, text="● Portfolio", bg=self.panel, fg=self.accent, font=self.fonts["small"]).pack(side="left", padx=8)
-        tk.Label(legend, text="● SPY", bg=self.panel, fg=PALETTE.info, font=self.fonts["small"]).pack(side="left", padx=8)
+        tk.Label(legend, text="● SPY", bg=self.panel, fg=self.info, font=self.fonts["small"]).pack(side="left", padx=8)
 
         # Sector waterfall + return distribution
         body = ttk.PanedWindow(self.performance_tab, orient="horizontal")
@@ -1258,7 +1486,7 @@ class DesktopApp(tk.Tk):
         if spy.get("available") and spy.get("values"):
             spy_initial = spy["values"][0]
             if spy_initial > 0:
-                series_to_draw.append(([v / spy_initial * 100.0 for v in spy["values"]], PALETTE.info))
+                series_to_draw.append(([v / spy_initial * 100.0 for v in spy["values"]], self.info))
 
         # Shared y-range so both series stay comparable
         all_values = [v for series, _ in series_to_draw for v in series]
@@ -1346,10 +1574,13 @@ class DesktopApp(tk.Tk):
         self.schedule_preview_text = tk.Text(
             preview_panel,
             wrap="none",
-            bg=self.table_bg,
+            bg=self.surface,
             fg=self.text,
+            font=self.fonts["mono"],
             insertbackground=self.text,
             relief="flat",
+            padx=10,
+            pady=8,
         )
         self.schedule_preview_text.pack(fill="both", expand=True)
         self.schedule_preview_text.configure(state="disabled")
@@ -1510,10 +1741,13 @@ class DesktopApp(tk.Tk):
             bundle_panel,
             height=8,
             wrap="none",
-            bg=self.table_bg,
+            bg=self.surface,
             fg=self.text,
+            font=self.fonts["mono"],
             insertbackground=self.text,
             relief="flat",
+            padx=10,
+            pady=8,
         )
         self.diagnostics_bundle_text.pack(fill="x")
         self.diagnostics_bundle_text.configure(state="disabled")
@@ -1616,7 +1850,17 @@ class DesktopApp(tk.Tk):
         self.editor_status = tk.StringVar(value="")
         ttk.Label(toolbar, textvariable=self.editor_status, style="Muted.TLabel").pack(side="left", padx=12)
 
-        self.editor_text = ScrolledText(self.editor_tab, wrap="none", bg="#0b1020", fg="#e5e7eb", insertbackground="#e5e7eb")
+        self.editor_text = ScrolledText(
+            self.editor_tab,
+            wrap="none",
+            bg=self.surface,
+            fg=self.text,
+            font=self.fonts["mono"],
+            insertbackground=self.text,
+            relief="flat",
+            padx=12,
+            pady=10,
+        )
         self.editor_text.pack(fill="both", expand=True, padx=16, pady=(0, 16))
         self.load_editor_file()
 
@@ -1665,7 +1909,17 @@ class DesktopApp(tk.Tk):
 
         paths_panel = self._panel(self.health_tab, "API Key Search Paths")
         paths_panel.pack(fill="x", padx=16, pady=(0, 16))
-        self.api_paths_text = tk.Text(paths_panel, height=8, wrap="none", bg="#0f172a", fg="#e5e7eb")
+        self.api_paths_text = tk.Text(
+            paths_panel,
+            height=8,
+            wrap="none",
+            bg=self.surface,
+            fg=self.text,
+            font=self.fonts["small"],
+            relief="flat",
+            padx=8,
+            pady=6,
+        )
         self.api_paths_text.pack(fill="x")
         self.refresh_api_paths_text()
 
@@ -1685,7 +1939,18 @@ class DesktopApp(tk.Tk):
 
         body = self._panel(self.update_tab, "Update Details")
         body.pack(fill="both", expand=True, padx=16, pady=(0, 16))
-        self.update_text = tk.Text(body, height=18, wrap="word", bg="#0f172a", fg="#e5e7eb", padx=10, pady=8)
+        self.update_text = tk.Text(
+            body,
+            height=18,
+            wrap="word",
+            bg=self.surface,
+            fg=self.text,
+            font=self.fonts["body"],
+            insertbackground=self.text,
+            relief="flat",
+            padx=12,
+            pady=10,
+        )
         self.update_text.pack(fill="both", expand=True)
         self._set_update_text(
             "Updates are checked from GitHub Releases.\n\n"
@@ -1858,13 +2123,12 @@ class DesktopApp(tk.Tk):
         return "break"
 
     def focus_active_search(self, _event: object | None = None) -> str:
-        selected = self.tabs.select()
-        tab_text = self.tabs.tab(selected, "text") if selected else ""
+        tab_text = self._tab_name()
         if tab_text == "History":
             key = "history"
         else:
             key = "report"
-            if tab_text != "Report Viewer":
+            if tab_text != "Viewer":
                 self.tabs.select(self.report_tab)
         state = self.search_state.get(key)
         entry = state.get("entry") if state else None
@@ -1985,24 +2249,78 @@ class DesktopApp(tk.Tk):
         state["status"].set(f"{match_index + 1}/{len(matches)}{suffix}")
 
     def _configure_markdown_tags(self, widget: tk.Text) -> None:
-        base_font = tkfont.Font(family="Helvetica", size=13)
-        mono_font = tkfont.Font(family="Menlo", size=12)
+        fonts = self.fonts
+        base_font = tkfont.Font(font=fonts["body"])
+        mono_font = tkfont.Font(font=fonts["mono"])
         widget.configure(font=base_font)
-        widget.tag_configure("h1", font=("Helvetica", 24, "bold"), foreground="#0f172a", spacing1=8, spacing3=10)
-        widget.tag_configure("h2", font=("Helvetica", 18, "bold"), foreground="#166534", spacing1=16, spacing3=8)
-        widget.tag_configure("h3", font=("Helvetica", 15, "bold"), foreground="#1f2937", spacing1=12, spacing3=6)
-        widget.tag_configure("body", font=base_font, foreground="#111827", spacing1=2, spacing3=8)
-        widget.tag_configure("bold", font=("Helvetica", 13, "bold"), foreground="#111827")
-        widget.tag_configure("bullet", lmargin1=20, lmargin2=38, spacing3=4)
         widget.tag_configure(
-            "table", font=mono_font, background="#e5e7eb", foreground="#111827", lmargin1=10, lmargin2=10, spacing1=1, spacing3=1
+            "h1",
+            font=fonts["title"],
+            foreground=self.text_strong,
+            spacing1=8,
+            spacing3=12,
         )
         widget.tag_configure(
-            "table_header", font=("Menlo", 12, "bold"), background="#d1d5db", foreground="#111827", lmargin1=10, lmargin2=10
+            "h2",
+            font=fonts["heading"],
+            foreground=self.accent,
+            spacing1=18,
+            spacing3=8,
         )
-        widget.tag_configure("rule", foreground="#94a3b8", spacing1=6, spacing3=6)
-        widget.tag_configure("search_match", background="#fde68a", foreground="#111827")
-        widget.tag_configure("search_current", background="#fb923c", foreground="#111827")
+        widget.tag_configure(
+            "h3",
+            font=fonts["subheading"],
+            foreground=self.text_strong,
+            spacing1=14,
+            spacing3=6,
+        )
+        widget.tag_configure(
+            "body",
+            font=base_font,
+            foreground=self.text,
+            spacing1=2,
+            spacing3=8,
+        )
+        widget.tag_configure(
+            "bold",
+            font=(fonts["body"][0], fonts["body"][1], "bold"),
+            foreground=self.text_strong,
+        )
+        widget.tag_configure("bullet", lmargin1=22, lmargin2=40, spacing3=4)
+        widget.tag_configure(
+            "table",
+            font=mono_font,
+            background=self.surface,
+            foreground=self.text,
+            lmargin1=10,
+            lmargin2=10,
+            spacing1=1,
+            spacing3=1,
+        )
+        widget.tag_configure(
+            "table_header",
+            font=(fonts["mono"][0], fonts["mono"][1], "bold"),
+            background=self.card,
+            foreground=self.text_strong,
+            lmargin1=10,
+            lmargin2=10,
+        )
+        widget.tag_configure(
+            "rule",
+            foreground=self.border_strong,
+            spacing1=6,
+            spacing3=6,
+        )
+        widget.tag_configure(
+            "search_match",
+            background="#b45309",
+            foreground=self.text_strong,
+        )
+        widget.tag_configure(
+            "search_current",
+            background=self.accent,
+            foreground=self.bg,
+        )
 
     def _insert_inline_markdown(self, widget: tk.Text, text: str, base_tag: str = "body") -> None:
         parts = re.split(r"(\*\*[^*]+\*\*)", text)
@@ -2101,12 +2419,13 @@ class DesktopApp(tk.Tk):
             parent,
             height=height,
             wrap="word",
-            bg=self.table_bg,
+            bg=self.surface,
             fg=self.text,
+            font=self.fonts["body"],
             insertbackground=self.text,
             relief="flat",
-            padx=10,
-            pady=8,
+            padx=12,
+            pady=10,
         )
         widget.pack(fill="both", expand=True)
         widget.configure(state="disabled")
@@ -2553,14 +2872,14 @@ class DesktopApp(tk.Tk):
     def _dashboard_tone(self, key: Any) -> tuple[str, str]:
         value = str(key or "").upper()
         if value in {"BUY", "ADD"}:
-            return self.good, "#10231a"
+            return self.good, self.card
         if value in {"SELL", "HIGH"}:
-            return self.danger, "#2a1618"
+            return self.danger, self.card
         if value in {"TRIM", "MEDIUM"}:
-            return self.warning, "#261f12"
+            return self.warning, self.card
         if value in {"WATCH", "LOW"}:
-            return self.muted, "#151827"
-        return self.accent, "#171827"
+            return self.muted, self.card
+        return self.accent, self.card
 
     def _set_metric(self, label: str, value: str, hint: str = "") -> None:
         if label in self.metric_vars:
@@ -2590,16 +2909,22 @@ class DesktopApp(tk.Tk):
             parent,
             text=str(text or ""),
             bg=color,
-            fg="#0a0a10",
-            font=("Helvetica", 10, "bold"),
+            fg=self.bg,
+            font=self.fonts["small"],
             padx=8,
             pady=2,
         ).pack(side="left", padx=(0, 6))
 
     def _wrapped_dashboard_label(
-        self, parent: tk.Widget, text: str, *, bg: str, fg: str, font: tuple[str, int, str] | tuple[str, int] = ("Helvetica", 11)
+        self,
+        parent: tk.Widget,
+        text: str,
+        *,
+        bg: str,
+        fg: str,
+        font: tuple | None = None,
     ) -> tk.Label:
-        label = tk.Label(parent, text=text, bg=bg, fg=fg, font=font, justify="left", anchor="w", wraplength=900)
+        label = tk.Label(parent, text=text, bg=bg, fg=fg, font=font or self.fonts["body"], justify="left", anchor="w", wraplength=900)
         label.pack(fill="x", pady=(6, 0))
         parent.bind("<Configure>", lambda event, widget=label: widget.configure(wraplength=max(event.width - 20, 260)))
         return label
@@ -2612,10 +2937,10 @@ class DesktopApp(tk.Tk):
         for row in rows[:8]:
             action = row.get("action") or ""
             accent, bg = self._dashboard_tone(action)
-            card = tk.Frame(self.action_cards, bg=bg, highlightthickness=1, highlightbackground="#303044")
-            card.pack(fill="x", pady=(0, 8))
-            tk.Frame(card, bg=accent, width=5).pack(side="left", fill="y")
-            body = tk.Frame(card, bg=bg, padx=12, pady=10)
+            card = tk.Frame(self.action_cards, bg=bg, highlightthickness=1, highlightbackground=self.border)
+            card.pack(fill="x", pady=(0, 6))
+            tk.Frame(card, bg=accent, width=4).pack(side="left", fill="y")
+            body = tk.Frame(card, bg=bg, padx=14, pady=10)
             body.pack(side="left", fill="both", expand=True)
 
             header = tk.Frame(body, bg=bg)
@@ -2626,21 +2951,22 @@ class DesktopApp(tk.Tk):
                 header,
                 text=str(row.get("ticker") or ""),
                 bg=bg,
-                fg=self.text,
-                font=("Helvetica", 13, "bold"),
+                fg=self.text_strong,
+                font=self.fonts["subheading"],
             ).pack(side="left", padx=(2, 10))
             size = row.get("action_size_label") or row.get("shares") or row.get("invest_amount_usd") or ""
             if size:
-                tk.Label(header, text=str(size), bg=bg, fg=self.muted, font=("Helvetica", 11)).pack(side="left")
+                tk.Label(header, text=str(size), bg=bg, fg=self.muted, font=self.fonts["small"]).pack(side="left")
 
             reason = row.get("rationale") or row.get("reason") or row.get("message") or ""
             self._wrapped_dashboard_label(body, self._trim_text(reason, 360), bg=bg, fg=self.text)
         if len(rows) > 8:
             tk.Label(
                 self.action_cards,
-                text=f"{len(rows) - 8} more actions are in the full report.",
+                text=f"{len(rows) - 8} more actions in the full report.",
                 bg=self.panel,
                 fg=self.muted,
+                font=self.fonts["small"],
             ).pack(anchor="w", pady=(0, 4))
 
     def _render_warning_cards(self, rows: list[dict[str, Any]]) -> None:
@@ -2651,30 +2977,31 @@ class DesktopApp(tk.Tk):
         for row in rows[:7]:
             severity = str(row.get("severity") or "LOW").upper()
             accent, bg = self._dashboard_tone(severity)
-            card = tk.Frame(self.warning_cards, bg=bg, highlightthickness=1, highlightbackground="#303044")
-            card.pack(fill="x", pady=(0, 8))
-            body = tk.Frame(card, bg=bg, padx=10, pady=8)
+            card = tk.Frame(self.warning_cards, bg=bg, highlightthickness=1, highlightbackground=self.border)
+            card.pack(fill="x", pady=(0, 6))
+            body = tk.Frame(card, bg=bg, padx=12, pady=8)
             body.pack(fill="both", expand=True)
             header = tk.Frame(body, bg=bg)
             header.pack(fill="x")
             self._dashboard_tag(header, severity, color=accent)
             if row.get("ticker"):
-                self._dashboard_tag(header, row.get("ticker"), color="#64748b")
+                self._dashboard_tag(header, row.get("ticker"), color=self.subtle)
             tk.Label(
                 header,
                 text=str(row.get("code") or ""),
                 bg=bg,
-                fg=self.text,
-                font=("Helvetica", 11, "bold"),
+                fg=self.text_strong,
+                font=self.fonts["small"],
             ).pack(side="left", padx=(2, 0))
             message = row.get("action_required") or row.get("message") or ""
-            self._wrapped_dashboard_label(body, self._trim_text(message, 240), bg=bg, fg=self.text, font=("Helvetica", 10))
+            self._wrapped_dashboard_label(body, self._trim_text(message, 240), bg=bg, fg=self.text, font=self.fonts["small"])
         if len(rows) > 7:
             tk.Label(
                 self.warning_cards,
-                text=f"{len(rows) - 7} more warnings are in the report.",
+                text=f"{len(rows) - 7} more warnings in the report.",
                 bg=self.panel,
                 fg=self.muted,
+                font=self.fonts["small"],
             ).pack(anchor="w", pady=(0, 4))
 
     def _render_stop_cards(self, rows: list[dict[str, Any]]) -> None:
@@ -2685,9 +3012,9 @@ class DesktopApp(tk.Tk):
         for row in rows[:5]:
             action = row.get("recommended_action") or "REVIEW"
             accent, bg = self._dashboard_tone(action)
-            card = tk.Frame(self.stop_cards, bg=bg, highlightthickness=1, highlightbackground="#303044")
-            card.pack(fill="x", pady=(0, 8))
-            body = tk.Frame(card, bg=bg, padx=10, pady=8)
+            card = tk.Frame(self.stop_cards, bg=bg, highlightthickness=1, highlightbackground=self.border)
+            card.pack(fill="x", pady=(0, 6))
+            body = tk.Frame(card, bg=bg, padx=12, pady=8)
             body.pack(fill="both", expand=True)
             header = tk.Frame(body, bg=bg)
             header.pack(fill="x")
@@ -2698,10 +3025,10 @@ class DesktopApp(tk.Tk):
                 f"Stop {self._fmt_price(row.get('stop_price'))} | "
                 f"Gain {self._fmt_pct(row.get('current_gain_pct'), signed=True)}"
             )
-            tk.Label(header, text=metrics, bg=bg, fg=self.text, font=("Helvetica", 10, "bold")).pack(side="left")
+            tk.Label(header, text=metrics, bg=bg, fg=self.text, font=self.fonts["small"]).pack(side="left")
             note = row.get("rationale") or row.get("message") or ""
             if note:
-                self._wrapped_dashboard_label(body, self._trim_text(note, 220), bg=bg, fg=self.muted, font=("Helvetica", 10))
+                self._wrapped_dashboard_label(body, self._trim_text(note, 220), bg=bg, fg=self.muted, font=self.fonts["small"])
 
     def refresh_dashboard(self) -> None:
         # Keep the header status pill in lock-step with the dashboard.
