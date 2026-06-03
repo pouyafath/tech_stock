@@ -52,20 +52,31 @@
 
 ---
 
-## ✨ What's New in v1.21.0 (May 29, 2026)
+## ✨ What's New in v1.22.0 (June 3, 2026)
 
-**Stabilization, supportability, and V2 readiness gate.**
+**macOS desktop UI overhaul — professional, consistent, dark-themed.**
 
-- **Doctor / Preflight** — new `python src/main.py doctor --json` command reports installed version, latest GitHub release, update-cache age/source, workspace paths, API-key discovery, required/optional API status, CSV freshness, monthly budget state, and release asset/checksum availability.
-- **Diagnostics Preflight** — Desktop and Streamlit Diagnostics now show the same preflight table before paid runs, so missing keys, stale CSVs, cached updater results, or release-asset gaps are visible in-app.
-- **Force-refresh updates** — manual update checks bypass the 6-hour cache and show whether the result came from live GitHub Releases or local cache.
-- **Demo smoke test** — bundled samples, markdown rendering, Dashboard view models, and Buy Signals view models can be validated with no network spend.
-- **Data Confidence** — reports, Dashboard, and Buy Signals now surface quote freshness, source degradation, catalyst coverage, warning counts, and Trade Ready / Review First / Blocked readiness as a top-level trust signal.
-- **Release-line cleanup** — fixed a CI-only report history ordering flake that blocked the `v1.20.0` draft release on Ubuntu.
+- **Consistent font ladder** — Every label, metric, card, and text widget now uses the platform-aware font stack (`SF Pro` on macOS, `Segoe UI` on Windows). No more hardcoded `Helvetica`.
+- **Unified dark theme** — Report viewer and history switched from jarring light background to the shared dark PALETTE. Markdown rendering, search highlights, and all text widgets now match the rest of the app.
+- **PALETTE token consistency** — Eliminated ~30 hardcoded hex colour literals. Every surface traces back to shared design tokens.
+- **Refined panels & cards** — Uppercase muted section labels with separator lines. Metric cards with proper typographic hierarchy. Cleaner tab labels.
+- **Polished chrome** — Improved header, styled comboboxes/entries/scrollbars, clam theme for full dark-mode control.
 
 Current local suite: `pytest -q` passes with 588 tests.
 
 > **V2 note:** do not call the next update `v2.0.1`. V2 should wait until public releases match repo version, updater flow works from older installs, demo mode works without keys, installers pass smoke tests on macOS/Windows/Linux, user-data migration rules are documented, and production installers are signed/notarized.
+
+## ✨ What's New in v1.21.0 (May 29, 2026)
+
+**Stabilization, supportability, and V2 readiness gate.**
+
+- **Doctor / Preflight** — `python src/main.py doctor --json` reports installed version, latest GitHub release, update-cache age/source, workspace paths, API-key discovery, CSV freshness, budget status, and release asset availability.
+- **Diagnostics Preflight** — Desktop and Streamlit Diagnostics show the same preflight table before paid runs.
+- **Force-refresh updates** — manual checks bypass the 6-hour cache and show whether the result came from cache or live GitHub Releases.
+- **Demo smoke test** — validates bundled samples, markdown rendering, Dashboard and Buy Signals view models with no network spend.
+- **Data Confidence** — reports and dashboards surface quote freshness, source coverage, catalyst coverage, warning counts, and readiness status.
+
+Current local suite at that release: `pytest -q` passed with 588 tests.
 
 ## ✨ What's New in v1.20.0 (May 27, 2026)
 
