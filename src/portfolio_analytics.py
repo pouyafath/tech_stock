@@ -39,13 +39,24 @@ def get_usd_cad_rate() -> float:
 
         with urllib.request.urlopen("https://fred.stlouisfed.org/graph/fredgraph.csv?id=DEXCAUS", timeout=5) as resp:
             lines = resp.read().decode().strip().splitlines()
-        last = [l for l in lines if not l.startswith("DATE") and "." in l][-1]
-        rate = float(last.split(",")[1])
-        _fx_cache = (rate, now)
-        return rate
+        # Walk from the newest row backwards; DEXCAUS uses "." for missing days,
+        # so skip any row whose value column does not parse as a float.
+        for line in reversed(lines):
+            if line.startswith("DATE"):
+                continue
+            parts = line.split(",")
+            if len(parts) < 2:
+                continue
+            try:
+                rate = float(parts[1])
+            except ValueError:
+                continue
+            _fx_cache = (rate, now)
+            return rate
     except Exception:
-        logging.getLogger(__name__).warning("FX rate fetch failed; using hardcoded 1.37")
-        return 1.37
+        pass
+    logging.getLogger(__name__).warning("FX rate fetch failed; using hardcoded 1.37")
+    return 1.37
 
 
 def company_key(ticker: str) -> str:

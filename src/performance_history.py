@@ -215,6 +215,22 @@ def _safe_stdev(values: list[float]) -> float:
     return (sum((v - mean) ** 2 for v in values) / (len(values) - 1)) ** 0.5
 
 
+def _percentile(values: list[float], pct: float) -> float:
+    """Linear-interpolated percentile (``pct`` in 0–100) of a numeric list."""
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return ordered[0]
+    rank = (pct / 100.0) * (len(ordered) - 1)
+    lo = math.floor(rank)
+    hi = math.ceil(rank)
+    if lo == hi:
+        return ordered[int(rank)]
+    frac = rank - lo
+    return ordered[lo] * (1 - frac) + ordered[hi] * frac
+
+
 def _max_drawdown_pct(series: list[float]) -> float:
     """Worst peak-to-trough drawdown of a cumulative-value series, in %.
 
@@ -327,6 +343,20 @@ def portfolio_performance_summary(
 
     max_dd_pct = _max_drawdown_pct(values)
 
+    # ── Downside-risk metrics (v1.24) ──────────────────────────────────────
+    # session_returns are per-session % changes. Sortino penalises only the
+    # negative returns; Calmar compares annualized return to max drawdown;
+    # VaR/CVaR summarise the left tail at the 95% confidence level.
+    downside = [r for r in session_returns if r < 0]
+    downside_dev = _safe_stdev(downside) * (sessions_per_year**0.5) if len(downside) >= 2 else 0.0
+    sortino = (annualized_return_pct / downside_dev) if downside_dev > 0 else None
+    calmar = (annualized_return_pct / abs(max_dd_pct)) if max_dd_pct < 0 else None
+    var_95_pct = _percentile(session_returns, 5) if len(session_returns) >= 2 else None
+    cvar_95_pct = None
+    if var_95_pct is not None:
+        tail = [r for r in session_returns if r <= var_95_pct]
+        cvar_95_pct = _safe_mean(tail) if tail else None
+
     # ── SPY benchmark ──────────────────────────────────────────────────────
     spy_payload: dict[str, Any] = {
         "available": False,
@@ -436,6 +466,10 @@ def portfolio_performance_summary(
         "annualized_return_pct": round(annualized_return_pct, 2),
         "annualized_volatility_pct": round(annualized_volatility_pct, 2),
         "sharpe": round(sharpe, 2),
+        "sortino": round(sortino, 2) if sortino is not None else None,
+        "calmar": round(calmar, 2) if calmar is not None else None,
+        "var_95_pct": round(var_95_pct, 2) if var_95_pct is not None else None,
+        "cvar_95_pct": round(cvar_95_pct, 2) if cvar_95_pct is not None else None,
         "max_drawdown_pct": round(max_dd_pct, 2),
         "sessions_per_year": round(sessions_per_year, 1),
         "rolling_sharpe": rolling_sharpe,

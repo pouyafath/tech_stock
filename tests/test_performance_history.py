@@ -135,6 +135,26 @@ def test_portfolio_performance_summary_computes_cumulative_return(tmp_path):
     assert len(summary["session_returns_pct"]) == 2
 
 
+def test_portfolio_performance_summary_downside_risk_metrics(tmp_path):
+    # A series with both up and down sessions so Sortino / VaR / CVaR are defined.
+    _write_log(tmp_path, "20260101_0930_morning.json", 10000.0)
+    _write_log(tmp_path, "20260102_0930_morning.json", 10400.0)  # +4%
+    _write_log(tmp_path, "20260103_0930_morning.json", 9900.0)  # -4.8%
+    _write_log(tmp_path, "20260104_0930_morning.json", 10200.0)  # +3%
+    _write_log(tmp_path, "20260105_0930_morning.json", 9700.0)  # -4.9%
+    summary = portfolio_performance_summary(log_dir=tmp_path, fetch_spy=False)
+    assert summary["ready"] is True
+    # All four new fields are present and numeric (not the "—" placeholder).
+    for key in ("sortino", "calmar", "var_95_pct", "cvar_95_pct"):
+        assert key in summary
+    # VaR 95% is a left-tail figure → should be negative given the down sessions.
+    assert summary["var_95_pct"] is not None
+    assert summary["var_95_pct"] <= 0
+    # CVaR is the mean of the tail at/below VaR → no worse than VaR.
+    assert summary["cvar_95_pct"] is not None
+    assert summary["cvar_95_pct"] <= summary["var_95_pct"] + 1e-9
+
+
 def test_portfolio_performance_summary_skips_spy_when_disabled(tmp_path):
     _write_log(tmp_path, "20260101_0930_morning.json", 10000.0)
     _write_log(tmp_path, "20260201_0930_morning.json", 10500.0)

@@ -56,8 +56,8 @@
 
 **Quality, resilience & analytics improvements.**
 
-- **Expanded risk metrics** — Sortino ratio, Calmar ratio, VaR 95%, and CVaR 95% added to the portfolio risk dashboard. Derived from existing price history, no new API dependencies.
-- **Live FX rate** — USD/CAD conversion now fetches the live rate (exchangerate-api.com with FRED fallback), cached 4 hours. Static 1.37 fallback preserved for offline runs.
+- **Expanded risk metrics** — Sortino ratio, Calmar ratio, VaR 95%, and CVaR 95% added to the risk dashboard and the desktop Performance tab (with tooltips). Derived from existing price history, no new API dependencies.
+- **Live FX rate** — USD/CAD conversion now fetches a live rate via a keyless source (exchangerate-api.com with FRED public-CSV fallback), cached 4 hours, wired into the report pipeline as the fallback when no FRED key is set. Static 1.37 fallback preserved for offline runs.
 - **Claude API resilience** — Automatic retry on rate limit errors (429/529/503) with exponential backoff (5s/15s/45s). Pass 2 quality review now has a graceful fallback to Pass 1 if it fails, instead of crashing the run.
 - **Sector rotation conflict gate** — New quality gate flags contradictions between sector warnings ("reduce tech") and BUY/ADD recommendations on tech tickers.
 - **Journal filters + CSV export** — Streamlit Journal tab has ticker filter, date range filter, and outcome filter. CSV export button added.
@@ -66,7 +66,7 @@
 - **Degradation health surfaced** — `degradation_health()` now displays in the Streamlit Diagnostics tab.
 - **Claude analyst unit tests** — New test file with 14 tests covering normalization, schema validation, and Pass 2 fallback behavior.
 
-Current local suite: `pytest -q` passes with 591 tests (4 desktop-specific tests require tkinter display).
+Current local suite: `pytest -q` passes with 592 tests (4 desktop-specific tests require tkinter display).
 
 ## ✨ What's New in v1.23.0 (June 3, 2026)
 

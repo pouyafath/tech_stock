@@ -1852,21 +1852,45 @@ class DesktopApp(tk.Tk):
         self.performance_metric_vars: dict[str, tk.StringVar] = {}
         grid = ttk.Frame(metrics_panel, style="Panel.TFrame")
         grid.pack(fill="x")
+        perf_tooltips = {
+            "Sharpe": "Return per unit of total volatility. Higher is better; >1 is good.",
+            "Sortino": "Like Sharpe but penalizes only downside volatility. Higher is better.",
+            "Calmar": "Annualized return divided by max drawdown. Higher means better return for the pain endured.",
+            "VaR 95%": "Value at Risk: the per-session loss you'd expect to exceed only 5% of the time.",
+            "CVaR 95%": "Expected loss on the worst 5% of sessions (the average of the tail beyond VaR).",
+            "Max drawdown": "Largest peak-to-trough drop in portfolio value over the period.",
+            "Beta": "Sensitivity to the S&P 500. >1 = moves more than the market.",
+            "Volatility": "Annualized standard deviation of session returns.",
+        }
         for i, label in enumerate(
-            ["Cumulative return", "Annualized return", "Volatility", "Sharpe", "Max drawdown", "SPY return", "Beta", "Alpha (ann.)"]
+            [
+                "Cumulative return",
+                "Annualized return",
+                "Volatility",
+                "Sharpe",
+                "Sortino",
+                "Calmar",
+                "VaR 95%",
+                "CVaR 95%",
+                "Max drawdown",
+                "SPY return",
+                "Beta",
+                "Alpha (ann.)",
+            ]
         ):
             var = tk.StringVar(value="—")
             self.performance_metric_vars[label] = var
             cell = tk.Frame(grid, bg=self.card, padx=16, pady=12, highlightthickness=1, highlightbackground=self.border)
             cell.grid(row=i // 4, column=i % 4, sticky="ew", padx=4, pady=4)
             grid.columnconfigure(i % 4, weight=1, uniform="perf_metrics")
-            tk.Label(
+            name_label = tk.Label(
                 cell,
                 text=label.upper(),
                 bg=self.card,
                 fg=self.subtle,
                 font=self.fonts["small"],
-            ).pack(anchor="w")
+            )
+            name_label.pack(anchor="w")
             tk.Label(
                 cell,
                 textvariable=var,
@@ -1874,6 +1898,9 @@ class DesktopApp(tk.Tk):
                 fg=self.text_strong,
                 font=self.fonts["heading"],
             ).pack(anchor="w", pady=(6, 0))
+            if label in perf_tooltips:
+                self._tip(cell, perf_tooltips[label])
+                self._tip(name_label, perf_tooltips[label])
 
         # Sparkline canvas — portfolio (and SPY) rebased to 100 at start.
         chart_panel = self._panel(self.performance_tab, "Portfolio value (rebased to 100 at start)")
@@ -1951,6 +1978,10 @@ class DesktopApp(tk.Tk):
         m["Annualized return"].set(_pct(view["annualized_return_pct"], digits=1))
         m["Volatility"].set(_pct(view["annualized_volatility_pct"], signed=False, digits=1))
         m["Sharpe"].set(f"{view['sharpe']:.2f}")
+        m["Sortino"].set(f"{view['sortino']:.2f}" if view.get("sortino") is not None else "—")
+        m["Calmar"].set(f"{view['calmar']:.2f}" if view.get("calmar") is not None else "—")
+        m["VaR 95%"].set(_pct(view.get("var_95_pct"), digits=2) if view.get("var_95_pct") is not None else "—")
+        m["CVaR 95%"].set(_pct(view.get("cvar_95_pct"), digits=2) if view.get("cvar_95_pct") is not None else "—")
         m["Max drawdown"].set(_pct(view["max_drawdown_pct"], digits=1))
         m["SPY return"].set(_pct(spy.get("cumulative_return_pct")) if spy.get("available") else "—")
         m["Beta"].set(f"{spy.get('beta'):.2f}" if spy.get("beta") is not None else "—")

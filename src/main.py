@@ -835,6 +835,15 @@ def run(
     from src.fred_client import live_cad_per_usd
 
     live_fx = live_cad_per_usd()
+    if not live_fx:
+        # No FRED API key (or FRED failed) — fall back to the keyless FX source
+        # (exchangerate-api.com, then FRED's public CSV) so users without a FRED
+        # key still get a live rate instead of the static assumption.
+        from src.portfolio_analytics import get_usd_cad_rate
+
+        keyless_fx = get_usd_cad_rate()
+        if keyless_fx and keyless_fx != settings.get("cad_per_usd_assumption", 1.37):
+            live_fx = keyless_fx
     if live_fx and 1.20 < live_fx < 1.55:  # sanity check vs historical range
         cad_per_usd = live_fx
         # Persist for downstream consumers (drawdown, analytics) that read settings
