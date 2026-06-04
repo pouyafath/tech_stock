@@ -5,12 +5,47 @@ Deterministic portfolio analytics used by prompts, quality gates, and reports.
 
 from __future__ import annotations
 
+import logging
 import math
+import time
 from itertools import combinations
 
 import pandas as pd
 
 from src.constants import COMPANY_ALIASES
+
+_fx_cache: tuple[float, float] | None = None  # (rate, timestamp)
+_FX_TTL = 4 * 3600  # 4 hours
+
+
+def get_usd_cad_rate() -> float:
+    """Fetch live USD/CAD rate; cache for 4 h; fall back to 1.37 on error."""
+    global _fx_cache
+    now = time.monotonic()
+    if _fx_cache and (now - _fx_cache[1]) < _FX_TTL:
+        return _fx_cache[0]
+    try:
+        import urllib.request, json as _json
+
+        with urllib.request.urlopen("https://api.exchangerate-api.com/v4/latest/USD", timeout=5) as resp:
+            data = _json.loads(resp.read())
+        rate = float(data["rates"]["CAD"])
+        _fx_cache = (rate, now)
+        return rate
+    except Exception:
+        pass
+    try:
+        import urllib.request
+
+        with urllib.request.urlopen("https://fred.stlouisfed.org/graph/fredgraph.csv?id=DEXCAUS", timeout=5) as resp:
+            lines = resp.read().decode().strip().splitlines()
+        last = [l for l in lines if not l.startswith("DATE") and "." in l][-1]
+        rate = float(last.split(",")[1])
+        _fx_cache = (rate, now)
+        return rate
+    except Exception:
+        logging.getLogger(__name__).warning("FX rate fetch failed; using hardcoded 1.37")
+        return 1.37
 
 
 def company_key(ticker: str) -> str:
@@ -121,6 +156,25 @@ def compute_risk_dashboard(
         drawdown = cumulative / cumulative.cummax() - 1
         max_drawdown_pct = round(float(drawdown.min() * 100), 2)
 
+    sortino_ratio = None
+    calmar_ratio = None
+    var_95_pct = None
+    cvar_95_pct = None
+    if not portfolio_returns.empty and len(portfolio_returns) >= 10:
+        mean_return = portfolio_returns.mean()
+        downside = portfolio_returns[portfolio_returns < 0]
+        if len(downside) > 1:
+            downside_std = float(downside.std())
+            if downside_std:
+                sortino_ratio = round(float(mean_return / downside_std * math.sqrt(252)), 2)
+        ann_return = float((1 + mean_return) ** 252 - 1) * 100
+        if max_drawdown_pct and max_drawdown_pct < 0:
+            calmar_ratio = round(ann_return / abs(max_drawdown_pct), 2)
+        var_95_pct = round(float(portfolio_returns.quantile(0.05) * 100), 2)
+        below_var = portfolio_returns[portfolio_returns <= portfolio_returns.quantile(0.05)]
+        if not below_var.empty:
+            cvar_95_pct = round(float(below_var.mean() * 100), 2)
+
     benchmark_beta = {}
     for benchmark in settings.get("risk_benchmark_tickers", ("SPY", "QQQ", "SMH")):
         bench_data = (market_data or {}).get(benchmark) or {}
@@ -156,6 +210,10 @@ def compute_risk_dashboard(
         "beta": benchmark_beta,
         "top3_concentration_pct": top3_concentration_pct,
         "correlated_pairs": correlated_pairs,
+        "sortino_ratio": sortino_ratio,
+        "calmar_ratio": calmar_ratio,
+        "var_95_pct": var_95_pct,
+        "cvar_95_pct": cvar_95_pct,
     }
 
 

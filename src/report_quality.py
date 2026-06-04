@@ -301,6 +301,30 @@ def evaluate(
                 )
             )
 
+    # Sector rotation conflict gate
+    sector_warnings_text = " ".join((recommendation.get("sector_warnings") or [])).lower()
+    reducing_tech = any(
+        phrase in sector_warnings_text for phrase in ("reduce tech", "rotate out of tech", "trim technology", "underweight tech")
+    )
+    if reducing_tech:
+        for rec in recs:
+            ticker = rec.get("ticker", "")
+            action = (rec.get("action") or "").upper()
+            if action not in {"BUY", "ADD"}:
+                continue
+            md = (market_data or {}).get(ticker) or {}
+            sector = (md.get("sector") or "").lower()
+            if "technology" in sector or "semiconductor" in sector:
+                warnings.append(
+                    _warn(
+                        "medium",
+                        "sector_rotation_conflict",
+                        ticker,
+                        f"Sector rotation conflict: strategy calls for reducing technology exposure but recommends {action} on {ticker} ({md.get('sector', 'tech sector')}).",
+                        "Downgrade to HOLD or add a contrarian thesis explicitly justifying the buy against rotation headwinds.",
+                    )
+                )
+
     return [warning.to_dict() for warning in warnings]
 
 

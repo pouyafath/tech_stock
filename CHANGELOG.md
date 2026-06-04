@@ -4,6 +4,25 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.24.0] — 2026-06-04
+
+### Changed — Quality, resilience & analytics improvements
+
+- **Sortino, Calmar, VaR/CVaR metrics** — `compute_risk_dashboard()` now returns four additional risk metrics: Sortino ratio (downside-only volatility), Calmar ratio (return vs max drawdown), VaR 95% (worst 5th-percentile daily loss), and CVaR 95% (expected loss beyond VaR). All derived from existing historical price data, no new API calls.
+- **Live USD/CAD FX rate** — New `get_usd_cad_rate()` in `portfolio_analytics.py` fetches the live rate from exchangerate-api.com (FRED as fallback), cached in-memory for 4 hours. Falls back to the hardcoded 1.37 on any network error. Replaces the static constant used for CAD→USD conversions.
+- **Claude API retry on rate limits** — `_create_message()` now retries up to 3 times on HTTP 429/529/503 errors (RateLimitError, APIStatusError) with exponential backoff: 5s → 15s → 45s. Logs each retry attempt.
+- **Pass 2 fallback** — If the second-pass quality review fails (timeout, refusal, malformed JSON), the system now falls back gracefully to the Pass 1 result instead of crashing the entire run. A warning is appended to the recommendation and `pass2_fallback=True` is set in the output.
+- **Sector rotation conflict gate** — New quality gate in `report_quality.py` detects when sector warnings call for reducing tech exposure but a BUY/ADD is recommended on a tech/semiconductor ticker. Appends a `medium`-severity warning.
+- **Journal tab filters + CSV export** — Streamlit Journal tab now has ticker multiselect, 30-day date range filter, and outcome filter (Win/Loss/Open). A "Export to CSV" download button is available whenever entries are shown.
+- **Schedule tab time picker** — Replaced hour/minute number inputs in the Schedule tab with native `st.time_input` widgets for a cleaner, less error-prone UI.
+- **Backtest equity curve** — Backtest tab now renders a cumulative portfolio index chart from recent realized examples, starting at 100.
+- **Degradation health wired** — `degradation_health()` (previously defined but unused) is now called at the top of the Streamlit Diagnostics tab and surfaces any data quality issues as `st.warning()` items.
+- **Unit tests for claude_analyst** — New `tests/test_claude_analyst.py` covers `normalize_recommendation`, `_normalize_time_horizon`, `_parse_validate_recommendation`, and the Pass 2 fallback path. 14 tests, no live API calls.
+
+### Version bumped: 1.23.0 → 1.24.0
+
+---
+
 ## [1.23.0] — 2026-06-03
 
 ### Changed — B2C user-friendliness overhaul

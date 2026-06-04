@@ -1275,7 +1275,24 @@ def _create_message(client, model: str, settings: dict, messages: list[dict]):
         kwargs["thinking"] = {"type": "adaptive"}
         effort = settings.get("opus_thinking_effort", "medium")
         kwargs["output_config"] = {"effort": effort}
-    return client.messages.create(**kwargs)
+    _RATE_LIMIT_DELAYS = (5, 15, 45)
+    last_exc = None
+    for attempt, delay in enumerate((*_RATE_LIMIT_DELAYS, None)):
+        try:
+            return client.messages.create(**kwargs)
+        except anthropic.RateLimitError as exc:
+            last_exc = exc
+        except anthropic.APIStatusError as exc:
+            if exc.status_code not in (529, 503):
+                raise
+            last_exc = exc
+        if delay is None:
+            break
+        import time as _time
+
+        print(f"[claude_analyst] Rate limit hit, retrying in {delay}s (attempt {attempt + 1}/3)...")
+        _time.sleep(delay)
+    raise last_exc
 
 
 def _sum_usage_stats(stats: list[dict]) -> dict:
@@ -1480,15 +1497,26 @@ def call_claude(
         first_drift,
         previous_session,
     )
-    recommendation, second_usage = _create_parse_message(
-        client,
-        model,
-        settings,
-        [
-            {"role": "user", "content": [_cacheable_text_block(user_message)]},
-            {"role": "user", "content": review_message},
-        ],
-    )
+    second_usage = None
+    try:
+        recommendation, second_usage = _create_parse_message(
+            client,
+            model,
+            settings,
+            [
+                {"role": "user", "content": [_cacheable_text_block(user_message)]},
+                {"role": "user", "content": review_message},
+            ],
+        )
+    except Exception as _pass2_exc:
+        import logging as _logging
+
+        _logging.getLogger(__name__).warning("Pass 2 failed, falling back to Pass 1: %s", _pass2_exc)
+        recommendation = first_recommendation
+        recommendation["pass2_fallback"] = True
+        recommendation.setdefault("warnings", []).append(
+            "Pass 2 quality review failed; displaying Pass 1 output. Verify recommendations manually."
+        )
 
     final_drift = compute_drift(
         recommendation,
@@ -1535,7 +1563,7 @@ def call_claude(
         trailing_alerts=trailing_alerts,
         thesis_forced_exits=thesis_forced_exits,
     )
-    recommendation["review_passes"] = 2
+    recommendation["review_passes"] = 2 if not recommendation.get("pass2_fallback") else 1
     recommendation["drift_vs_previous"] = final_drift
     recommendation["first_pass_quality_warnings"] = first_warnings
     recommendation["first_pass_drift_vs_previous"] = first_drift

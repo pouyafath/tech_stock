@@ -41,6 +41,7 @@ from src.ui_support import (  # noqa: E402
     default_run_settings,
     decision_journal_view,
     decision_scorecard_summary,
+    degradation_health,
     diagnostics_view,
     diagnostics_support_bundle,
     find_default_csvs,
@@ -1310,6 +1311,25 @@ with tab_backtest:
             "ticker",
         )
 
+        # Equity curve from recent realized examples
+        examples = backtest.get("recent_realized_examples") or []
+        if examples:
+            with st.expander("📈 Equity Curve", expanded=True):
+                try:
+                    eq_df = pd.DataFrame(examples)
+                    if "session_date" in eq_df.columns and "actual_pct" in eq_df.columns:
+                        eq_df = eq_df.dropna(subset=["session_date", "actual_pct"])
+                        eq_df["session_date"] = pd.to_datetime(eq_df["session_date"])
+                        daily = eq_df.groupby("session_date")["actual_pct"].mean().sort_index()
+                        cumulative = (1 + daily / 100).cumprod() * 100
+                        st.line_chart(cumulative, x_label="Date", y_label="Portfolio Index (start=100)")
+                    else:
+                        st.info("Equity curve requires session_date and actual_pct columns.")
+                except Exception:
+                    st.info("Could not build equity curve from available data.")
+        else:
+            st.info("Run a backtest first to see the equity curve.")
+
         with st.expander("📋 Recent realized examples", expanded=True):
             examples = backtest.get("recent_realized_examples") or []
             if examples:
@@ -1337,6 +1357,54 @@ def _render_journal() -> None:
     col_pending.metric("Pending", status.get("pending", 0), delta=None)
     col_recorded.metric("Recorded", status.get("recorded", 0))
 
+    # ── Filters ───────────────────────────────────────────────────────────────
+    if entries:
+        from datetime import date as _date, timedelta as _timedelta
+
+        _entries_df = pd.DataFrame(entries)
+        _all_tickers = sorted(_entries_df["ticker"].dropna().unique().tolist()) if "ticker" in _entries_df.columns else []
+        _today = _date.today()
+        _30_days_ago = _today - _timedelta(days=30)
+
+        _fcol1, _fcol2, _fcol3 = st.columns(3)
+        with _fcol1:
+            _sel_tickers = st.multiselect("Filter by ticker", _all_tickers, key="journal_ticker_filter")
+        with _fcol2:
+            _date_range = st.date_input("Date range", value=(_30_days_ago, _today), key="journal_date_range")
+        with _fcol3:
+            _outcome = st.selectbox("Outcome filter", ["All", "Win", "Loss", "Open"], key="journal_outcome")
+
+        # Apply ticker filter
+        if _sel_tickers:
+            entries = [e for e in entries if e.get("ticker") in _sel_tickers]
+
+        # Apply date filter
+        if isinstance(_date_range, (list, tuple)) and len(_date_range) == 2:
+            _start, _end = _date_range
+
+            def _in_range(e):
+                sd = e.get("session_date")
+                if not sd:
+                    return True
+                try:
+                    _d = _date.fromisoformat(str(sd)[:10])
+                    return _start <= _d <= _end
+                except Exception:
+                    return True
+
+            entries = [e for e in entries if _in_range(e)]
+
+        # Apply outcome filter
+        _WIN_DECISIONS = {"accepted", "executed"}
+        _LOSS_DECISIONS = {"ignored"}
+        _OPEN_DECISIONS = {"pending"}
+        if _outcome == "Win":
+            entries = [e for e in entries if e.get("user_decision") in _WIN_DECISIONS]
+        elif _outcome == "Loss":
+            entries = [e for e in entries if e.get("user_decision") in _LOSS_DECISIONS]
+        elif _outcome == "Open":
+            entries = [e for e in entries if e.get("user_decision") in _OPEN_DECISIONS]
+
     if not entries:
         _html(
             empty_state(
@@ -1363,6 +1431,7 @@ def _render_journal() -> None:
         keep_cols = [col for col in display_cols if col in df.columns]
         if keep_cols:
             st.dataframe(df[keep_cols], hide_index=True, width="stretch")
+            st.download_button("📥 Export to CSV", df[keep_cols].to_csv(index=False), "journal.csv", "text/csv")
 
     with st.expander("✏️ Record or update a decision", expanded=bool(entries)):
         if not entries:
@@ -1736,6 +1805,11 @@ with tab_learning:
 
 
 def _render_diagnostics() -> None:
+    # Data quality degradation check
+    deg_issue = degradation_health("streamlit_app")
+    if deg_issue:
+        st.warning(f"⚠️ Data quality degradation detected: {deg_issue}")
+
     st.subheader("Diagnostics")
     st.caption(
         "Per-source API health, recent errors, and a redacted support bundle. "
@@ -1979,6 +2053,7 @@ with tab_diagnostics:
 
 
 def _render_schedule() -> None:
+    from datetime import time as _time
     from src.notifications import send as _send_notify
     from src.scheduling import (
         ScheduleTime,
@@ -2016,24 +2091,21 @@ def _render_schedule() -> None:
     col_morn, col_noon, col_aft = st.columns(3)
     with col_morn:
         enable_morning = st.checkbox("Morning run", value=True, key="sched_morn_en")
-        morn_hour = st.number_input("Hour", min_value=0, max_value=23, value=7, key="sched_morn_h")
-        morn_min = st.number_input("Minute", min_value=0, max_value=59, value=0, key="sched_morn_m")
+        morn_time = st.time_input("Time", value=_time(7, 0), key="sched_morn_t")
     with col_noon:
         enable_midday = st.checkbox("Midday run", value=False, key="sched_mid_en")
-        mid_hour = st.number_input("Hour", min_value=0, max_value=23, value=11, key="sched_mid_h")
-        mid_min = st.number_input("Minute", min_value=0, max_value=59, value=0, key="sched_mid_m")
+        mid_time = st.time_input("Time", value=_time(11, 0), key="sched_mid_t")
     with col_aft:
         enable_afternoon = st.checkbox("Afternoon run", value=True, key="sched_aft_en")
-        aft_hour = st.number_input("Hour", min_value=0, max_value=23, value=14, key="sched_aft_h")
-        aft_min = st.number_input("Minute", min_value=0, max_value=59, value=0, key="sched_aft_m")
+        aft_time = st.time_input("Time", value=_time(14, 0), key="sched_aft_t")
 
     times: list[ScheduleTime] = []
     if enable_morning:
-        times.append(ScheduleTime(hour=int(morn_hour), minute=int(morn_min), session_type="morning"))
+        times.append(ScheduleTime(hour=morn_time.hour, minute=morn_time.minute, session_type="morning"))
     if enable_midday:
-        times.append(ScheduleTime(hour=int(mid_hour), minute=int(mid_min), session_type="morning"))
+        times.append(ScheduleTime(hour=mid_time.hour, minute=mid_time.minute, session_type="morning"))
     if enable_afternoon:
-        times.append(ScheduleTime(hour=int(aft_hour), minute=int(aft_min), session_type="afternoon"))
+        times.append(ScheduleTime(hour=aft_time.hour, minute=aft_time.minute, session_type="afternoon"))
 
     if times:
         backend, body = preview_schedule(times)
