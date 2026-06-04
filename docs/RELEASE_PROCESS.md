@@ -1,10 +1,16 @@
-# Release process
+# Release Process
 
-> **TL;DR** — push a `vX.Y.Z` tag, GitHub Actions does the rest.
+> **TL;DR**: merge the release-ready code, push a `vX.Y.Z` tag, let GitHub
+> Actions build a draft release, smoke-test the attached packages, then publish
+> the draft.
+
+The workflow also has a manual `workflow_dispatch` trigger. A manual run is
+useful for testing the three-platform build, but the release job only creates a
+GitHub Release when the workflow is running from a version tag.
 
 ## Daily flow
 
-1. Land work on `codex/report-output-fixes` (or your branch).
+1. Land work on a feature branch and merge it into `main`.
 2. Run the full suite locally:
    ```
    .venv/bin/python -m pytest -q
@@ -14,7 +20,7 @@
 3. Bump `src/version.py`.
 4. Add a new section to the top of `CHANGELOG.md`:
    ```markdown
-   ## [1.21.0] — 2026-05-29
+   ## [1.22.1] — 2026-06-04
 
    ### Added
    - ...
@@ -26,13 +32,16 @@
 5. Commit + push the branch.
 6. When ready to release: tag and push.
    ```
-   git tag v1.21.0
-   git push --tags
+   git checkout main
+   git pull --ff-only
+   git tag v1.22.1
+   git push origin v1.22.1
    ```
 
-That's it. CI takes over.
+CI now takes over and creates a draft release after the test and build gates
+pass.
 
-## What CI does on a `v*.*.*` tag push
+## What CI Does On A `v*.*.*` Tag Push
 
 `.github/workflows/build_release.yml`:
 
@@ -98,8 +107,8 @@ release is silently aborted — there's no draft to publish.
 
 ### release
 
-- Extracts the version from the tag (`refs/tags/v1.21.0` → `1.21.0`)
-- Runs `python -m src.changelog_utils 1.21.0` to extract the
+- Extracts the version from the tag (`refs/tags/v1.22.1` -> `1.22.1`)
+- Runs `python -m src.changelog_utils 1.22.1` to extract the
   matching CHANGELOG section, falling back to `--latest` if the
   version isn't in the file yet
 - Downloads every artefact
@@ -112,7 +121,7 @@ release is silently aborted — there's no draft to publish.
 The release is intentionally drafted so a human can review the body
 and any attached binaries before publishing.
 
-## Draft release checklist
+## Draft Release Checklist
 
 Do not publish a draft release until these checks pass:
 
@@ -139,23 +148,23 @@ If the in-app updater still sees an older public version, use
 `doctor --json --force-refresh` to separate a real GitHub Releases issue
 from a local update-cache issue.
 
-## Hot fixes / re-tagging
+## Hot Fixes And Re-Tagging
 
 If something is wrong with an artefact:
 
 ```
-git tag -d v1.21.0
-git push --delete origin v1.21.0
+git tag -d v1.22.1
+git push --delete origin v1.22.1
 # fix
-git tag v1.21.0
-git push --tags
+git tag v1.22.1
+git push origin v1.22.1
 ```
 
 The CI re-runs end-to-end. The draft release is regenerated. If a tag
 has already been published publicly, prefer a new patch/minor tag rather
 than reusing history.
 
-## V2 readiness gate
+## V2 Readiness Gate
 
 Do not ship `v2.0.0` until all of these are true:
 
@@ -173,7 +182,7 @@ Do not ship `v2.0.0` until all of these are true:
 
 Reserve `v2.0.1` for the first patch **after** a real public `v2.0.0`.
 
-## Future tightening (planned)
+## Future Tightening
 
 - macOS notarisation via `notarytool` once an Apple Developer ID is
   available (the workflow comment marks the spot).
@@ -182,7 +191,7 @@ Reserve `v2.0.1` for the first patch **after** a real public `v2.0.0`.
 - `pip-audit` step as part of `test-gate` so dependency vulns block
   releases after false-positive handling is documented.
 
-## Files involved
+## Files Involved
 
 - `.github/workflows/build_release.yml` — the workflow
 - `.github/workflows/tests.yml` — runs on every push, not tied to releases

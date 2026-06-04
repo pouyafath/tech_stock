@@ -3,8 +3,10 @@ PASTE YOUR API KEYS HERE
 ================================================================================
 
 IMPORTANT:
-- Double-click this file to open it
-- Copy-paste your API keys from each provider below
+- Copy this file to API_KEYS.txt, then edit API_KEYS.txt
+- ANTHROPIC_API_KEY is required for real Claude recommendations
+- All other providers are optional enrichment sources
+- Provider limits, fields, and plan entitlements may change
 - DO NOT share this file with anyone
 - DO NOT upload this file to GitHub (it's automatically ignored for safety)
 
@@ -14,26 +16,32 @@ ANTHROPIC_API_KEY=
 Get it from: https://console.anthropic.com/api/keys
 
 
+# Optional: analyst recommendations, earnings, insider activity, sentiment
 FINNHUB_API_KEY=
 Get it from: https://finnhub.io/dashboard/api-keys
 
 
+# Optional: news and earnings enrichment; disabled by default in settings
 ALPHA_VANTAGE_API_KEY=
 Get it from: https://www.alphavantage.co/support/#api-key
 
 
+# Optional: quote redundancy and some non-US symbol support
 TWELVE_DATA_API_KEY=
 Get it from: https://twelvedata.com/account/api-keys
 
 
+# Optional: snapshot and previous-session data where plan permits
 POLYGON_API_KEY=
 Get it from: https://polygon.io/dashboard/api-keys
 
 
+# Optional: rates, yield curve, CPI, VIX, and FX context
 FRED_API_KEY=
 Get it from: https://fred.stlouisfed.org/docs/api/fred/
 
 
+# Optional: crypto risk-on/risk-off context
 COINGECKO_API_KEY=
 Get it from: https://www.coingecko.com/en/api
 

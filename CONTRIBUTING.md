@@ -5,6 +5,9 @@ review bar is, how the test/lint/format flow works, what the design
 tenets are. The friendly intro lives in [the README](README.md). The
 deep technical map lives in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 The release flow lives in [docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md).
+User-facing behavior is documented in
+[docs/USER_GUIDE.md](docs/USER_GUIDE.md) and common recovery steps live in
+[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
 ---
 

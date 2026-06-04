@@ -4,6 +4,21 @@ All notable changes to this project are documented here.
 
 ---
 
+## [Unreleased]
+
+### Documentation
+
+- Reorganized the project documentation around a concise README, a five-minute
+  quick start, a complete user guide, a troubleshooting guide, and an
+  audit-oriented analysis methodology guide.
+- Clarified platform installation options, Wealthsimple holdings-versus-
+  activities CSV requirements, API key behavior, workspace storage, report
+  trust controls, and update behavior.
+- Removed stale or overly broad claims about provider availability, rate limits,
+  account requirements, and market-data freshness.
+
+---
+
 ## [1.22.0] — 2026-06-03
 
 ### Changed — macOS desktop UI overhaul
