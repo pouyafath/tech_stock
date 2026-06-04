@@ -1,15 +1,19 @@
-# tech_stock — Cookbook
+# tech_stock Cookbook
 
 Common tasks beyond "open the app and click Run."
 
+For installation and normal daily use, see the
+[User Guide](USER_GUIDE.md). For errors and recovery steps, see
+[Troubleshooting](TROUBLESHOOTING.md).
+
 ## Try the demo without any setup
 
-```
-./run.sh 2          # menu choice 2 = Streamlit
+```bash
+python src/main.py --demo
 ```
 
-Click "🎬 Try demo" on the launcher OR the secondary "Try demo" button
-in the first-run wizard. Streamlit boots with `TECH_STOCK_DEMO_MODE=1`,
+You can also click **Try demo** on the launcher or in the first-run
+wizard. Streamlit boots with `TECH_STOCK_DEMO_MODE=1`,
 loads the bundled `data/samples/recommendation_log_sample.json`, and
 shows you a full report against a synthetic Wealthsimple-style portfolio.
 No API key, no CSV, no cost.
@@ -19,7 +23,7 @@ No API key, no CSV, no cost.
 Use this before paid runs, before release testing, or when the app says it
 is on an older release than GitHub:
 
-```
+```bash
 .venv/bin/python -m src.main doctor --json
 .venv/bin/python -m src.main doctor --json --force-refresh
 ```
@@ -32,33 +36,33 @@ availability.
 To also validate bundled samples and view-model rendering without
 Anthropic spend:
 
-```
+```bash
 .venv/bin/python -m src.main doctor --json --demo-smoke
 ```
 
 ## Run a single CLI report
 
-```
+```bash
 .venv/bin/python -m src.main morning \
-    --holdings ~/Downloads/holdings-report-2026-05-27.csv \
-    --activities ~/Downloads/activities-export-2026-05-27.csv
+    --holdings ~/Downloads/holdings-report-2026-06-04.csv \
+    --activities ~/Downloads/activities-export-2026-06-04.csv
 ```
 
 Or interactive mode (just answer the prompts):
 
-```
+```bash
 .venv/bin/python -m src.main
 ```
 
 ## Schedule daily runs
 
-Open the Streamlit ⏰ Schedule tab → pick morning + afternoon times →
+Open the Streamlit **Schedule** tab, pick morning and afternoon times, then
 Install. On macOS this writes a launchd plist; on Windows a Task
 Scheduler XML; on Linux a crontab line. None require sudo.
 
 Verify it's installed:
 
-```
+```bash
 launchctl list | grep com.techstock     # macOS
 schtasks /Query | findstr tech_stock    # Windows
 crontab -l | grep tech_stock            # Linux
@@ -153,8 +157,8 @@ notifications.channels`. Use `general` to bypass channel gating.
 
 ## Run the test suite
 
-```
-.venv/bin/python -m pytest -q                       # all tests; v1.21 has 588 expected
+```bash
+.venv/bin/python -m pytest -q                       # full suite
 .venv/bin/python -m pytest tests/test_backtester_calibration.py -v
 .venv/bin/python -m pytest -k "horizon"             # match by name
 ```
@@ -174,8 +178,8 @@ Or open the Editor tab and delete the `onboarding` block from
 
 ## Generate a CHANGELOG release-notes blob
 
-```
-python -m src.changelog_utils 1.21.0   # specific version
+```bash
+python -m src.changelog_utils 1.22.0   # specific version
 python -m src.changelog_utils --latest # most recent
 python -m src.changelog_utils --list   # every version
 ```

@@ -1,8 +1,8 @@
 # tech_stock — Architecture
 
 This document is for people reading the code: contributors, forkers,
-auditors. End-users should look at [the README](../README.md) for
-quick-start instructions instead.
+and auditors. End-users should start with [the README](../README.md) or
+the [User Guide](USER_GUIDE.md).
 
 ## Bird's-eye view
 
@@ -88,7 +88,7 @@ write; Claude API call).
 | `src/notifications.py` | Cross-platform desktop notifications (macOS osascript / Linux notify-send / Windows BurntToast) |
 | `src/scheduling.py` | Per-user launchd / Task Scheduler / cron installer |
 | **UI** | |
-| `ui/streamlit_app.py` | Web dashboard (8 tabs: Dashboard, Buy Signals, Today's Report, Run, History, Performance, Backtest, Journal, Learning, Diagnostics, Schedule, Editor) |
+| `ui/streamlit_app.py` | Web dashboard for Dashboard, Buy Signals, reports, runs, history, performance, backtesting, journal, learning, diagnostics, scheduling, and editing |
 | `src/desktop_app.py` | Embedded Tkinter dashboard with native menu bar |
 | `ui/textual_app.py` | Terminal UI |
 | `src/app_gui.py` | Native launcher (PyInstaller entry) |
