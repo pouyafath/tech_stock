@@ -16,7 +16,6 @@ from pathlib import Path
 from src._utils import clean_csv_row, safe_float
 from src.constants import LEVERAGED_ETFS
 
-
 # Minimum columns we need from the Wealthsimple Activities CSV.
 REQUIRED_ACTIVITIES_COLUMNS = {
     "transaction_date",

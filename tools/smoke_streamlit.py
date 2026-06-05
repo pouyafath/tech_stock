@@ -28,7 +28,7 @@ class DummyCtx:
     """
 
     # — context-manager protocol —
-    def __enter__(self) -> "DummyCtx":
+    def __enter__(self) -> DummyCtx:
         return self
 
     def __exit__(self, *args, **kwargs) -> bool:

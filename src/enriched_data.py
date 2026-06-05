@@ -23,9 +23,11 @@ from src.finnhub_client import (
     earnings_calendar,
     earnings_surprises,
     insider_summary,
-    news_sentiment as finnhub_sentiment,
     recommendation_trends,
     upgrade_downgrade,
+)
+from src.finnhub_client import (
+    news_sentiment as finnhub_sentiment,
 )
 from src.fred_client import economic_calendar_estimate, macro_context
 from src.polygon_client import stock_snapshot
@@ -409,8 +411,9 @@ def format_enrichment_for_prompt(enriched: dict) -> str:
 
 
 if __name__ == "__main__":
-    from dotenv import load_dotenv
     from pathlib import Path
+
+    from dotenv import load_dotenv
 
     load_dotenv(Path(__file__).parent.parent / ".env")
 

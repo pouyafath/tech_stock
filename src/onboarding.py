@@ -34,7 +34,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -239,7 +239,7 @@ def advance(*, current: str | None = None, skip_demo: bool = False) -> Onboardin
     if skip_demo:
         block["skipped_demo"] = True
     if next_stage == "done" and not block.get("stamped_at"):
-        block["stamped_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+        block["stamped_at"] = datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
     settings["onboarding"] = block
     _save_settings(settings)
 

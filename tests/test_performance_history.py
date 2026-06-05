@@ -16,7 +16,6 @@ from src.performance_history import (
     portfolio_performance_summary,
 )
 
-
 # ── Pure math helpers ─────────────────────────────────────────────────────
 
 

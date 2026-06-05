@@ -11,8 +11,8 @@ Usage:
 
 from __future__ import annotations
 
-import subprocess
 import os
+import subprocess
 import sys
 import time
 import webbrowser

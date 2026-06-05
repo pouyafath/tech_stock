@@ -26,7 +26,6 @@ from __future__ import annotations
 import html
 from dataclasses import dataclass
 
-
 # ── Colour palette ──────────────────────────────────────────────────────────
 
 

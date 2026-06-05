@@ -43,7 +43,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-
 LABEL = "com.techstock.daily"
 
 
@@ -313,8 +312,8 @@ def _parse_launchd_times(body: str) -> list[ScheduleTime]:
         if "Hour" in keys and "Minute" in keys and len(keys) <= 3:
             mapping = dict(zip(keys, values, strict=False))
             try:
-                hour = int((mapping["Hour"].text or "0"))
-                minute = int((mapping["Minute"].text or "0"))
+                hour = int(mapping["Hour"].text or "0")
+                minute = int(mapping["Minute"].text or "0")
             except (KeyError, AttributeError, ValueError):
                 continue
             out.append(ScheduleTime(hour=hour, minute=minute, session_type="auto"))

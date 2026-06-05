@@ -25,7 +25,8 @@ def get_usd_cad_rate() -> float:
     if _fx_cache and (now - _fx_cache[1]) < _FX_TTL:
         return _fx_cache[0]
     try:
-        import urllib.request, json as _json
+        import json as _json
+        import urllib.request
 
         with urllib.request.urlopen("https://api.exchangerate-api.com/v4/latest/USD", timeout=5) as resp:
             data = _json.loads(resp.read())
@@ -362,3 +363,97 @@ def detect_drawdown(holdings: list, market_data: dict, settings: dict) -> dict:
         "lookback_days": lookback_days,
         "samples": int(len(portfolio_index)),
     }
+
+
+def compute_correlation_matrix(market_data: list[dict], min_history: int = 30) -> dict:
+    """Build pairwise Pearson correlation matrix from 60-day daily returns.
+
+    market_data is the list of per-ticker dicts returned by market_data.py.
+    Each dict has ticker (str) and history (list of {"date":..., "close":...}).
+    Returns {"matrix": {ticker: {ticker: float}}, "high_correlation_pairs": [...]}.
+    """
+    if not market_data:
+        return {"matrix": {}, "high_correlation_pairs": []}
+
+    series: dict[str, pd.Series] = {}
+    for item in market_data or []:
+        ticker = item.get("ticker") or item.get("symbol")
+        if not ticker:
+            continue
+        history = item.get("history") or []
+        ret = _returns_from_history(history[-65:] if len(history) > 65 else history)
+        if len(ret) >= min_history:
+            series[ticker] = ret
+
+    if len(series) < 2:
+        return {"matrix": {}, "high_correlation_pairs": []}
+
+    df = pd.DataFrame(series).dropna(how="all")
+    if df.shape[0] < min_history or df.shape[1] < 2:
+        return {"matrix": {}, "high_correlation_pairs": []}
+
+    corr_df = df.corr()
+
+    matrix: dict[str, dict[str, float]] = {}
+    for ticker in corr_df.index:
+        matrix[ticker] = {other: round(float(corr_df.loc[ticker, other]), 4) for other in corr_df.columns}
+
+    high_pairs: list[dict] = []
+    tickers = list(corr_df.index)
+    for i, a in enumerate(tickers):
+        for b in tickers[i + 1 :]:
+            val = corr_df.loc[a, b]
+            if pd.isna(val):
+                continue
+            if abs(val) >= 0.85:
+                high_pairs.append({"pair": f"{a}/{b}", "ticker_a": a, "ticker_b": b, "correlation": round(float(val), 4)})
+
+    high_pairs.sort(key=lambda r: -abs(r["correlation"]))
+    return {"matrix": matrix, "high_correlation_pairs": high_pairs}
+
+
+def concentration_alerts(
+    positions: dict,
+    total_usd: float,
+    correlation_matrix: dict,
+    threshold_corr: float = 0.85,
+    threshold_weight_pct: float = 15.0,
+) -> list[dict]:
+    """Return list of {pair, correlation, combined_weight_pct, message} for risky pairs.
+
+    positions: {ticker: {"value_usd": float, ...}}
+    total_usd: total portfolio value in USD
+    correlation_matrix: output of compute_correlation_matrix
+    """
+    if not positions or not total_usd or not correlation_matrix:
+        return []
+
+    alerts: list[dict] = []
+    high_pairs = (correlation_matrix or {}).get("high_correlation_pairs") or []
+
+    for pair_info in high_pairs:
+        a = pair_info.get("ticker_a") or ""
+        b = pair_info.get("ticker_b") or ""
+        corr = pair_info.get("correlation", 0.0)
+        if abs(corr) < threshold_corr:
+            continue
+
+        val_a = (positions.get(a) or {}).get("value_usd") or 0.0
+        val_b = (positions.get(b) or {}).get("value_usd") or 0.0
+        combined_weight_pct = (val_a + val_b) / total_usd * 100.0
+
+        if combined_weight_pct > threshold_weight_pct:
+            alerts.append(
+                {
+                    "pair": pair_info.get("pair", f"{a}/{b}"),
+                    "correlation": corr,
+                    "combined_weight_pct": round(combined_weight_pct, 2),
+                    "message": (
+                        f"{a} and {b} are {corr:.2f} correlated and together represent "
+                        f"{combined_weight_pct:.1f}% of the portfolio — above the "
+                        f"{threshold_weight_pct:.0f}% combined-weight threshold."
+                    ),
+                }
+            )
+
+    return alerts

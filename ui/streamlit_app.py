@@ -29,21 +29,23 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from src.performance_history import portfolio_performance_summary  # noqa: E402
 from src.ui_support import (  # noqa: E402
-    EDITABLE_JSON_FILES,
     API_KEY_FIELDS,
+    EDITABLE_JSON_FILES,
     api_health_view,
     api_key_inventory,
     apply_available_update,
     buy_signal_view,
     check_update_available,
     current_app_version,
-    default_run_settings,
     decision_journal_view,
     decision_scorecard_summary,
+    default_run_settings,
     degradation_health,
-    diagnostics_view,
+    delete_api_key,
     diagnostics_support_bundle,
+    diagnostics_view,
     find_default_csvs,
     latest_log_summary,
     latest_report,
@@ -55,14 +57,12 @@ from src.ui_support import (  # noqa: E402
     relative_to_root,
     run_backtest_summary,
     run_report_from_ui,
-    delete_api_key,
     save_api_key,
     save_decision_from_ui,
     save_uploaded_bytes,
     validate_json_text,
     write_editable_json,
 )
-from src.performance_history import portfolio_performance_summary  # noqa: E402
 from src.ui_theme import (  # noqa: E402
     PALETTE,
     STREAMLIT_CSS,
@@ -78,7 +78,6 @@ from src.ui_theme import (  # noqa: E402
     verdict_badge,
     warning_row,
 )
-
 
 # ── Constants & helpers ─────────────────────────────────────────────────────
 
@@ -241,11 +240,21 @@ def _render_first_run_wizard() -> bool:
     to render the tabs)."""
     from src.onboarding import (
         advance as _advance,
+    )
+    from src.onboarding import (
         current_state as _onboarding_state,
+    )
+    from src.onboarding import (
         is_demo_mode_active as _demo_active,
+    )
+    from src.onboarding import (
         needs_onboarding as _needs,
-        stage_guidance as _guidance,
+    )
+    from src.onboarding import (
         reset_onboarding as _reset,
+    )
+    from src.onboarding import (
+        stage_guidance as _guidance,
     )
 
     if not _needs() or _demo_active():
@@ -1359,7 +1368,8 @@ def _render_journal() -> None:
 
     # ── Filters ───────────────────────────────────────────────────────────────
     if entries:
-        from datetime import date as _date, timedelta as _timedelta
+        from datetime import date as _date
+        from datetime import timedelta as _timedelta
 
         _entries_df = pd.DataFrame(entries)
         _all_tickers = sorted(_entries_df["ticker"].dropna().unique().tolist()) if "ticker" in _entries_df.columns else []
@@ -2054,6 +2064,7 @@ with tab_diagnostics:
 
 def _render_schedule() -> None:
     from datetime import time as _time
+
     from src.notifications import send as _send_notify
     from src.scheduling import (
         ScheduleTime,

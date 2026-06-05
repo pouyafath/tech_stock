@@ -1,5 +1,5 @@
-from pathlib import Path
 from io import BytesIO
+from pathlib import Path
 
 from src import updater
 

@@ -17,7 +17,6 @@ import pytest
 
 from src import app_gui
 
-
 # ── _self_command ──────────────────────────────────────────────────────────
 
 

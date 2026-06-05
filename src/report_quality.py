@@ -302,7 +302,7 @@ def evaluate(
             )
 
     # Sector rotation conflict gate
-    sector_warnings_text = " ".join((recommendation.get("sector_warnings") or [])).lower()
+    sector_warnings_text = " ".join(recommendation.get("sector_warnings") or []).lower()
     reducing_tech = any(
         phrase in sector_warnings_text for phrase in ("reduce tech", "rotate out of tech", "trim technology", "underweight tech")
     )
@@ -322,6 +322,27 @@ def evaluate(
                         ticker,
                         f"Sector rotation conflict: strategy calls for reducing technology exposure but recommends {action} on {ticker} ({md.get('sector', 'tech sector')}).",
                         "Downgrade to HOLD or add a contrarian thesis explicitly justifying the buy against rotation headwinds.",
+                    )
+                )
+
+    # Macro regime conviction cap gate
+    macro_regime = (recommendation.get("market_context") or {}).get("macro_regime") or {}
+    regime_cap = macro_regime.get("conviction_cap")
+    if regime_cap is not None:
+        for rec in recs:
+            action = (rec.get("action") or "").upper()
+            conviction = rec.get("conviction_score") or 0
+            if action in {"BUY", "ADD"} and conviction < regime_cap:
+                ticker = rec.get("ticker", "")
+                regime_label = macro_regime.get("regime", "unknown")
+                warnings.append(
+                    _warn(
+                        "medium",
+                        "macro_regime_conviction",
+                        ticker,
+                        f"Macro regime is '{regime_label}' (cap {regime_cap}); "
+                        f"{action} on {ticker} has conviction {conviction} — below the regime threshold.",
+                        "Consider waiting for conviction to meet regime cap, or downgrade to HOLD-watch.",
                     )
                 )
 

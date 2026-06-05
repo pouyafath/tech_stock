@@ -2,7 +2,6 @@ import pytest
 
 from src.portfolio_loader import parse_holdings_csv
 
-
 HEADER = [
     "Symbol",
     "Exchange",

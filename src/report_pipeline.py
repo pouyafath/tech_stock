@@ -7,9 +7,10 @@ entrypoint and command-line behavior.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 
 @dataclass
@@ -25,7 +26,7 @@ class ReportArtifacts:
     source_degradation: list[dict[str, Any]] | None = None
 
     @classmethod
-    def from_mapping(cls, payload: dict[str, Any] | None) -> "ReportArtifacts":
+    def from_mapping(cls, payload: dict[str, Any] | None) -> ReportArtifacts:
         payload = payload or {}
         recommendation = payload.get("recommendation") or {}
         enriched = recommendation.get("enriched") or {}

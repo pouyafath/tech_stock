@@ -11,7 +11,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 _MARKDOWN_LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")

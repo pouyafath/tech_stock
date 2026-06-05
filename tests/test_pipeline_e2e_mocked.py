@@ -4,7 +4,6 @@ from src import main
 from src.portfolio_loader import parse_holdings_csv
 from src.view_models import build_buy_signals_view
 
-
 HEADER = [
     "Symbol",
     "Exchange",

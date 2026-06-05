@@ -8,8 +8,8 @@ and desktop app all run the same report pipeline.
 
 from __future__ import annotations
 
-import queue
 import os
+import queue
 import re
 import sys
 import threading
@@ -24,20 +24,22 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from src.performance_history import portfolio_performance_summary
 from src.ui_support import (
-    EDITABLE_JSON_FILES,
     API_KEY_FIELDS,
+    EDITABLE_JSON_FILES,
     api_health_view,
-    api_key_locations,
     api_key_inventory,
+    api_key_locations,
     app_data_locations,
     apply_available_update,
     buy_signal_view,
     check_update_available,
     current_app_version,
     default_run_settings,
-    diagnostics_view,
+    delete_api_key,
     diagnostics_support_bundle,
+    diagnostics_view,
     find_default_csvs,
     latest_log_summary,
     latest_report,
@@ -49,12 +51,10 @@ from src.ui_support import (
     relative_to_root,
     report_locations,
     run_report_from_ui,
-    delete_api_key,
     save_api_key,
     validate_json_text,
     write_editable_json,
 )
-from src.performance_history import portfolio_performance_summary
 
 try:
     from src.ui_theme import PALETTE  # noqa: E402
@@ -214,7 +214,7 @@ class _OnboardingWizard(tk.Toplevel):
 
     _STAGES = ("welcome", "api_key", "budgets", "csv_walkthrough", "first_run", "done")
 
-    def __init__(self, parent: "DesktopApp") -> None:
+    def __init__(self, parent: DesktopApp) -> None:
         super().__init__(parent)
         self.app = parent
         self.title("Setup — tech_stock")

@@ -1,7 +1,11 @@
+import pytest
+
 from src.portfolio_analytics import (
     aggregate_company_exposure,
     build_hedge_suggestions,
+    compute_correlation_matrix,
     compute_risk_dashboard,
+    concentration_alerts,
 )
 from src.portfolio_loader import compute_sector_exposure
 
@@ -56,3 +60,60 @@ def test_risk_dashboard_returns_empty_without_history():
     )
     assert dashboard["total_value_usd"] == 100
     assert dashboard["annualized_volatility_pct"] is None
+
+
+def _make_history(values, start_date="2024-01-01"):
+    """Build a history list from a sequence of close prices."""
+    import datetime
+
+    start = datetime.date.fromisoformat(start_date)
+    return [{"date": str(start + datetime.timedelta(days=i)), "close": v} for i, v in enumerate(values)]
+
+
+def test_compute_correlation_matrix_perfectly_correlated():
+    prices = list(range(100, 165))  # 65 days of increasing prices
+    md = [
+        {"ticker": "AAA", "history": _make_history(prices)},
+        {"ticker": "BBB", "history": _make_history(prices)},  # identical → r=1.0
+    ]
+    result = compute_correlation_matrix(md, min_history=30)
+    pairs = result["high_correlation_pairs"]
+    assert len(pairs) >= 1
+    assert abs(pairs[0]["correlation"] - 1.0) < 1e-6
+
+
+def test_compute_correlation_matrix_uncorrelated():
+    import random
+
+    rng = random.Random(42)
+    prices_a = [100 + rng.uniform(-1, 1) * i for i in range(65)]
+    prices_b = [200 - rng.uniform(-1, 1) * i for i in range(65)]
+    md = [
+        {"ticker": "AAA", "history": _make_history(prices_a)},
+        {"ticker": "BBB", "history": _make_history(prices_b)},
+    ]
+    result = compute_correlation_matrix(md, min_history=30)
+    # May or may not have high-correlation pairs, but matrix should be populated
+    assert "AAA" in result["matrix"]
+    assert "BBB" in result["matrix"]
+
+
+def test_concentration_alerts_flags_over_threshold():
+    positions = {
+        "AAA": {"value_usd": 9000.0},
+        "BBB": {"value_usd": 8000.0},
+    }
+    corr_matrix = {"high_correlation_pairs": [{"pair": "AAA/BBB", "ticker_a": "AAA", "ticker_b": "BBB", "correlation": 0.92}]}
+    alerts = concentration_alerts(positions, total_usd=50000.0, correlation_matrix=corr_matrix)
+    assert len(alerts) == 1
+    assert alerts[0]["combined_weight_pct"] == pytest.approx(34.0, abs=0.01)
+
+
+def test_concentration_alerts_no_alert_below_threshold():
+    positions = {
+        "AAA": {"value_usd": 1000.0},
+        "BBB": {"value_usd": 1000.0},
+    }
+    corr_matrix = {"high_correlation_pairs": [{"pair": "AAA/BBB", "ticker_a": "AAA", "ticker_b": "BBB", "correlation": 0.92}]}
+    alerts = concentration_alerts(positions, total_usd=50000.0, correlation_matrix=corr_matrix)
+    assert len(alerts) == 0

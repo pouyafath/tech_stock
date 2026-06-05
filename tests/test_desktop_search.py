@@ -1,3 +1,7 @@
+import pytest
+
+tkinter = pytest.importorskip("tkinter")
+
 from src.desktop_app import find_search_offsets
 
 

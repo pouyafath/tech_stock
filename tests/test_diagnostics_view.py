@@ -16,8 +16,8 @@ def isolated_workspace(tmp_path, monkeypatch):
 
 
 def test_diagnostics_view_shape(isolated_workspace, monkeypatch):
-    from src.observability import log_event
     from src import ui_support
+    from src.observability import log_event
     from src.ui_support import diagnostics_view
 
     log_event("finnhub", "info", "ok", "fine")

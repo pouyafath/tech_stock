@@ -18,7 +18,8 @@ from dotenv import load_dotenv
 from src.config import load_settings
 from src.drift_tracker import compute_drift
 from src.portfolio_analytics import build_hedge_suggestions
-from src.report_quality import apply_quality_gates, evaluate as evaluate_report_quality
+from src.report_quality import apply_quality_gates
+from src.report_quality import evaluate as evaluate_report_quality
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
@@ -653,8 +654,8 @@ def build_user_message(
     """Construct the full user message with all context."""
     from src.news_fetcher import aggregate_sentiment
     from src.position_aging import (
-        annotate_holdings,
         aging_summary,
+        annotate_holdings,
         format_aging_for_prompt,
     )
 
@@ -796,7 +797,7 @@ def build_user_message(
         lines.append(aging_block)
 
     # ── Catalyst windows (earnings ±5d, FOMC, CPI, NFP) ─────────────────
-    from src.catalyst_windows import annotate_tickers, macro_session_tags, format_for_prompt
+    from src.catalyst_windows import annotate_tickers, format_for_prompt, macro_session_tags
 
     enriched_per_ticker = (enriched or {}).get("per_ticker") or {}
     macro_calendar = ((enriched or {}).get("macro_context") or {}).get("calendar")
@@ -808,7 +809,8 @@ def build_user_message(
         lines.append(catalyst_block)
 
     # ── Trailing stops (lock in gains as positions appreciate) ──────────
-    from src.trailing_stops import evaluate as _eval_trailing_stops, format_for_prompt as _fmt_ts
+    from src.trailing_stops import evaluate as _eval_trailing_stops
+    from src.trailing_stops import format_for_prompt as _fmt_ts
 
     trailing = _eval_trailing_stops(holdings, market_data, holding_days_map, settings)
     trailing_block = _fmt_ts(trailing)
@@ -818,7 +820,8 @@ def build_user_message(
 
     # ── Sector rotation rhythm (1-month relative strength) ───────────────
     if market_context:
-        from src.sector_rotation import classify as _classify_sectors, format_for_prompt as _fmt_sectors
+        from src.sector_rotation import classify as _classify_sectors
+        from src.sector_rotation import format_for_prompt as _fmt_sectors
 
         prev_context = (previous_session or {}).get("market_context_snapshot")
         sector_universe = settings.get("sector_rotation_tickers")
@@ -1533,7 +1536,7 @@ def call_claude(
     )
 
     # Build the aging summary so the gate can enforce the 2-year cap.
-    from src.position_aging import annotate_holdings, aging_summary
+    from src.position_aging import aging_summary, annotate_holdings
 
     annotated = annotate_holdings(
         portfolio.get("holdings", []),

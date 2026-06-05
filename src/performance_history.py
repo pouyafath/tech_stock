@@ -44,7 +44,6 @@ from typing import Any
 from src.cache import cached
 from src.config import load_settings
 
-
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LOG_DIR = ROOT / "data" / "recommendations_log"
 

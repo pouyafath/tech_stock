@@ -21,7 +21,6 @@ import pytest
 
 from src import main as main_module
 
-
 # ── find_csv_by_date ───────────────────────────────────────────────────────
 
 

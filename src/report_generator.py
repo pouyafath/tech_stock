@@ -971,11 +971,11 @@ def generate_markdown(
 
     # ── Active risk modifiers banner (drawdown + VIX) right at the top ────
     from src.report_sections import (
+        render_entry_or_exit_plan,
         render_market_state_banner,
         render_position_aging,
         render_sector_rotation,
         render_trailing_stops,
-        render_entry_or_exit_plan,
     )
 
     # Paper portfolio summary (when --paper was passed)

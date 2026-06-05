@@ -4,6 +4,22 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.25.0] — 2026-06-05
+
+### Added
+- Macro regime classifier (`src/macro_regime.py`): auto-detects Bull / Correction / Bear / Transition from VIX, yield curve, and SPY SMA cross; conviction cap enforced by quality gate
+- Correlation matrix + concentration alerts in `portfolio_analytics.py`: warns when two >0.85-correlated positions combine to >15% of portfolio
+- Integration test with bundled sample data validates end-to-end report pipeline
+- Unit tests for `alpha_vantage_client`, `coingecko_client`, `finnhub_client`, `polygon_client`, `twelve_data_client`
+- `requests` added as explicit dependency; upper bounds on `anthropic` and `yfinance`
+- CI now tracks test coverage with `--cov-fail-under=55` floor
+- Expanded ruff lint rules (import sorting, pyupgrade, pycodestyle warnings)
+
+### Fixed
+- `tests/test_desktop_search.py` now skips gracefully on headless systems (no `tkinter`)
+
+---
+
 ## [1.24.0] — 2026-06-04
 
 ### Changed — Quality, resilience & analytics improvements

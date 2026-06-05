@@ -34,8 +34,8 @@ back to the entry date. But it's deterministic, free, and good enough to flag
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime
-from typing import Iterable
 
 DEFAULT_SCHEDULE = [
     # (gain_threshold_pct, behaviour, value)

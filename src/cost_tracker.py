@@ -31,10 +31,9 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LOG_PATH = ROOT / "data" / "cost_log.jsonl"
@@ -62,7 +61,7 @@ def record_run(
     """Append one run record. Returns True on success.  Never raises."""
     try:
         record = {
-            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+            "ts": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
             "model": model or "unknown",
             "cost_usd": round(float(cost_usd or 0.0), 6),
             "input_tokens": int(input_tokens or 0),
@@ -133,7 +132,7 @@ class SpendSummary:
 
 def spend_summary(*, lookback_days: int = 30) -> SpendSummary:
     """Aggregate cost log into the Spend-tab payload.  Never raises."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     cutoff_7 = now - timedelta(days=7)
     cutoff_30 = now - timedelta(days=lookback_days)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)

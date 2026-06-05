@@ -23,7 +23,7 @@ def isolated_logs(tmp_path, monkeypatch):
 
 
 def test_log_event_writes_jsonl_record(isolated_logs):
-    from src.observability import log_event, _log_path
+    from src.observability import _log_path, log_event
 
     log_event("finnhub", "info", "ok", "Fetched AAPL", {"duration_ms": 95})
     path = _log_path()
@@ -38,7 +38,7 @@ def test_log_event_writes_jsonl_record(isolated_logs):
 
 
 def test_log_event_normalises_unknown_level(isolated_logs):
-    from src.observability import log_event, _log_path
+    from src.observability import _log_path, log_event
 
     log_event("finnhub", "EMERGENCY", "rare", "weird level", None)
     record = json.loads(_log_path().read_text(encoding="utf-8").strip())
@@ -69,7 +69,7 @@ def test_log_event_never_raises_on_bad_input(isolated_logs):
     ],
 )
 def test_redaction_strips_secrets_from_message(isolated_logs, raw, scrubbed):
-    from src.observability import log_event, _log_path
+    from src.observability import _log_path, log_event
 
     log_event("finnhub", "error", "test", raw, None)
     line = _log_path().read_text(encoding="utf-8").strip()
@@ -80,7 +80,7 @@ def test_redaction_strips_secrets_from_message(isolated_logs, raw, scrubbed):
 
 
 def test_redaction_recurses_into_context(isolated_logs):
-    from src.observability import log_event, _log_path
+    from src.observability import _log_path, log_event
 
     log_event(
         "finnhub",

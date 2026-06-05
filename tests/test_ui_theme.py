@@ -36,7 +36,6 @@ from src.ui_theme import (
     warning_row,
 )
 
-
 # ── Lookup safety ──────────────────────────────────────────────────────────
 
 

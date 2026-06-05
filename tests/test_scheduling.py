@@ -18,7 +18,6 @@ from src.scheduling import (
     uninstall_schedule,
 )
 
-
 # ── Artefact builders (no side effects) ────────────────────────────────────
 
 

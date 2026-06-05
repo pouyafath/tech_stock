@@ -13,16 +13,19 @@ import io
 import json
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from src.backtester import run_backtest
 from src.decision_journal import (
     journal_status,
     load_journal,
     record_decision,
+)
+from src.decision_journal import (
     run_scorecard as run_decision_scorecard,
 )
 from src.enriched_data import enrich
@@ -33,9 +36,9 @@ from src.main import (
     REPORTS_DIR,
     ROOT,
     UPLOAD_DIR,
+    _load_api_keys_from_file,
     api_key_search_paths,
     find_csv_by_date,
-    _load_api_keys_from_file,
     report_search_paths,
     runtime_locations,
 )

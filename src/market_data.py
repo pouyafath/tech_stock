@@ -13,7 +13,7 @@ Resilience:
 
 import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 import pandas as pd
 import yfinance as yf
@@ -27,7 +27,6 @@ from tenacity import (
 from src.cache import cached
 from src.config import load_settings
 from src.constants import CROSS_ASSET_TICKERS, SECTOR_ROTATION_TICKERS
-
 
 # ── Technical indicators ────────────────────────────────────────────────────
 
@@ -66,7 +65,7 @@ def _epoch_to_utc_iso(value) -> str | None:
     try:
         if value is None:
             return None
-        return datetime.fromtimestamp(float(value), tz=timezone.utc).isoformat(timespec="seconds")
+        return datetime.fromtimestamp(float(value), tz=UTC).isoformat(timespec="seconds")
     except (TypeError, ValueError, OSError):
         return None
 

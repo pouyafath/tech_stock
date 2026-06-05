@@ -23,7 +23,7 @@ without it, only static leader/laggard tags are emitted.
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 DEFAULT_QUINTILE_TOP = 0.4  # top 40% = leaders (handles small N: with 8 ETFs, 3 leaders)
 DEFAULT_QUINTILE_BOT = 0.4  # bottom 40% = laggards

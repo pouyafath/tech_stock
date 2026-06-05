@@ -1,5 +1,5 @@
-from pathlib import Path
 import json
+from pathlib import Path
 
 from src import ui_support
 from src.report_pipeline import ReportPipeline

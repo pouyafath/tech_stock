@@ -45,8 +45,10 @@ from src.constants import DEDUP_PAIRS, SKIP_MARKET_DATA
 from src.decision_journal import (
     journal_status,
     load_journal,
-    run_scorecard as run_decision_scorecard,
     seed_from_recommendation_log,
+)
+from src.decision_journal import (
+    run_scorecard as run_decision_scorecard,
 )
 from src.drift_tracker import compute_drift, get_previous_session
 from src.enriched_data import enrich
@@ -870,10 +872,10 @@ def run(
     # ── Thesis-decay tracker: pull due-for-review and forced-exit lists
     #    so the prompt can show them; we update reviews after the gate runs.
     from src.thesis_tracker import (
-        quarterly_reviews_due,
         force_exit_candidates,
-        update_reviews_from_recommendation,
+        quarterly_reviews_due,
         record_new_entries,
+        update_reviews_from_recommendation,
     )
 
     thesis_due = quarterly_reviews_due(THESIS_LOG_PATH)

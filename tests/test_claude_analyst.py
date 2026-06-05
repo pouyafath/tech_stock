@@ -1,13 +1,14 @@
 """Unit tests for src/claude_analyst.py — no live API calls."""
 
 import json
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 from src.claude_analyst import (
-    normalize_recommendation,
     _normalize_time_horizon,
     _parse_validate_recommendation,
+    normalize_recommendation,
 )
 
 # ---------------------------------------------------------------------------
