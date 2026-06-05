@@ -746,6 +746,26 @@ def open_file(path: Path):
         pass  # non-fatal — file path is always printed
 
 
+def _print_run_preflight() -> None:
+    """Print a compact shared preflight summary before a paid report run."""
+    try:
+        from src.preflight import build_preflight
+
+        payload = build_preflight(timeout=3.0)
+    except Exception as exc:
+        print(f"{C.DIM}[tech_stock] Preflight skipped: {exc}{C.RESET}")
+        return
+
+    print(f"{C.DIM}[tech_stock] Preflight summary:{C.RESET}")
+    for row in (payload.get("summary_rows") or [])[:6]:
+        status = str(row.get("status") or "")
+        colour = C.RED if status == "FAIL" else C.YELLOW if status in {"WARN", "UPDATE"} else C.DIM
+        print(f"{colour}  - {row.get('check')}: {status} — {row.get('detail')}{C.RESET}")
+    next_action = payload.get("next_action")
+    if next_action:
+        print(f"{C.YELLOW}[tech_stock] Next action: {next_action}{C.RESET}")
+
+
 def run(
     session_type: str,
     holdings_csv: Path = None,
@@ -757,6 +777,38 @@ def run(
     open_report: bool = True,
     paper_trade: bool = False,
 ):
+    """Compatibility wrapper for scripts that import ``src.main.run``."""
+    from src.report_pipeline import ReportPipeline
+
+    return (
+        ReportPipeline()
+        .run(
+            session_type=session_type,
+            holdings_csv=holdings_csv,
+            activities_csv=activities_csv,
+            budget_usd=budget_usd,
+            budget_cad=budget_cad,
+            model_id=model_id,
+            model_name=model_name,
+            open_report=open_report,
+            paper_trade=paper_trade,
+        )
+        .to_mapping()
+    )
+
+
+def _run_impl(
+    session_type: str,
+    holdings_csv: Path = None,
+    activities_csv: Path = None,
+    budget_usd: float = None,
+    budget_cad: float = None,
+    model_id: str = None,
+    model_name: str = None,
+    open_report: bool = True,
+    paper_trade: bool = False,
+):
+    _print_run_preflight()
     validate_environment()
 
     print(f"\n{C.DIM}[tech_stock] Starting {session_type} session — {datetime.now().strftime('%Y-%m-%d %H:%M')}{C.RESET}")
@@ -1127,6 +1179,9 @@ def run(
         "model_name": display_model,
         "quality_warnings": recommendation.get("quality_warnings") or [],
         "source_degradation": enriched.get("degradation") or [],
+        "data_confidence": recommendation.get("data_confidence") or {},
+        "timings": {},
+        "errors": [],
     }
 
 

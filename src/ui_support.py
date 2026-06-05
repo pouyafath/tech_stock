@@ -1,9 +1,8 @@
 """
 Shared helpers for optional Streamlit and Textual interfaces.
 
-The CLI remains the canonical execution path. UI entrypoints call the same
-src.main.run() function and only handle input collection, output capture, and
-report discovery.
+UI entrypoints call the same ``ReportPipeline`` boundary and only handle input
+collection, output capture, and report discovery.
 """
 
 from __future__ import annotations

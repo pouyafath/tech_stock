@@ -75,7 +75,8 @@ different account type or broker must review and adjust `config/settings.json`.
 | Textual | Keyboard-driven terminal dashboard | No |
 | CLI | Automation, scheduling, scripting, and fastest execution | No |
 
-All interfaces call the same report pipeline and write the same output formats.
+All interfaces call the same `ReportPipeline`, show the same preflight checks
+before paid runs, and write the same output formats.
 
 ## Quick Start
 

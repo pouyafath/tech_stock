@@ -19,6 +19,30 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.23.0] — 2026-06-05
+
+### Changed — refactor-first usability
+
+- **Canonical report pipeline** — `ReportPipeline` is now the shared run
+  boundary for CLI-adjacent UIs and scripts. `src.main.run()` remains backward
+  compatible, but delegates through the pipeline and returns the historical
+  dictionary shape.
+- **Structured artifacts** — report runs now expose additive artifact metadata:
+  data confidence, elapsed timing, and error lists alongside recommendation
+  JSON, markdown, CSV, log path, usage, quality warnings, and source
+  degradation.
+- **Desktop implementation package** — moved the embedded Tk implementation
+  into `src/desktop/app.py` while keeping `src/desktop_app.py` as the public
+  launcher/import compatibility path.
+- **Preflight before paid runs** — CLI/UI-triggered report runs now print a
+  compact doctor summary before the Anthropic call path, including a clear
+  next-action line when setup, CSV freshness, budget, or optional API coverage
+  needs attention.
+
+### Version bumped: 1.22.0 → 1.23.0
+
+---
+
 ## [1.22.0] — 2026-06-03
 
 ### Changed — macOS desktop UI overhaul

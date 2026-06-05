@@ -21,6 +21,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+DESKTOP_IMPL = ROOT / "src" / "desktop" / "app.py"
 
 
 def test_platform_fonts_returns_complete_ladder():
@@ -33,6 +34,14 @@ def test_platform_fonts_returns_complete_ladder():
         assert isinstance(family, str) and family
         assert isinstance(size, int) and size > 0
         assert weight in {"normal", "bold"}
+
+
+def test_legacy_desktop_app_module_aliases_new_package():
+    import src.desktop.app as desktop_impl
+    import src.desktop_app as legacy
+
+    assert legacy is desktop_impl
+    assert desktop_impl.ROOT == ROOT
 
 
 def test_platform_fonts_picks_sf_pro_on_macos(monkeypatch):
@@ -69,7 +78,7 @@ def test_mod_key_matches_platform():
 
 def test_desktop_app_no_longer_hardcodes_hex():
     """The constructor should reference PALETTE attributes, not literal hex."""
-    src = (ROOT / "src" / "desktop_app.py").read_text(encoding="utf-8")
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
     tree = ast.parse(src)
     in_init = False
     hex_assignments: list[str] = []
@@ -129,7 +138,7 @@ def test_spec_csv_file_association_is_complete():
 
 def test_menu_factory_is_defined():
     """The menu bar setup must exist on the class (without instantiating Tk)."""
-    src = (ROOT / "src" / "desktop_app.py").read_text(encoding="utf-8")
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
     assert "def _build_menu(self)" in src
     assert "tk::mac::ShowPreferences" in src
     assert "tk::mac::Quit" in src
@@ -141,7 +150,7 @@ def test_menu_factory_is_defined():
 
 def test_post_paint_warmup_is_used_in_init():
     """Heavy startup work should be deferred to _post_paint_warmup."""
-    src = (ROOT / "src" / "desktop_app.py").read_text(encoding="utf-8")
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
     init_start = src.index("def __init__(self)")
     next_def = src.index("\n    def ", init_start + 10)
     init_body = src[init_start:next_def]
@@ -154,7 +163,7 @@ def test_post_paint_warmup_is_used_in_init():
 
 def test_about_handler_reads_dynamic_version():
     """The About dialog must use the live APP_VERSION, not a hard-coded string."""
-    src = (ROOT / "src" / "desktop_app.py").read_text(encoding="utf-8")
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
     # The dialog title and body should both interpolate current_app_version().
     assert "current_app_version()" in src
     assert "About tech_stock" in src

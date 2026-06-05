@@ -309,6 +309,28 @@ def _summary_rows(payload: dict[str, Any]) -> list[dict[str, str]]:
     return rows
 
 
+def _next_action(payload: dict[str, Any]) -> str:
+    update = payload.get("update") or {}
+    api = payload.get("api_keys") or {}
+    csv = payload.get("csv_freshness") or {}
+    budget = payload.get("budget") or {}
+
+    if api.get("required_missing", 0):
+        return "Add ANTHROPIC_API_KEY in API_KEYS.txt or .env, then run API Checks again."
+    if budget.get("hard_block"):
+        return "Increase the monthly budget, wait for the next month, or rerun with --force if you accept the overage."
+    holdings = csv.get("holdings") or {}
+    if not holdings.get("latest_path"):
+        return "Upload or select a Wealthsimple holdings-report CSV before running a paid report."
+    if holdings.get("stale"):
+        return "Export a fresh Wealthsimple holdings-report CSV before trading from the report."
+    if update.get("available"):
+        return f"Update to {update.get('latest_version')} after reviewing the release notes."
+    if api.get("optional_missing", 0):
+        return "Optional APIs are missing; the app can run, but analyst/news/macro coverage may be reduced."
+    return "Ready for a report run."
+
+
 def build_preflight(
     *,
     force_update: bool = False,
@@ -355,6 +377,7 @@ def build_preflight(
         payload["demo_smoke"] = run_demo_smoke_test()
 
     payload["summary_rows"] = _summary_rows(payload)
+    payload["next_action"] = _next_action(payload)
     return _as_jsonable(payload)
 
 
@@ -362,6 +385,8 @@ def doctor_text(payload: dict[str, Any]) -> str:
     lines = [f"tech_stock doctor v{payload.get('app_version')}"]
     for row in payload.get("summary_rows") or []:
         lines.append(f"- [{row.get('status')}] {row.get('check')}: {row.get('detail')}")
+    if payload.get("next_action"):
+        lines.append(f"Next action: {payload['next_action']}")
     return "\n".join(lines)
 
 
