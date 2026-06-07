@@ -765,6 +765,87 @@ def _render_hedge_suggestions_section(suggestions: list[dict]) -> list[str]:
     return lines
 
 
+def _render_risk_controls(recommendations: list[dict]) -> list[str]:
+    """Render a summary risk-controls table for all recs that have at least one zone/stop/target."""
+    RISK_FIELDS = ("entry_zone_low_pct", "entry_zone_high_pct", "stop_loss_pct", "take_profit_pct")
+
+    def _pct_fmt(value) -> str:
+        if isinstance(value, (int, float)):
+            return f"{value:+.1f}%"
+        return "—"
+
+    rows = []
+    for rec in recommendations or []:
+        controls = rec.get("risk_controls") or {}
+        if not any(controls.get(f) is not None for f in RISK_FIELDS):
+            continue
+        rows.append(
+            (
+                rec.get("ticker", ""),
+                rec.get("action", ""),
+                f"{_pct_fmt(controls.get('entry_zone_low_pct'))} – {_pct_fmt(controls.get('entry_zone_high_pct'))}",
+                _pct_fmt(controls.get("stop_loss_pct")),
+                _pct_fmt(controls.get("take_profit_pct")),
+            )
+        )
+
+    if not rows:
+        return []
+
+    lines = [
+        "## Risk Controls Summary",
+        "",
+        "| Ticker | Action | Entry Zone | Stop Loss | Take Profit |",
+        "|---|---|---|---:|---:|",
+    ]
+    for ticker, action, entry_zone, stop_loss, take_profit in rows:
+        lines.append(f"| **{ticker}** | {action} | {entry_zone} | {stop_loss} | {take_profit} |")
+    lines += ["", "---", ""]
+    return lines
+
+
+def _render_trailing_stops_table(holdings: list, market_data: dict) -> list[str]:
+    """Render a trailing-stops summary table for positions with >=10% gain."""
+    from src.trailing_stops import compute_trailing_stop
+
+    rows = []
+    for holding in holdings or []:
+        ticker = holding.get("ticker")
+        if not ticker or ticker == "CASH":
+            continue
+        avg_cost = holding.get("avg_cost_market")
+        md = (market_data or {}).get(ticker) or {}
+        current_price = md.get("current_price")
+        if avg_cost is None or avg_cost <= 0 or current_price is None:
+            continue
+        gain_pct = (current_price / avg_cost - 1.0) * 100.0
+        if gain_pct < 10.0:
+            continue
+        result = compute_trailing_stop(avg_cost, current_price, current_price)
+        if not result:
+            continue
+        stop_price = result.get("stop_price")
+        trail_kind = result.get("trail_kind", "none")
+        if trail_kind == "none" or stop_price is None:
+            continue
+        breach_flag = " ⚠ BREACH" if current_price < stop_price else ""
+        rows.append((ticker, avg_cost, current_price, gain_pct, trail_kind, stop_price, breach_flag))
+
+    if not rows:
+        return []
+
+    lines = [
+        "## Trailing Stops",
+        "",
+        "| Ticker | Cost | Current | Gain % | Stop Type | Stop Price |",
+        "|---|---:|---:|---:|---|---:|",
+    ]
+    for ticker, cost, current, gain, trail_kind, stop_price, breach in rows:
+        lines.append(f"| **{ticker}**{breach} | ${cost:.2f} | ${current:.2f} | {gain:+.1f}% | {trail_kind} | ${stop_price:.2f} |")
+    lines += ["", "---", ""]
+    return lines
+
+
 def _render_cost_footer(usage: dict) -> list[str]:
     if not usage:
         return []
@@ -1206,6 +1287,12 @@ def generate_markdown(
                 "---",
                 "",
             ]
+
+    # ── Risk controls summary table ────────────────────────────────────────
+    lines += _render_risk_controls(recs)
+
+    # ── Trailing stops summary table ───────────────────────────────────────
+    lines += _render_trailing_stops_table(holdings, market_data or {})
 
     # ── Watchlist flags from Claude ────────────────────────────────────────
     flags = recommendation.get("watchlist_flags", [])

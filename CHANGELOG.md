@@ -4,6 +4,18 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.26.0] — 2026-06-07
+
+### Added
+- Dry-run mode: validate CSV/portfolio without calling Claude (Run tab checkbox + `run_report_from_ui(dry_run=True)`)
+- Risk controls table in markdown report: entry zones, stop-loss, take-profit per recommendation
+- Trailing stops section in report: active trailing stops with breach alerts for positions with >10% gain
+- Paper trading UI in Performance tab: cumulative value chart, P&L, trade count from `paper_trading.py`
+- Improved Run tab error panel: stage-by-stage failure info and retry button
+- Integration test (`tests/test_integration_sample.py`) validating pipeline with bundled sample data
+
+---
+
 ## [1.25.0] — 2026-06-05
 
 ### Added

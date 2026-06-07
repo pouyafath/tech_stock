@@ -158,6 +158,8 @@ class UiRunResult:
     csv_path: Path | None = None
     log_path: Path | None = None
     error: str | None = None
+    dry_run: bool = False
+    dry_run_data: dict | None = None
 
 
 def resolve_model(model_choice: str | None) -> tuple[str | None, str | None]:
@@ -257,8 +259,53 @@ def run_report_from_ui(
     budget_cad: float | None = None,
     model_choice: str | None = "sonnet",
     on_progress: Callable[[str], None] | None = None,
+    dry_run: bool = False,
 ) -> UiRunResult:
     model_id, model_name = resolve_model(model_choice)
+
+    if dry_run:
+        try:
+            resolved_holdings = normalize_optional_path(holdings_csv)
+            if resolved_holdings is not None:
+                portfolio = parse_holdings_csv(resolved_holdings)
+            else:
+                portfolio = {"holdings": []}
+            holdings = portfolio.get("holdings") or []
+            tickers = [h.get("ticker") for h in holdings if h.get("ticker") and h.get("ticker") != "CASH"]
+            market_data = get_market_data(tickers) if tickers else {}
+            cad_per_usd = 1.37
+            total_value_usd = sum(
+                float(h.get("market_value") or 0) / (cad_per_usd if (h.get("market_value_currency") or "USD") == "CAD" else 1.0)
+                for h in holdings
+                if h.get("market_value") is not None
+            )
+            return UiRunResult(
+                ok=True,
+                console="Dry run complete — Claude API not called.",
+                error=None,
+                report_path=None,
+                csv_path=None,
+                log_path=None,
+                dry_run=True,
+                dry_run_data={
+                    "dry_run": True,
+                    "portfolio_loaded": True,
+                    "tickers": tickers,
+                    "total_value_usd": round(total_value_usd, 2),
+                    "position_count": len(holdings),
+                    "market_data_fetched": len(market_data),
+                    "error": None,
+                },
+            )
+        except Exception as exc:
+            return UiRunResult(
+                ok=False,
+                console="",
+                error=str(exc),
+                dry_run=True,
+                dry_run_data={"dry_run": True, "portfolio_loaded": False, "error": str(exc)},
+            )
+
     console = io.StringIO()
     stream = TeeProgressIO(console, on_progress)
     try:

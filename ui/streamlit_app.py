@@ -1021,6 +1021,13 @@ def _render_run_tab() -> None:
     estimate = "~$0.22" if model_choice == "sonnet" else "~$0.45"
     st.caption(f"Selected model: **{model_choice.title()}** · estimated cost {estimate}")
 
+    st.checkbox(
+        "Dry run — validate data without calling Claude",
+        key="dry_run_mode",
+        value=False,
+        help="Loads CSV, parses portfolio, fetches market data — but stops before the Claude API call.",
+    )
+
     if st.button("▶ Run report", type="primary", width="stretch", key="run_report_btn"):
         holdings_path, activities_path = _resolve_run_inputs(
             holdings_mode,
@@ -1040,8 +1047,12 @@ def _render_run_tab() -> None:
                 st.error(f"{label} CSV not found: {path}")
                 st.stop()
 
+        is_dry_run = st.session_state.get("dry_run_mode", False)
+
         status = st.status(
-            "Running pipeline — market data → enrichment → Claude review → render",
+            "Dry-run validation — market data only (Claude skipped)"
+            if is_dry_run
+            else "Running pipeline — market data → enrichment → Claude review → render",
             expanded=True,
         )
         progress_box = st.empty()
@@ -1062,14 +1073,41 @@ def _render_run_tab() -> None:
             budget_cad=budget_cad,
             model_choice=model_choice,
             on_progress=on_progress,
+            dry_run=is_dry_run,
         )
 
         with st.expander("📜 Full console output", expanded=False):
             st.text_area("Console", result.console, height=260, label_visibility="collapsed")
 
         if not result.ok:
-            status.update(label="Report failed", state="error")
-            st.error(result.error or "Report run failed.")
+            status.update(label="Run failed", state="error")
+            st.error(f"Run failed: {result.error or 'Unknown error'}")
+            with st.expander("Error details", expanded=True):
+                dry_data = result.dry_run_data or {}
+                if dry_data.get("error"):
+                    st.markdown(f"**Error:** {dry_data['error']}")
+                console_text = result.console or ""
+                if console_text:
+                    tail_lines = console_text.splitlines()[-20:]
+                    st.code("\n".join(tail_lines), language=None)
+                if st.button("Retry", key="run_retry_btn"):
+                    st.rerun()
+            return
+
+        if result.dry_run:
+            status.update(label="Dry run complete ✓", state="complete")
+            dry_data = result.dry_run_data or {}
+            tickers = dry_data.get("tickers") or []
+            total_value = dry_data.get("total_value_usd", 0)
+            position_count = dry_data.get("position_count", 0)
+            market_data_fetched = dry_data.get("market_data_fetched", 0)
+            st.success(
+                f"Dry run passed — portfolio loaded successfully.\n\n"
+                f"**{position_count}** positions · **{len(tickers)}** tickers · "
+                f"**${total_value:,.0f}** total value (USD equiv.) · "
+                f"**{market_data_fetched}** market data records fetched.\n\n"
+                f"Tickers: {', '.join(tickers[:20]) or '—'}" + (" …" if len(tickers) > 20 else "")
+            )
             return
 
         status.update(label="Report generated ✓", state="complete")
@@ -1283,6 +1321,41 @@ def _render_performance() -> None:
 
 with tab_performance:
     _render_performance()
+
+    with st.expander("Paper Trading", expanded=False):
+        try:
+            from src.paper_trading import _load_state as _load_paper_state
+
+            from src.main import DATA_DIR as _DATA_DIR
+
+            _paper_path = _DATA_DIR / "paper_portfolio.json"
+            paper = _load_paper_state(_paper_path)
+        except Exception as _paper_exc:
+            paper = None
+            st.caption(f"Paper trading data unavailable: {_paper_exc}")
+
+        if paper and paper.get("value_history"):
+            from src.paper_trading import mark_to_market as _mtm
+
+            _current_value = _mtm(paper, {})
+            _starting = float(paper.get("starting_cash_usd") or 0)
+            _total_pnl = _current_value - _starting
+            _trade_log = paper.get("trade_log") or []
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Current Value", f"${_current_value:,.0f}")
+            col2.metric("P&L", f"${_total_pnl:,.0f}")
+            col3.metric("Trades", str(len(_trade_log)))
+
+            vh = paper["value_history"]
+            if vh:
+                df_vh = pd.DataFrame(vh)
+                if "date" in df_vh.columns:
+                    st.line_chart(df_vh.set_index("date")["value_usd"] if "value_usd" in df_vh.columns else df_vh.set_index("date"))
+                else:
+                    st.line_chart(df_vh)
+        else:
+            st.info("No paper trading data yet. Enable paper trading in Settings to start tracking simulated trades.")
 
 
 # ─── Backtest ──────────────────────────────────────────────────────────────
