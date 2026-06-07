@@ -5,12 +5,59 @@ Deterministic portfolio analytics used by prompts, quality gates, and reports.
 
 from __future__ import annotations
 
+import logging
 import math
+import time
 from itertools import combinations
 
 import pandas as pd
 
 from src.constants import COMPANY_ALIASES
+
+_fx_cache: tuple[float, float] | None = None  # (rate, timestamp)
+_FX_TTL = 4 * 3600  # 4 hours
+
+
+def get_usd_cad_rate() -> float:
+    """Fetch live USD/CAD rate; cache for 4 h; fall back to 1.37 on error."""
+    global _fx_cache
+    now = time.monotonic()
+    if _fx_cache and (now - _fx_cache[1]) < _FX_TTL:
+        return _fx_cache[0]
+    try:
+        import json as _json
+        import urllib.request
+
+        with urllib.request.urlopen("https://api.exchangerate-api.com/v4/latest/USD", timeout=5) as resp:
+            data = _json.loads(resp.read())
+        rate = float(data["rates"]["CAD"])
+        _fx_cache = (rate, now)
+        return rate
+    except Exception:
+        pass
+    try:
+        import urllib.request
+
+        with urllib.request.urlopen("https://fred.stlouisfed.org/graph/fredgraph.csv?id=DEXCAUS", timeout=5) as resp:
+            lines = resp.read().decode().strip().splitlines()
+        # Walk from the newest row backwards; DEXCAUS uses "." for missing days,
+        # so skip any row whose value column does not parse as a float.
+        for line in reversed(lines):
+            if line.startswith("DATE"):
+                continue
+            parts = line.split(",")
+            if len(parts) < 2:
+                continue
+            try:
+                rate = float(parts[1])
+            except ValueError:
+                continue
+            _fx_cache = (rate, now)
+            return rate
+    except Exception:
+        pass
+    logging.getLogger(__name__).warning("FX rate fetch failed; using hardcoded 1.37")
+    return 1.37
 
 
 def company_key(ticker: str) -> str:
@@ -121,6 +168,25 @@ def compute_risk_dashboard(
         drawdown = cumulative / cumulative.cummax() - 1
         max_drawdown_pct = round(float(drawdown.min() * 100), 2)
 
+    sortino_ratio = None
+    calmar_ratio = None
+    var_95_pct = None
+    cvar_95_pct = None
+    if not portfolio_returns.empty and len(portfolio_returns) >= 10:
+        mean_return = portfolio_returns.mean()
+        downside = portfolio_returns[portfolio_returns < 0]
+        if len(downside) > 1:
+            downside_std = float(downside.std())
+            if downside_std:
+                sortino_ratio = round(float(mean_return / downside_std * math.sqrt(252)), 2)
+        ann_return = float((1 + mean_return) ** 252 - 1) * 100
+        if max_drawdown_pct and max_drawdown_pct < 0:
+            calmar_ratio = round(ann_return / abs(max_drawdown_pct), 2)
+        var_95_pct = round(float(portfolio_returns.quantile(0.05) * 100), 2)
+        below_var = portfolio_returns[portfolio_returns <= portfolio_returns.quantile(0.05)]
+        if not below_var.empty:
+            cvar_95_pct = round(float(below_var.mean() * 100), 2)
+
     benchmark_beta = {}
     for benchmark in settings.get("risk_benchmark_tickers", ("SPY", "QQQ", "SMH")):
         bench_data = (market_data or {}).get(benchmark) or {}
@@ -156,6 +222,10 @@ def compute_risk_dashboard(
         "beta": benchmark_beta,
         "top3_concentration_pct": top3_concentration_pct,
         "correlated_pairs": correlated_pairs,
+        "sortino_ratio": sortino_ratio,
+        "calmar_ratio": calmar_ratio,
+        "var_95_pct": var_95_pct,
+        "cvar_95_pct": cvar_95_pct,
     }
 
 
@@ -293,3 +363,97 @@ def detect_drawdown(holdings: list, market_data: dict, settings: dict) -> dict:
         "lookback_days": lookback_days,
         "samples": int(len(portfolio_index)),
     }
+
+
+def compute_correlation_matrix(market_data: list[dict], min_history: int = 30) -> dict:
+    """Build pairwise Pearson correlation matrix from 60-day daily returns.
+
+    market_data is the list of per-ticker dicts returned by market_data.py.
+    Each dict has ticker (str) and history (list of {"date":..., "close":...}).
+    Returns {"matrix": {ticker: {ticker: float}}, "high_correlation_pairs": [...]}.
+    """
+    if not market_data:
+        return {"matrix": {}, "high_correlation_pairs": []}
+
+    series: dict[str, pd.Series] = {}
+    for item in market_data or []:
+        ticker = item.get("ticker") or item.get("symbol")
+        if not ticker:
+            continue
+        history = item.get("history") or []
+        ret = _returns_from_history(history[-65:] if len(history) > 65 else history)
+        if len(ret) >= min_history:
+            series[ticker] = ret
+
+    if len(series) < 2:
+        return {"matrix": {}, "high_correlation_pairs": []}
+
+    df = pd.DataFrame(series).dropna(how="all")
+    if df.shape[0] < min_history or df.shape[1] < 2:
+        return {"matrix": {}, "high_correlation_pairs": []}
+
+    corr_df = df.corr()
+
+    matrix: dict[str, dict[str, float]] = {}
+    for ticker in corr_df.index:
+        matrix[ticker] = {other: round(float(corr_df.loc[ticker, other]), 4) for other in corr_df.columns}
+
+    high_pairs: list[dict] = []
+    tickers = list(corr_df.index)
+    for i, a in enumerate(tickers):
+        for b in tickers[i + 1 :]:
+            val = corr_df.loc[a, b]
+            if pd.isna(val):
+                continue
+            if abs(val) >= 0.85:
+                high_pairs.append({"pair": f"{a}/{b}", "ticker_a": a, "ticker_b": b, "correlation": round(float(val), 4)})
+
+    high_pairs.sort(key=lambda r: -abs(r["correlation"]))
+    return {"matrix": matrix, "high_correlation_pairs": high_pairs}
+
+
+def concentration_alerts(
+    positions: dict,
+    total_usd: float,
+    correlation_matrix: dict,
+    threshold_corr: float = 0.85,
+    threshold_weight_pct: float = 15.0,
+) -> list[dict]:
+    """Return list of {pair, correlation, combined_weight_pct, message} for risky pairs.
+
+    positions: {ticker: {"value_usd": float, ...}}
+    total_usd: total portfolio value in USD
+    correlation_matrix: output of compute_correlation_matrix
+    """
+    if not positions or not total_usd or not correlation_matrix:
+        return []
+
+    alerts: list[dict] = []
+    high_pairs = (correlation_matrix or {}).get("high_correlation_pairs") or []
+
+    for pair_info in high_pairs:
+        a = pair_info.get("ticker_a") or ""
+        b = pair_info.get("ticker_b") or ""
+        corr = pair_info.get("correlation", 0.0)
+        if abs(corr) < threshold_corr:
+            continue
+
+        val_a = (positions.get(a) or {}).get("value_usd") or 0.0
+        val_b = (positions.get(b) or {}).get("value_usd") or 0.0
+        combined_weight_pct = (val_a + val_b) / total_usd * 100.0
+
+        if combined_weight_pct > threshold_weight_pct:
+            alerts.append(
+                {
+                    "pair": pair_info.get("pair", f"{a}/{b}"),
+                    "correlation": corr,
+                    "combined_weight_pct": round(combined_weight_pct, 2),
+                    "message": (
+                        f"{a} and {b} are {corr:.2f} correlated and together represent "
+                        f"{combined_weight_pct:.1f}% of the portfolio — above the "
+                        f"{threshold_weight_pct:.0f}% combined-weight threshold."
+                    ),
+                }
+            )
+
+    return alerts

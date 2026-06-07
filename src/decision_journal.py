@@ -10,9 +10,9 @@ The journal is intentionally local/private:
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Callable
 
 from src._utils import parse_session_filename, safe_float
 from src.backtester import price_at

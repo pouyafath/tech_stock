@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 
 from src.backtester import HORIZON_DAYS
-from src.portfolio_analytics import aggregate_company_exposure, aggregate_positions, company_key
+from src.portfolio_analytics import aggregate_company_exposure, aggregate_positions, company_key, concentration_alerts
 
 
 @dataclass
@@ -300,6 +300,76 @@ def evaluate(
                     "Do not BUY/ADD above the configured position cap.",
                 )
             )
+
+    # Sector rotation conflict gate
+    sector_warnings_text = " ".join(recommendation.get("sector_warnings") or []).lower()
+    reducing_tech = any(
+        phrase in sector_warnings_text for phrase in ("reduce tech", "rotate out of tech", "trim technology", "underweight tech")
+    )
+    if reducing_tech:
+        for rec in recs:
+            ticker = rec.get("ticker", "")
+            action = (rec.get("action") or "").upper()
+            if action not in {"BUY", "ADD"}:
+                continue
+            md = (market_data or {}).get(ticker) or {}
+            sector = (md.get("sector") or "").lower()
+            if "technology" in sector or "semiconductor" in sector:
+                warnings.append(
+                    _warn(
+                        "medium",
+                        "sector_rotation_conflict",
+                        ticker,
+                        f"Sector rotation conflict: strategy calls for reducing technology exposure but recommends {action} on {ticker} ({md.get('sector', 'tech sector')}).",
+                        "Downgrade to HOLD or add a contrarian thesis explicitly justifying the buy against rotation headwinds.",
+                    )
+                )
+
+    # Macro regime conviction cap gate
+    macro_regime = recommendation.get("macro_regime") or {}
+    regime_cap = macro_regime.get("conviction_cap")
+    if regime_cap is not None:
+        for rec in recs:
+            action = (rec.get("action") or "").upper()
+            conviction = rec.get("conviction") or 0
+            if action in {"BUY", "ADD"} and conviction < regime_cap:
+                ticker = rec.get("ticker", "")
+                regime_label = macro_regime.get("regime", "unknown")
+                warnings.append(
+                    _warn(
+                        "medium",
+                        "macro_regime_conviction",
+                        ticker,
+                        f"Macro regime is '{regime_label}' (cap {regime_cap}); "
+                        f"{action} on {ticker} has conviction {conviction} — below the regime threshold.",
+                        "Consider waiting for conviction to meet regime cap, or downgrade to HOLD-watch.",
+                    )
+                )
+
+    # Concentration alerts gate
+    try:
+        from src.portfolio_analytics import compute_correlation_matrix
+
+        md_list = [{"ticker": t, **d} for t, d in (market_data or {}).items()]
+        correlation_matrix = compute_correlation_matrix(md_list)
+        _, total_usd = aggregate_positions(
+            portfolio.get("holdings", []),
+            settings.get("cad_per_usd_assumption", 1.37),
+        )
+        if total_usd and positions:
+            for alert in concentration_alerts(positions, total_usd, correlation_matrix):
+                pair = alert.get("pair", "")
+                warnings.append(
+                    _warn(
+                        "medium",
+                        "CONCENTRATION",
+                        pair,
+                        alert.get("message", f"Concentration risk: {pair}"),
+                        "Review combined weight of correlated positions and consider reducing exposure.",
+                    )
+                )
+    except Exception:
+        pass
 
     return [warning.to_dict() for warning in warnings]
 

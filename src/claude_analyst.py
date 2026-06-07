@@ -6,7 +6,9 @@ reduce costs on repeated runs.
 """
 
 import json
+import logging as _logging
 import os
+import time as _time
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -18,7 +20,8 @@ from dotenv import load_dotenv
 from src.config import load_settings
 from src.drift_tracker import compute_drift
 from src.portfolio_analytics import build_hedge_suggestions
-from src.report_quality import apply_quality_gates, evaluate as evaluate_report_quality
+from src.report_quality import apply_quality_gates
+from src.report_quality import evaluate as evaluate_report_quality
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
@@ -653,8 +656,8 @@ def build_user_message(
     """Construct the full user message with all context."""
     from src.news_fetcher import aggregate_sentiment
     from src.position_aging import (
-        annotate_holdings,
         aging_summary,
+        annotate_holdings,
         format_aging_for_prompt,
     )
 
@@ -796,7 +799,7 @@ def build_user_message(
         lines.append(aging_block)
 
     # ── Catalyst windows (earnings ±5d, FOMC, CPI, NFP) ─────────────────
-    from src.catalyst_windows import annotate_tickers, macro_session_tags, format_for_prompt
+    from src.catalyst_windows import annotate_tickers, format_for_prompt, macro_session_tags
 
     enriched_per_ticker = (enriched or {}).get("per_ticker") or {}
     macro_calendar = ((enriched or {}).get("macro_context") or {}).get("calendar")
@@ -808,7 +811,8 @@ def build_user_message(
         lines.append(catalyst_block)
 
     # ── Trailing stops (lock in gains as positions appreciate) ──────────
-    from src.trailing_stops import evaluate as _eval_trailing_stops, format_for_prompt as _fmt_ts
+    from src.trailing_stops import evaluate as _eval_trailing_stops
+    from src.trailing_stops import format_for_prompt as _fmt_ts
 
     trailing = _eval_trailing_stops(holdings, market_data, holding_days_map, settings)
     trailing_block = _fmt_ts(trailing)
@@ -818,7 +822,8 @@ def build_user_message(
 
     # ── Sector rotation rhythm (1-month relative strength) ───────────────
     if market_context:
-        from src.sector_rotation import classify as _classify_sectors, format_for_prompt as _fmt_sectors
+        from src.sector_rotation import classify as _classify_sectors
+        from src.sector_rotation import format_for_prompt as _fmt_sectors
 
         prev_context = (previous_session or {}).get("market_context_snapshot")
         sector_universe = settings.get("sector_rotation_tickers")
@@ -1275,7 +1280,22 @@ def _create_message(client, model: str, settings: dict, messages: list[dict]):
         kwargs["thinking"] = {"type": "adaptive"}
         effort = settings.get("opus_thinking_effort", "medium")
         kwargs["output_config"] = {"effort": effort}
-    return client.messages.create(**kwargs)
+    _RATE_LIMIT_DELAYS = (5, 15, 45)
+    last_exc = None
+    for attempt, delay in enumerate((*_RATE_LIMIT_DELAYS, None)):
+        try:
+            return client.messages.create(**kwargs)
+        except anthropic.RateLimitError as exc:
+            last_exc = exc
+        except anthropic.APIStatusError as exc:
+            if exc.status_code not in (529, 503):
+                raise
+            last_exc = exc
+        if delay is None:
+            break
+        print(f"[claude_analyst] Rate limit hit, retrying in {delay}s (attempt {attempt + 1}/3)...")
+        _time.sleep(delay)
+    raise last_exc
 
 
 def _sum_usage_stats(stats: list[dict]) -> dict:
@@ -1480,15 +1500,24 @@ def call_claude(
         first_drift,
         previous_session,
     )
-    recommendation, second_usage = _create_parse_message(
-        client,
-        model,
-        settings,
-        [
-            {"role": "user", "content": [_cacheable_text_block(user_message)]},
-            {"role": "user", "content": review_message},
-        ],
-    )
+    second_usage = None
+    try:
+        recommendation, second_usage = _create_parse_message(
+            client,
+            model,
+            settings,
+            [
+                {"role": "user", "content": [_cacheable_text_block(user_message)]},
+                {"role": "user", "content": review_message},
+            ],
+        )
+    except Exception as _pass2_exc:
+        _logging.getLogger(__name__).warning("Pass 2 failed, falling back to Pass 1: %s", _pass2_exc)
+        recommendation = first_recommendation
+        recommendation["pass2_fallback"] = True
+        recommendation.setdefault("warnings", []).append(
+            "Pass 2 quality review failed; displaying Pass 1 output. Verify recommendations manually."
+        )
 
     final_drift = compute_drift(
         recommendation,
@@ -1505,7 +1534,7 @@ def call_claude(
     )
 
     # Build the aging summary so the gate can enforce the 2-year cap.
-    from src.position_aging import annotate_holdings, aging_summary
+    from src.position_aging import aging_summary, annotate_holdings
 
     annotated = annotate_holdings(
         portfolio.get("holdings", []),
@@ -1535,7 +1564,7 @@ def call_claude(
         trailing_alerts=trailing_alerts,
         thesis_forced_exits=thesis_forced_exits,
     )
-    recommendation["review_passes"] = 2
+    recommendation["review_passes"] = 2 if not recommendation.get("pass2_fallback") else 1
     recommendation["drift_vs_previous"] = final_drift
     recommendation["first_pass_quality_warnings"] = first_warnings
     recommendation["first_pass_drift_vs_previous"] = first_drift

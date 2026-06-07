@@ -8,7 +8,6 @@ from src.report_sections import (
     render_trailing_stops,
 )
 
-
 # ── Position aging ──────────────────────────────────────────────────────
 
 

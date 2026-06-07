@@ -8,15 +8,14 @@ without modifying the existing rendering logic.
 
 from __future__ import annotations
 
-from typing import Iterable
-
+from collections.abc import Iterable
 
 # ── Position aging ──────────────────────────────────────────────────────
 
 
 def render_position_aging(holdings: Iterable[dict], holding_days_map: dict | None, settings: dict | None = None) -> list[str]:
     """Render the position aging table. Empty list when no actionable tiers."""
-    from src.position_aging import annotate_holdings, aging_summary
+    from src.position_aging import aging_summary, annotate_holdings
 
     holding_days_map = holding_days_map or {}
     settings = settings or {}

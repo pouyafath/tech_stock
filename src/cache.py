@@ -8,8 +8,9 @@ read/unpickle error as a cache miss and re-runs the loader.
 import hashlib
 import pickle
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 ROOT = Path(__file__).parent.parent
 CACHE_DIR = ROOT / "data" / ".cache"
@@ -31,7 +32,7 @@ def _log(level: str, code: str, message: str, context: dict | None = None) -> No
 
 def _cache_key_to_filename(namespace: str, key: str) -> Path:
     """Hash the namespace+key into a safe filename."""
-    raw = f"{namespace}:{key}".encode("utf-8")
+    raw = f"{namespace}:{key}".encode()
     digest = hashlib.sha1(raw).hexdigest()[:16]
     return CACHE_DIR / namespace / f"{digest}.pkl"
 

@@ -22,9 +22,8 @@ from __future__ import annotations
 import io
 import zipfile
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -88,7 +87,7 @@ def export_workspace(*, output_dir: Path | None = None) -> ExportResult:
     except OSError as exc:
         return ExportResult(ok=False, bytes_written=0, file_count=0, excluded=0, output_path=None, error=str(exc))
 
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    stamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     output = dest_dir / f"tech_stock_workspace_{stamp}.zip"
 
     file_count = 0

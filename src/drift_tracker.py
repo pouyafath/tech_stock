@@ -15,7 +15,6 @@ from pathlib import Path
 
 from src._utils import parse_session_filename
 
-
 # ── Thesis-text drift constants ────────────────────────────────────────────
 
 # Words that carry little semantic load — present in nearly every thesis

@@ -14,14 +14,13 @@ from typing import Any
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class _DummyCtx:
     """Replaces every Streamlit widget + container with a no-op."""
 
-    def __enter__(self) -> "_DummyCtx":
+    def __enter__(self) -> _DummyCtx:
         return self
 
     def __exit__(self, *args, **kwargs) -> bool:

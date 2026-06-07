@@ -21,8 +21,8 @@ without us having to hard-code each rule.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import date, datetime, timedelta
-from typing import Iterable
 
 
 def _coerce_date(value) -> date | None:

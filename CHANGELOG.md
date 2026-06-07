@@ -4,40 +4,93 @@ All notable changes to this project are documented here.
 
 ---
 
-## [Unreleased]
+## [1.27.0] — 2026-06-07
 
-### Documentation
+### Bug Fixes
+- Fixed macro-regime conviction gate using wrong key `market_context` — now reads `recommendation["macro_regime"]` directly
+- Fixed conviction gate comparing against non-existent `conviction_score` field — now uses the correct `conviction` field
 
-- Reorganized the project documentation around a concise README, a five-minute
-  quick start, a complete user guide, a troubleshooting guide, and an
-  audit-oriented analysis methodology guide.
-- Clarified platform installation options, Wealthsimple holdings-versus-
-  activities CSV requirements, API key behavior, workspace storage, report
-  trust controls, and update behavior.
-- Removed stale or overly broad claims about provider availability, rate limits,
-  account requirements, and market-data freshness.
+### Features
+- Wired `macro_regime.classify_regime()` into main pipeline: fetches FRED series from `enriched["macro"]["series"]` and stores result in `recommendation["macro_regime"]`
+- Wired `concentration_alerts()` into `evaluate()` quality gates: appends `CONCENTRATION` warnings for highly-correlated position pairs exceeding weight threshold
+- Added "Concentration Alerts" subsection to markdown report rendered by `report_generator.py`
+- Fixed `macro_regime.classify_regime()` to read VIX from `fred_data["VIXCLS"]["value"]` and yield curve from `fred_data["T10Y2Y"]["value"]`
+
+### Cleanup
+- Consolidated `safe_float` duplicates: merged NaN/inf handling into `src._utils.safe_float()`; removed private `_safe_float` from `market_data.py` and `sector_rotation.py`
+- Added `CAD_PER_USD_DEFAULT = 1.37` constant to `src/constants.py`
+- Moved inline `import time as _time` and `import logging as _logging` in `claude_analyst.py` to top-level imports
+- Added `logger.debug(..., exc_info=True)` to previously-silent `except Exception: pass` blocks in `desktop_app.py`
+- Added `.coverage`, `.coverage.*`, `htmlcov/`, `.pytest_cache/` to `.gitignore`
+- Added `pytest.importorskip("tkinter")` to `tests/test_desktop_app_macos.py`
+- Expanded CI ruff format check scope to include `ui/` and `tools/` directories
+- Added tests for macro-regime conviction gate (correct key fires, wrong key does not) and concentration alerts rendering
 
 ---
 
-## [1.23.0] — 2026-06-05
+## [1.26.0] — 2026-06-07
 
-### Changed — refactor-first usability
+### Added
+- Dry-run mode: validate CSV/portfolio without calling Claude (Run tab checkbox + `run_report_from_ui(dry_run=True)`)
+- Risk controls table in markdown report: entry zones, stop-loss, take-profit per recommendation
+- Trailing stops section in report: active trailing stops with breach alerts for positions with >10% gain
+- Paper trading UI in Performance tab: cumulative value chart, P&L, trade count from `paper_trading.py`
+- Improved Run tab error panel: stage-by-stage failure info and retry button
+- Integration test (`tests/test_integration_sample.py`) validating pipeline with bundled sample data
 
-- **Canonical report pipeline** — `ReportPipeline` is now the shared run
-  boundary for CLI-adjacent UIs and scripts. `src.main.run()` remains backward
-  compatible, but delegates through the pipeline and returns the historical
-  dictionary shape.
-- **Structured artifacts** — report runs now expose additive artifact metadata:
-  data confidence, elapsed timing, and error lists alongside recommendation
-  JSON, markdown, CSV, log path, usage, quality warnings, and source
-  degradation.
-- **Desktop implementation package** — moved the embedded Tk implementation
-  into `src/desktop/app.py` while keeping `src/desktop_app.py` as the public
-  launcher/import compatibility path.
-- **Preflight before paid runs** — CLI/UI-triggered report runs now print a
-  compact doctor summary before the Anthropic call path, including a clear
-  next-action line when setup, CSV freshness, budget, or optional API coverage
-  needs attention.
+---
+
+## [1.25.0] — 2026-06-05
+
+### Added
+- Macro regime classifier (`src/macro_regime.py`): auto-detects Bull / Correction / Bear / Transition from VIX, yield curve, and SPY SMA cross; conviction cap enforced by quality gate
+- Correlation matrix + concentration alerts in `portfolio_analytics.py`: warns when two >0.85-correlated positions combine to >15% of portfolio
+- Integration test with bundled sample data validates end-to-end report pipeline
+- Unit tests for `alpha_vantage_client`, `coingecko_client`, `finnhub_client`, `polygon_client`, `twelve_data_client`
+- `requests` added as explicit dependency; upper bounds on `anthropic` and `yfinance`
+- CI now tracks test coverage with `--cov-fail-under=55` floor
+- Expanded ruff lint rules (import sorting, pyupgrade, pycodestyle warnings)
+
+### Fixed
+- `tests/test_desktop_search.py` now skips gracefully on headless systems (no `tkinter`)
+
+---
+
+## [1.24.0] — 2026-06-04
+
+### Changed — Quality, resilience & analytics improvements
+
+- **Sortino, Calmar, VaR/CVaR metrics** — Four additional risk metrics added to both `compute_risk_dashboard()` and the Performance tab summary: Sortino ratio (downside-only volatility), Calmar ratio (return vs max drawdown), VaR 95% (worst 5th-percentile session loss), and CVaR 95% (expected loss beyond VaR). The desktop **Performance tab** now displays all four as metric cards with explanatory tooltips. All derived from existing historical data, no new API calls.
+- **Live USD/CAD FX rate** — New keyless `get_usd_cad_rate()` in `portfolio_analytics.py` fetches the live rate from exchangerate-api.com (FRED public CSV as fallback), cached in-memory for 4 hours, with a 1.37 fallback on any network error. Wired into the report pipeline (`main.py`) as the fallback when no FRED API key is configured — so users without a FRED key still get an accurate live rate instead of the static assumption.
+- **Claude API retry on rate limits** — `_create_message()` now retries up to 3 times on HTTP 429/529/503 errors (RateLimitError, APIStatusError) with exponential backoff: 5s → 15s → 45s. Logs each retry attempt.
+- **Pass 2 fallback** — If the second-pass quality review fails (timeout, refusal, malformed JSON), the system now falls back gracefully to the Pass 1 result instead of crashing the entire run. A warning is appended to the recommendation and `pass2_fallback=True` is set in the output.
+- **Sector rotation conflict gate** — New quality gate in `report_quality.py` detects when sector warnings call for reducing tech exposure but a BUY/ADD is recommended on a tech/semiconductor ticker. Appends a `medium`-severity warning.
+- **Journal tab filters + CSV export** — Streamlit Journal tab now has ticker multiselect, 30-day date range filter, and outcome filter (Win/Loss/Open). A "Export to CSV" download button is available whenever entries are shown.
+- **Schedule tab time picker** — Replaced hour/minute number inputs in the Schedule tab with native `st.time_input` widgets for a cleaner, less error-prone UI.
+- **Backtest equity curve** — Backtest tab now renders a cumulative portfolio index chart from recent realized examples, starting at 100.
+- **Degradation health wired** — `degradation_health()` (previously defined but unused) is now called at the top of the Streamlit Diagnostics tab and surfaces any data quality issues as `st.warning()` items.
+- **Unit tests for claude_analyst** — New `tests/test_claude_analyst.py` covers `normalize_recommendation`, `_normalize_time_horizon`, `_parse_validate_recommendation`, and the Pass 2 fallback path. 14 tests, no live API calls.
+
+### Version bumped: 1.23.0 → 1.24.0
+
+---
+
+## [1.23.0] — 2026-06-03
+
+### Changed — B2C user-friendliness overhaul
+
+Major UX improvements to make the desktop app consumer-ready.
+
+- **Tab reorganization (12 to 7)** — Reduced from 12 flat tabs to 7 primary tabs. Reports tab combines Run/Latest/History as sub-tabs. Settings tab combines Preferences/API Keys/Schedule/Advanced Editor/Updates as sub-tabs. Dashboard renamed to "Home". Less overwhelming for new users.
+- **Native onboarding wizard** — New 6-stage setup wizard built directly in the desktop app using the existing `onboarding.py` state machine. Walks through Welcome, API Key, Budget, CSV, First Run, and Done stages with progress dots and inline inputs. Replaces the old redirect-to-Streamlit dialog.
+- **Tooltip system** — New `_Tooltip` class provides hover tooltips throughout the app. Applied to ~35 widgets: dashboard metric cards, run tab fields, toolbar buttons, settings form fields, and the header status pill. Explains financial terms like beta, volatility, and conviction in plain English.
+- **Progress indicators** — Indeterminate progress bar with elapsed timer during report generation. Shows "Elapsed: 42s" and animates while Claude analyzes. Progress bar hides when complete.
+- **Status bar** — Persistent bottom bar showing connection status, last report timestamp, session cost, and app version. Updates on report completion and operation changes. Color-coded status dot (green/amber/red).
+- **Friendly settings panel** — New Preferences sub-tab with form-based settings for common options: investment budget, risk tolerance, AI model choice, two-pass review toggle, max position size, min expected return, and feature flags (decision journal, sentiment, enrichment). Replaces raw JSON editing for everyday settings.
+- **Consumer-friendly labels** — "Run Report" → "Generate Report", "Preview Holdings" → "Preview My Holdings", "Check APIs" → "Test Connections", "Refresh Buy Signals" → "Check for Opportunities". Section headers: "Action Queue" → "Recommended Actions", "Quality Gates" → "Risk Alerts", "Stops & Breaches" → "Price Alerts".
+- **Welcome-back greeting** — Returning users see "Welcome back!" in the status bar for 3 seconds before normal status.
+- **Friendlier empty states** — "No recommendation JSON logs found yet" → "Welcome! Generate your first report to see your portfolio analysis here."
+- **Better status messages** — "Running report..." → "Generating your portfolio report... usually takes about 90 seconds." "Report completed." → "Report ready! Switch to Reports > Latest to read your recommendations."
 
 ### Version bumped: 1.22.0 → 1.23.0
 

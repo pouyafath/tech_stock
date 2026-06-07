@@ -19,6 +19,9 @@ import ast
 import sys
 from pathlib import Path
 
+import pytest
+
+tkinter = pytest.importorskip("tkinter")
 
 ROOT = Path(__file__).resolve().parents[1]
 DESKTOP_IMPL = ROOT / "src" / "desktop" / "app.py"

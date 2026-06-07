@@ -6,7 +6,7 @@ import argparse
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -224,7 +224,7 @@ def run_demo_smoke_test() -> dict[str, Any]:
                 {
                     **rec,
                     "current_price": rec.get("target_entry_or_exit") or 100,
-                    "quote_timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+                    "quote_timestamp_utc": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
                     "quote_source": "demo",
                     "analyst_consensus": {"total_analysts": 1, "consensus_label": "DEMO"},
                     "price_targets": {"mean": rec.get("target_entry_or_exit") or 100, "source": "demo"},
@@ -346,7 +346,7 @@ def build_preflight(
 
     payload: dict[str, Any] = {
         "app_version": APP_VERSION,
-        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "generated_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "update": _update_status(update_info),
         "workspace": _workspace_status(),
         "api_keys": _api_key_status(),

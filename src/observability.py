@@ -46,12 +46,11 @@ import os
 import re
 import threading
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from src.updater import user_workspace
-
 
 # ── Configuration ──────────────────────────────────────────────────────────
 
@@ -155,7 +154,7 @@ def log_event(
     """
     try:
         record = {
-            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+            "ts": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
             "source": str(source or "unknown"),
             "level": level.lower() if level and level.lower() in _VALID_LEVELS else "error",
             "code": str(code or ""),
@@ -248,7 +247,7 @@ def success_rate(source: str, *, hours: int = 24) -> float | None:
     Returns ``None`` when there's no data for the source — the Diagnostics tab
     renders that as "no recent traffic" instead of a misleading 1.0.
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
     total = 0
     ok = 0
     for record in _iter_recent(TAIL_LINES):
@@ -280,7 +279,7 @@ def source_summary(*, hours: int = 24) -> dict[str, Any]:
         "rotated_path": str | None,
       }
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
     sources: dict[str, dict[str, Any]] = defaultdict(lambda: {"total": 0, "errors": 0, "last_error": None, "codes": defaultdict(int)})
     recent = []
     total = 0

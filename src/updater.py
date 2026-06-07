@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import platform
 import shutil
+import ssl
 import subprocess
 import sys
-import ssl
 import urllib.error
 import urllib.request
 import zipfile
-import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -167,7 +167,7 @@ def _update_cache_path() -> Path:
     return path / "update_check.json"
 
 
-def _serialize_update_info(info: "UpdateInfo") -> dict[str, Any]:
+def _serialize_update_info(info: UpdateInfo) -> dict[str, Any]:
     return {
         "current_version": info.current_version,
         "latest_version": info.latest_version,
@@ -185,7 +185,7 @@ def _serialize_update_info(info: "UpdateInfo") -> dict[str, Any]:
     }
 
 
-def _deserialize_update_info(payload: dict[str, Any]) -> "UpdateInfo":
+def _deserialize_update_info(payload: dict[str, Any]) -> UpdateInfo:
     return UpdateInfo(
         current_version=payload.get("current_version") or APP_VERSION,
         latest_version=payload.get("latest_version"),
@@ -203,7 +203,7 @@ def _deserialize_update_info(payload: dict[str, Any]) -> "UpdateInfo":
     )
 
 
-def _load_cached_update_info(ttl_seconds: int) -> "UpdateInfo | None":
+def _load_cached_update_info(ttl_seconds: int) -> UpdateInfo | None:
     cache_path = _update_cache_path()
     if not cache_path.exists():
         return None
@@ -237,7 +237,7 @@ def _load_cached_update_info(ttl_seconds: int) -> "UpdateInfo | None":
     return info
 
 
-def _save_update_cache(info: "UpdateInfo") -> None:
+def _save_update_cache(info: UpdateInfo) -> None:
     if info.error:
         # Don't persist failed lookups — let the next caller retry.
         return

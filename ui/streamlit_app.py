@@ -29,20 +29,23 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from src.performance_history import portfolio_performance_summary  # noqa: E402
 from src.ui_support import (  # noqa: E402
-    EDITABLE_JSON_FILES,
     API_KEY_FIELDS,
+    EDITABLE_JSON_FILES,
     api_health_view,
     api_key_inventory,
     apply_available_update,
     buy_signal_view,
     check_update_available,
     current_app_version,
-    default_run_settings,
     decision_journal_view,
     decision_scorecard_summary,
-    diagnostics_view,
+    default_run_settings,
+    degradation_health,
+    delete_api_key,
     diagnostics_support_bundle,
+    diagnostics_view,
     find_default_csvs,
     latest_log_summary,
     latest_report,
@@ -54,14 +57,12 @@ from src.ui_support import (  # noqa: E402
     relative_to_root,
     run_backtest_summary,
     run_report_from_ui,
-    delete_api_key,
     save_api_key,
     save_decision_from_ui,
     save_uploaded_bytes,
     validate_json_text,
     write_editable_json,
 )
-from src.performance_history import portfolio_performance_summary  # noqa: E402
 from src.ui_theme import (  # noqa: E402
     PALETTE,
     STREAMLIT_CSS,
@@ -77,7 +78,6 @@ from src.ui_theme import (  # noqa: E402
     verdict_badge,
     warning_row,
 )
-
 
 # ── Constants & helpers ─────────────────────────────────────────────────────
 
@@ -240,11 +240,21 @@ def _render_first_run_wizard() -> bool:
     to render the tabs)."""
     from src.onboarding import (
         advance as _advance,
+    )
+    from src.onboarding import (
         current_state as _onboarding_state,
+    )
+    from src.onboarding import (
         is_demo_mode_active as _demo_active,
+    )
+    from src.onboarding import (
         needs_onboarding as _needs,
-        stage_guidance as _guidance,
+    )
+    from src.onboarding import (
         reset_onboarding as _reset,
+    )
+    from src.onboarding import (
+        stage_guidance as _guidance,
     )
 
     if not _needs() or _demo_active():
@@ -1011,6 +1021,13 @@ def _render_run_tab() -> None:
     estimate = "~$0.22" if model_choice == "sonnet" else "~$0.45"
     st.caption(f"Selected model: **{model_choice.title()}** · estimated cost {estimate}")
 
+    st.checkbox(
+        "Dry run — validate data without calling Claude",
+        key="dry_run_mode",
+        value=False,
+        help="Loads CSV, parses portfolio, fetches market data — but stops before the Claude API call.",
+    )
+
     if st.button("▶ Run report", type="primary", width="stretch", key="run_report_btn"):
         holdings_path, activities_path = _resolve_run_inputs(
             holdings_mode,
@@ -1030,8 +1047,12 @@ def _render_run_tab() -> None:
                 st.error(f"{label} CSV not found: {path}")
                 st.stop()
 
+        is_dry_run = st.session_state.get("dry_run_mode", False)
+
         status = st.status(
-            "Running pipeline — market data → enrichment → Claude review → render",
+            "Dry-run validation — market data only (Claude skipped)"
+            if is_dry_run
+            else "Running pipeline — market data → enrichment → Claude review → render",
             expanded=True,
         )
         progress_box = st.empty()
@@ -1052,14 +1073,41 @@ def _render_run_tab() -> None:
             budget_cad=budget_cad,
             model_choice=model_choice,
             on_progress=on_progress,
+            dry_run=is_dry_run,
         )
 
         with st.expander("📜 Full console output", expanded=False):
             st.text_area("Console", result.console, height=260, label_visibility="collapsed")
 
         if not result.ok:
-            status.update(label="Report failed", state="error")
-            st.error(result.error or "Report run failed.")
+            status.update(label="Run failed", state="error")
+            st.error(f"Run failed: {result.error or 'Unknown error'}")
+            with st.expander("Error details", expanded=True):
+                dry_data = result.dry_run_data or {}
+                if dry_data.get("error"):
+                    st.markdown(f"**Error:** {dry_data['error']}")
+                console_text = result.console or ""
+                if console_text:
+                    tail_lines = console_text.splitlines()[-20:]
+                    st.code("\n".join(tail_lines), language=None)
+                if st.button("Retry", key="run_retry_btn"):
+                    st.rerun()
+            return
+
+        if result.dry_run:
+            status.update(label="Dry run complete ✓", state="complete")
+            dry_data = result.dry_run_data or {}
+            tickers = dry_data.get("tickers") or []
+            total_value = dry_data.get("total_value_usd", 0)
+            position_count = dry_data.get("position_count", 0)
+            market_data_fetched = dry_data.get("market_data_fetched", 0)
+            st.success(
+                f"Dry run passed — portfolio loaded successfully.\n\n"
+                f"**{position_count}** positions · **{len(tickers)}** tickers · "
+                f"**${total_value:,.0f}** total value (USD equiv.) · "
+                f"**{market_data_fetched}** market data records fetched.\n\n"
+                f"Tickers: {', '.join(tickers[:20]) or '—'}" + (" …" if len(tickers) > 20 else "")
+            )
             return
 
         status.update(label="Report generated ✓", state="complete")
@@ -1274,6 +1322,40 @@ def _render_performance() -> None:
 with tab_performance:
     _render_performance()
 
+    with st.expander("Paper Trading", expanded=False):
+        try:
+            from src.main import DATA_DIR as _DATA_DIR
+            from src.paper_trading import _load_state as _load_paper_state
+
+            _paper_path = _DATA_DIR / "paper_portfolio.json"
+            paper = _load_paper_state(_paper_path)
+        except Exception as _paper_exc:
+            paper = None
+            st.caption(f"Paper trading data unavailable: {_paper_exc}")
+
+        if paper and paper.get("value_history"):
+            from src.paper_trading import mark_to_market as _mtm
+
+            _current_value = _mtm(paper, {})
+            _starting = float(paper.get("starting_cash_usd") or 0)
+            _total_pnl = _current_value - _starting
+            _trade_log = paper.get("trade_log") or []
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Current Value", f"${_current_value:,.0f}")
+            col2.metric("P&L", f"${_total_pnl:,.0f}")
+            col3.metric("Trades", str(len(_trade_log)))
+
+            vh = paper["value_history"]
+            if vh:
+                df_vh = pd.DataFrame(vh)
+                if "date" in df_vh.columns:
+                    st.line_chart(df_vh.set_index("date")["value_usd"] if "value_usd" in df_vh.columns else df_vh.set_index("date"))
+                else:
+                    st.line_chart(df_vh)
+        else:
+            st.info("No paper trading data yet. Enable paper trading in Settings to start tracking simulated trades.")
+
 
 # ─── Backtest ──────────────────────────────────────────────────────────────
 
@@ -1310,6 +1392,25 @@ with tab_backtest:
             "ticker",
         )
 
+        # Equity curve from recent realized examples
+        examples = backtest.get("recent_realized_examples") or []
+        if examples:
+            with st.expander("📈 Equity Curve", expanded=True):
+                try:
+                    eq_df = pd.DataFrame(examples)
+                    if "session_date" in eq_df.columns and "actual_pct" in eq_df.columns:
+                        eq_df = eq_df.dropna(subset=["session_date", "actual_pct"])
+                        eq_df["session_date"] = pd.to_datetime(eq_df["session_date"])
+                        daily = eq_df.groupby("session_date")["actual_pct"].mean().sort_index()
+                        cumulative = (1 + daily / 100).cumprod() * 100
+                        st.line_chart(cumulative, x_label="Date", y_label="Portfolio Index (start=100)")
+                    else:
+                        st.info("Equity curve requires session_date and actual_pct columns.")
+                except Exception:
+                    st.info("Could not build equity curve from available data.")
+        else:
+            st.info("Run a backtest first to see the equity curve.")
+
         with st.expander("📋 Recent realized examples", expanded=True):
             examples = backtest.get("recent_realized_examples") or []
             if examples:
@@ -1337,6 +1438,55 @@ def _render_journal() -> None:
     col_pending.metric("Pending", status.get("pending", 0), delta=None)
     col_recorded.metric("Recorded", status.get("recorded", 0))
 
+    # ── Filters ───────────────────────────────────────────────────────────────
+    if entries:
+        from datetime import date as _date
+        from datetime import timedelta as _timedelta
+
+        _entries_df = pd.DataFrame(entries)
+        _all_tickers = sorted(_entries_df["ticker"].dropna().unique().tolist()) if "ticker" in _entries_df.columns else []
+        _today = _date.today()
+        _30_days_ago = _today - _timedelta(days=30)
+
+        _fcol1, _fcol2, _fcol3 = st.columns(3)
+        with _fcol1:
+            _sel_tickers = st.multiselect("Filter by ticker", _all_tickers, key="journal_ticker_filter")
+        with _fcol2:
+            _date_range = st.date_input("Date range", value=(_30_days_ago, _today), key="journal_date_range")
+        with _fcol3:
+            _outcome = st.selectbox("Outcome filter", ["All", "Win", "Loss", "Open"], key="journal_outcome")
+
+        # Apply ticker filter
+        if _sel_tickers:
+            entries = [e for e in entries if e.get("ticker") in _sel_tickers]
+
+        # Apply date filter
+        if isinstance(_date_range, (list, tuple)) and len(_date_range) == 2:
+            _start, _end = _date_range
+
+            def _in_range(e):
+                sd = e.get("session_date")
+                if not sd:
+                    return True
+                try:
+                    _d = _date.fromisoformat(str(sd)[:10])
+                    return _start <= _d <= _end
+                except Exception:
+                    return True
+
+            entries = [e for e in entries if _in_range(e)]
+
+        # Apply outcome filter
+        _WIN_DECISIONS = {"accepted", "executed"}
+        _LOSS_DECISIONS = {"ignored"}
+        _OPEN_DECISIONS = {"pending"}
+        if _outcome == "Win":
+            entries = [e for e in entries if e.get("user_decision") in _WIN_DECISIONS]
+        elif _outcome == "Loss":
+            entries = [e for e in entries if e.get("user_decision") in _LOSS_DECISIONS]
+        elif _outcome == "Open":
+            entries = [e for e in entries if e.get("user_decision") in _OPEN_DECISIONS]
+
     if not entries:
         _html(
             empty_state(
@@ -1363,6 +1513,7 @@ def _render_journal() -> None:
         keep_cols = [col for col in display_cols if col in df.columns]
         if keep_cols:
             st.dataframe(df[keep_cols], hide_index=True, width="stretch")
+            st.download_button("📥 Export to CSV", df[keep_cols].to_csv(index=False), "journal.csv", "text/csv")
 
     with st.expander("✏️ Record or update a decision", expanded=bool(entries)):
         if not entries:
@@ -1736,6 +1887,11 @@ with tab_learning:
 
 
 def _render_diagnostics() -> None:
+    # Data quality degradation check
+    deg_issue = degradation_health("streamlit_app")
+    if deg_issue:
+        st.warning(f"⚠️ Data quality degradation detected: {deg_issue}")
+
     st.subheader("Diagnostics")
     st.caption(
         "Per-source API health, recent errors, and a redacted support bundle. "
@@ -1979,6 +2135,8 @@ with tab_diagnostics:
 
 
 def _render_schedule() -> None:
+    from datetime import time as _time
+
     from src.notifications import send as _send_notify
     from src.scheduling import (
         ScheduleTime,
@@ -2016,24 +2174,21 @@ def _render_schedule() -> None:
     col_morn, col_noon, col_aft = st.columns(3)
     with col_morn:
         enable_morning = st.checkbox("Morning run", value=True, key="sched_morn_en")
-        morn_hour = st.number_input("Hour", min_value=0, max_value=23, value=7, key="sched_morn_h")
-        morn_min = st.number_input("Minute", min_value=0, max_value=59, value=0, key="sched_morn_m")
+        morn_time = st.time_input("Time", value=_time(7, 0), key="sched_morn_t")
     with col_noon:
         enable_midday = st.checkbox("Midday run", value=False, key="sched_mid_en")
-        mid_hour = st.number_input("Hour", min_value=0, max_value=23, value=11, key="sched_mid_h")
-        mid_min = st.number_input("Minute", min_value=0, max_value=59, value=0, key="sched_mid_m")
+        mid_time = st.time_input("Time", value=_time(11, 0), key="sched_mid_t")
     with col_aft:
         enable_afternoon = st.checkbox("Afternoon run", value=True, key="sched_aft_en")
-        aft_hour = st.number_input("Hour", min_value=0, max_value=23, value=14, key="sched_aft_h")
-        aft_min = st.number_input("Minute", min_value=0, max_value=59, value=0, key="sched_aft_m")
+        aft_time = st.time_input("Time", value=_time(14, 0), key="sched_aft_t")
 
     times: list[ScheduleTime] = []
     if enable_morning:
-        times.append(ScheduleTime(hour=int(morn_hour), minute=int(morn_min), session_type="morning"))
+        times.append(ScheduleTime(hour=morn_time.hour, minute=morn_time.minute, session_type="morning"))
     if enable_midday:
-        times.append(ScheduleTime(hour=int(mid_hour), minute=int(mid_min), session_type="morning"))
+        times.append(ScheduleTime(hour=mid_time.hour, minute=mid_time.minute, session_type="morning"))
     if enable_afternoon:
-        times.append(ScheduleTime(hour=int(aft_hour), minute=int(aft_min), session_type="afternoon"))
+        times.append(ScheduleTime(hour=aft_time.hour, minute=aft_time.minute, session_type="afternoon"))
 
     if times:
         backend, body = preview_schedule(times)

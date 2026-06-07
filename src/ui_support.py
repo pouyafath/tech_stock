@@ -12,16 +12,19 @@ import io
 import json
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from src.backtester import run_backtest
 from src.decision_journal import (
     journal_status,
     load_journal,
     record_decision,
+)
+from src.decision_journal import (
     run_scorecard as run_decision_scorecard,
 )
 from src.enriched_data import enrich
@@ -32,9 +35,9 @@ from src.main import (
     REPORTS_DIR,
     ROOT,
     UPLOAD_DIR,
+    _load_api_keys_from_file,
     api_key_search_paths,
     find_csv_by_date,
-    _load_api_keys_from_file,
     report_search_paths,
     runtime_locations,
 )
@@ -154,6 +157,8 @@ class UiRunResult:
     csv_path: Path | None = None
     log_path: Path | None = None
     error: str | None = None
+    dry_run: bool = False
+    dry_run_data: dict | None = None
 
 
 def resolve_model(model_choice: str | None) -> tuple[str | None, str | None]:
@@ -253,8 +258,53 @@ def run_report_from_ui(
     budget_cad: float | None = None,
     model_choice: str | None = "sonnet",
     on_progress: Callable[[str], None] | None = None,
+    dry_run: bool = False,
 ) -> UiRunResult:
     model_id, model_name = resolve_model(model_choice)
+
+    if dry_run:
+        try:
+            resolved_holdings = normalize_optional_path(holdings_csv)
+            if resolved_holdings is not None:
+                portfolio = parse_holdings_csv(resolved_holdings)
+            else:
+                portfolio = {"holdings": []}
+            holdings = portfolio.get("holdings") or []
+            tickers = [h.get("ticker") for h in holdings if h.get("ticker") and h.get("ticker") != "CASH"]
+            market_data = get_market_data(tickers) if tickers else {}
+            cad_per_usd = 1.37
+            total_value_usd = sum(
+                float(h.get("market_value") or 0) / (cad_per_usd if (h.get("market_value_currency") or "USD") == "CAD" else 1.0)
+                for h in holdings
+                if h.get("market_value") is not None
+            )
+            return UiRunResult(
+                ok=True,
+                console="Dry run complete — Claude API not called.",
+                error=None,
+                report_path=None,
+                csv_path=None,
+                log_path=None,
+                dry_run=True,
+                dry_run_data={
+                    "dry_run": True,
+                    "portfolio_loaded": True,
+                    "tickers": tickers,
+                    "total_value_usd": round(total_value_usd, 2),
+                    "position_count": len(holdings),
+                    "market_data_fetched": len(market_data),
+                    "error": None,
+                },
+            )
+        except Exception as exc:
+            return UiRunResult(
+                ok=False,
+                console="",
+                error=str(exc),
+                dry_run=True,
+                dry_run_data={"dry_run": True, "portfolio_loaded": False, "error": str(exc)},
+            )
+
     console = io.StringIO()
     stream = TeeProgressIO(console, on_progress)
     try:

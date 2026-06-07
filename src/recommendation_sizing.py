@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-
 DEFAULT_TRIM_FRACTION = 0.30
 
 

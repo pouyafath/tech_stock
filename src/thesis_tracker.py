@@ -40,9 +40,9 @@ similarly to the 2-year stale rule.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Iterable
 
 DEFAULT_REVIEW_INTERVAL_DAYS = 90  # ~quarterly
 DEFAULT_FORCE_EXIT_AFTER = 4  # 4 quarters of "not yet" → force exit

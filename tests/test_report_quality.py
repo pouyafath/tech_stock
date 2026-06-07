@@ -190,3 +190,32 @@ def test_quality_flags_market_data_error():
     warnings = evaluate(_recommendation("HOLD"), {"MSFT": {"error": "provider down"}})
 
     assert "market_data_error" in _codes(warnings)
+
+
+def test_macro_regime_conviction_gate_fires():
+    """Gate fires when macro_regime has conviction_cap and a BUY has conviction below cap."""
+    recommendation = _recommendation("BUY")
+    recommendation["recommendations"][0]["conviction"] = 6
+    recommendation["macro_regime"] = {"regime": "bear", "conviction_cap": 9}
+
+    warnings = evaluate(
+        recommendation,
+        {"MSFT": {"current_price": 100, "currency": "USD", "change_pct_1d": 0, "quote_timestamp_utc": "2026-04-30T20:00:00Z"}},
+    )
+
+    assert "macro_regime_conviction" in _codes(warnings)
+
+
+def test_macro_regime_conviction_gate_does_not_fire_with_wrong_key():
+    """Gate must NOT fire when using the old wrong key market_context instead of macro_regime."""
+    recommendation = _recommendation("BUY")
+    recommendation["recommendations"][0]["conviction"] = 6
+    # Set via old wrong key — gate should not see it
+    recommendation["market_context"] = {"macro_regime": {"regime": "bear", "conviction_cap": 9}}
+
+    warnings = evaluate(
+        recommendation,
+        {"MSFT": {"current_price": 100, "currency": "USD", "change_pct_1d": 0, "quote_timestamp_utc": "2026-04-30T20:00:00Z"}},
+    )
+
+    assert "macro_regime_conviction" not in _codes(warnings)

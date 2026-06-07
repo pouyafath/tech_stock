@@ -53,3 +53,9 @@ data/cost_log.jsonl
 # Temporary uploads (user CSV files — never commit)
 temporary_upload/*.csv
 temporary_upload/*.json
+
+# Test coverage
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/

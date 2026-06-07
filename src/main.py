@@ -45,12 +45,15 @@ from src.constants import DEDUP_PAIRS, SKIP_MARKET_DATA
 from src.decision_journal import (
     journal_status,
     load_journal,
-    run_scorecard as run_decision_scorecard,
     seed_from_recommendation_log,
+)
+from src.decision_journal import (
+    run_scorecard as run_decision_scorecard,
 )
 from src.drift_tracker import compute_drift, get_previous_session
 from src.enriched_data import enrich
 from src.fee_calculator import build_fee_snapshot
+from src.macro_regime import classify_regime
 from src.market_data import add_options_implied_moves, get_context_moves, get_market_data
 from src.news_fetcher import get_news_for_tickers
 from src.portfolio_analytics import (
@@ -887,6 +890,15 @@ def _run_impl(
     from src.fred_client import live_cad_per_usd
 
     live_fx = live_cad_per_usd()
+    if not live_fx:
+        # No FRED API key (or FRED failed) — fall back to the keyless FX source
+        # (exchangerate-api.com, then FRED's public CSV) so users without a FRED
+        # key still get a live rate instead of the static assumption.
+        from src.portfolio_analytics import get_usd_cad_rate
+
+        keyless_fx = get_usd_cad_rate()
+        if keyless_fx and keyless_fx != settings.get("cad_per_usd_assumption", 1.37):
+            live_fx = keyless_fx
     if live_fx and 1.20 < live_fx < 1.55:  # sanity check vs historical range
         cad_per_usd = live_fx
         # Persist for downstream consumers (drawdown, analytics) that read settings
@@ -913,10 +925,10 @@ def _run_impl(
     # ── Thesis-decay tracker: pull due-for-review and forced-exit lists
     #    so the prompt can show them; we update reviews after the gate runs.
     from src.thesis_tracker import (
-        quarterly_reviews_due,
         force_exit_candidates,
-        update_reviews_from_recommendation,
+        quarterly_reviews_due,
         record_new_entries,
+        update_reviews_from_recommendation,
     )
 
     thesis_due = quarterly_reviews_due(THESIS_LOG_PATH)
@@ -1025,6 +1037,15 @@ def _run_impl(
         sys.exit(1)
 
     recommendation = apply_trade_sizes(recommendation, portfolio, market_data)
+
+    # ── Macro regime classification ───────────────────────────────────────
+    # Use FRED series data (from enriched["macro"]["series"]) so classify_regime
+    # can read VIXCLS and T10Y2Y in their native {"value": ...} format.
+    try:
+        fred_series = ((enriched.get("macro") or {}).get("series")) or {}
+        recommendation["macro_regime"] = classify_regime(fred_series, market_context)
+    except Exception:
+        pass
 
     # ── Compute drift between this run and the previous session ───────────
     drift = recommendation.get("drift_vs_previous") or compute_drift(

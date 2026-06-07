@@ -16,11 +16,11 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt pytest-cov
       - name: Run tests
         env:
           PYTHONPATH: ${{ github.workspace }}
-        run: pytest -q
+        run: pytest -q --cov=src --cov-report=term-missing --cov-fail-under=45
 
   lint-security:
     runs-on: ubuntu-latest
@@ -39,7 +39,7 @@ jobs:
         # Previously only checked 4 hand-picked files; CI passed even when
         # 30+ modules drifted out of format. Expanded after a one-time
         # `ruff format src/ tests/` baseline so the signal is honest.
-        run: ruff format --check src/ tests/
+        run: ruff format --check src/ tests/ ui/ tools/
       - name: Dependency vulnerability audit
         run: pip-audit --requirement requirements.txt
 
