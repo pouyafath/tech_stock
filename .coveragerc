@@ -1,0 +1,20 @@
+[run]
+omit =
+    # Desktop tkinter GUI — requires a display; unit tests cannot import these
+    # without a live Tk instance. Covered by manual/integration tests.
+    src/desktop_app.py
+    src/desktop/app.py
+    src/desktop/__init__.py
+    src/app_gui.py
+    src/ui_launcher.py
+
+[report]
+exclude_lines =
+    # Standard pragmas
+    pragma: no cover
+    # Abstract method stubs
+    raise NotImplementedError
+    # Main guard
+    if __name__ == .__main__.:
+    # Type-checking imports
+    if TYPE_CHECKING:

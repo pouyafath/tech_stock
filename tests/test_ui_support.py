@@ -132,3 +132,94 @@ def test_default_run_settings_reads_budget_and_model(monkeypatch, tmp_path):
     defaults = ui_support.default_run_settings()
 
     assert defaults == {"budget_usd": 500.0, "budget_cad": 3000.0, "model_choice": "opus"}
+
+
+def test_run_report_from_ui_dry_run_no_holdings(monkeypatch):
+    """dry_run=True with no CSV should return dry_run=True in result."""
+    from src import ui_support
+
+    # Patch market data to return empty dict immediately
+    monkeypatch.setattr(ui_support, "get_market_data", lambda tickers: {})
+
+    result = ui_support.run_report_from_ui(
+        session_type="morning",
+        holdings_csv=None,
+        model_choice="sonnet",
+        dry_run=True,
+    )
+
+    assert result.dry_run is True
+    assert result.ok is True
+    assert result.dry_run_data is not None
+    assert result.dry_run_data["dry_run"] is True
+
+
+def test_run_report_from_ui_dry_run_with_holdings(monkeypatch, tmp_path):
+    """dry_run=True with a valid CSV parses holdings and fetches market data."""
+    from src import ui_support
+
+    holdings_csv = tmp_path / "holdings.csv"
+    holdings_csv.write_text("Ticker\nNVDA\n")
+
+    monkeypatch.setattr(
+        ui_support,
+        "parse_holdings_csv",
+        lambda path: {"holdings": [{"ticker": "NVDA", "market_value": 1000, "market_value_currency": "USD"}]},
+    )
+    monkeypatch.setattr(ui_support, "get_market_data", lambda tickers: {"NVDA": {"current_price": 900}})
+
+    result = ui_support.run_report_from_ui(
+        session_type="morning",
+        holdings_csv=str(holdings_csv),
+        model_choice="sonnet",
+        dry_run=True,
+    )
+
+    assert result.dry_run is True
+    assert result.ok is True
+    assert result.dry_run_data["position_count"] == 1
+    assert result.dry_run_data["market_data_fetched"] == 1
+
+
+def test_resolve_model():
+    from src.ui_support import resolve_model
+
+    model_id, model_name = resolve_model("sonnet")
+    assert model_id is not None
+
+    none_id, none_name = resolve_model(None)
+    assert none_id is None
+
+
+def test_normalize_optional_path_none():
+    from src.ui_support import normalize_optional_path
+
+    assert normalize_optional_path(None) is None
+    assert normalize_optional_path("") is None
+
+
+def test_save_uploaded_bytes(tmp_path, monkeypatch):
+    from src import ui_support
+
+    monkeypatch.setattr(ui_support, "UPLOAD_DIR", tmp_path)
+    path = ui_support.save_uploaded_bytes("holdings.csv", b"Ticker\nNVDA\n")
+    assert path.exists()
+    assert path.read_bytes() == b"Ticker\nNVDA\n"
+
+
+def test_preview_holdings_csv_not_found(tmp_path):
+    from src import ui_support
+
+    result = ui_support.preview_holdings_csv(tmp_path / "nonexistent.csv")
+    assert result["ok"] is False
+
+
+def test_find_default_csvs(monkeypatch, tmp_path):
+    import re
+
+    from src import ui_support
+
+    # Patch find_csv_by_date to return None (no CSVs found)
+    monkeypatch.setattr(ui_support, "find_csv_by_date", lambda prefix: None)
+    result = ui_support.find_default_csvs()
+    assert result == {"holdings": None, "activities": None}

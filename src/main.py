@@ -1045,7 +1045,7 @@ def _run_impl(
         fred_series = ((enriched.get("macro") or {}).get("series")) or {}
         recommendation["macro_regime"] = classify_regime(fred_series, market_context)
     except Exception:
-        pass
+        recommendation["macro_regime"] = {}
 
     # ── Compute drift between this run and the previous session ───────────
     drift = recommendation.get("drift_vs_previous") or compute_drift(

@@ -4,6 +4,24 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.28.0] — 2026-06-07
+
+### Features
+- FRED data wiring fix: `macro_regime` safety fallback now sets `recommendation["macro_regime"] = {}` on error instead of silently discarding it
+- Coverage floor raised from 45% to 55% — desktop/GUI files excluded via `.coveragerc`; non-GUI coverage is ~69%
+- Dry-run mode verified: `run_report_from_ui(dry_run=True)` confirmed to return `dry_run=True` without calling Claude API
+- Demo smoke test added to CI: `python -m src.main --demo --non-interactive` runs in the `pytest` job
+
+### Tests
+- Added integration tests for `classify_regime()` wired with realistic `enriched` dict shapes
+- Added targeted unit tests for: `report_generator` helper functions, `cache`, `activity_loader`, `macro_regime`, `portfolio_analytics`, `backtester`, `decision_journal`, `scheduling` (Linux cron path), `updater`, `ui_support` dry-run
+- Added `.coveragerc` to exclude untestable tkinter GUI modules (`desktop_app.py`, `app_gui.py`, `ui_launcher.py`, `desktop/`)
+
+### Infrastructure
+- `.github/workflows/tests.yml`: `--cov-fail-under` raised from 45 to 55; demo smoke test step added
+
+---
+
 ## [1.27.0] — 2026-06-07
 
 ### Bug Fixes

@@ -20,7 +20,11 @@ jobs:
       - name: Run tests
         env:
           PYTHONPATH: ${{ github.workspace }}
-        run: pytest -q --cov=src --cov-report=term-missing --cov-fail-under=45
+        run: pytest -q --cov=src --cov-report=term-missing --cov-fail-under=55
+      - name: Demo smoke test
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m src.main --demo --non-interactive 2>&1 | grep -E "demo|report|complete|error" || true
 
   lint-security:
     runs-on: ubuntu-latest

@@ -117,3 +117,60 @@ def test_concentration_alerts_no_alert_below_threshold():
     corr_matrix = {"high_correlation_pairs": [{"pair": "AAA/BBB", "ticker_a": "AAA", "ticker_b": "BBB", "correlation": 0.92}]}
     alerts = concentration_alerts(positions, total_usd=50000.0, correlation_matrix=corr_matrix)
     assert len(alerts) == 0
+
+
+def test_detect_drawdown_no_holdings():
+    from src.portfolio_analytics import detect_drawdown
+
+    result = detect_drawdown([], {}, {})
+    assert result["triggered"] is False
+    assert result["reason"] == "no_holdings"
+
+
+def test_detect_drawdown_no_history():
+    from src.portfolio_analytics import detect_drawdown
+
+    holdings = [{"ticker": "NVDA", "market_value": 5000, "market_value_currency": "USD"}]
+    result = detect_drawdown(holdings, {}, {})
+    assert result["triggered"] is False
+    assert "history" in result["reason"]
+
+
+def test_detect_drawdown_triggers_on_drop():
+    import datetime
+
+    from src.portfolio_analytics import detect_drawdown
+
+    start = datetime.date(2026, 5, 1)
+    history = [{"date": str(start + datetime.timedelta(days=i)), "close": 100 - i * 0.5} for i in range(30)]
+    holdings = [{"ticker": "NVDA", "market_value": 5000, "market_value_currency": "USD"}]
+    market_data = {"NVDA": {"history": history}}
+    result = detect_drawdown(holdings, market_data, {"drawdown_circuit_breaker_pct": -5.0})
+    assert "triggered" in result
+    assert result["drawdown_pct"] < 0
+
+
+def test_compute_risk_dashboard_with_history():
+    import datetime
+
+    from src.portfolio_analytics import compute_risk_dashboard
+
+    start = datetime.date(2026, 1, 1)
+    # 60 days of zigzag prices to generate variance
+    prices = [100 + (i % 3 - 1) * 2 for i in range(60)]
+    history = [{"date": str(start + datetime.timedelta(days=i)), "close": p} for i, p in enumerate(prices)]
+    holdings = [{"ticker": "NVDA", "market_value": 5000, "market_value_currency": "USD", "quantity": 1}]
+    market_data = {"NVDA": {"history": history}}
+    result = compute_risk_dashboard(holdings, market_data)
+    assert result.get("annualized_volatility_pct") is not None
+    assert "top3_concentration_pct" in result
+
+
+def test_company_key_aliases():
+    from src.portfolio_analytics import company_key
+
+    # GOOG maps to GOOGL
+    assert company_key("GOOG") == "GOOGL"
+    assert company_key("") == ""
+    # Unknown ticker returns itself
+    assert company_key("NVDA") == "NVDA"

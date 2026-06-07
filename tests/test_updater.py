@@ -275,3 +275,37 @@ def test_check_for_update_cache_expires_after_ttl(tmp_path, monkeypatch):
     updater.check_for_update(current_version="1.0.0", use_cache=True, cache_ttl_seconds=0)
 
     assert call_counter["n"] == 2
+
+
+def test_user_workspace_uses_env_var(monkeypatch, tmp_path):
+    monkeypatch.setenv("TECH_STOCK_HOME", str(tmp_path))
+    result = updater.user_workspace()
+    assert result == tmp_path
+
+
+def test_normalize_version_various():
+    assert updater.normalize_version(None) == (0,)
+    assert updater.normalize_version("") == (0,)
+    assert updater.normalize_version("v1.28.0") == (1, 28, 0)
+    assert updater.normalize_version("1.0.0-beta") == (1, 0, 0)
+
+
+def test_is_source_checkout_returns_bool():
+    # Just verify it doesn't crash and returns a bool
+    result = updater.is_source_checkout()
+    assert isinstance(result, bool)
+
+
+def test_ssl_context_returns_context():
+    import ssl
+
+    ctx = updater.ssl_context()
+    assert isinstance(ctx, ssl.SSLContext)
+
+
+def test_update_dir_and_log_path(monkeypatch, tmp_path):
+    monkeypatch.setenv("TECH_STOCK_HOME", str(tmp_path))
+    update_dir = updater.update_dir()
+    log_path = updater.update_log_path()
+    assert update_dir.exists()
+    assert log_path.parent.exists()
