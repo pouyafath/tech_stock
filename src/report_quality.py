@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 
 from src.backtester import HORIZON_DAYS
-from src.portfolio_analytics import aggregate_company_exposure, aggregate_positions, company_key
+from src.portfolio_analytics import aggregate_company_exposure, aggregate_positions, company_key, concentration_alerts
 
 
 @dataclass
@@ -326,12 +326,12 @@ def evaluate(
                 )
 
     # Macro regime conviction cap gate
-    macro_regime = (recommendation.get("market_context") or {}).get("macro_regime") or {}
+    macro_regime = recommendation.get("macro_regime") or {}
     regime_cap = macro_regime.get("conviction_cap")
     if regime_cap is not None:
         for rec in recs:
             action = (rec.get("action") or "").upper()
-            conviction = rec.get("conviction_score") or 0
+            conviction = rec.get("conviction") or 0
             if action in {"BUY", "ADD"} and conviction < regime_cap:
                 ticker = rec.get("ticker", "")
                 regime_label = macro_regime.get("regime", "unknown")
@@ -345,6 +345,31 @@ def evaluate(
                         "Consider waiting for conviction to meet regime cap, or downgrade to HOLD-watch.",
                     )
                 )
+
+    # Concentration alerts gate
+    try:
+        from src.portfolio_analytics import compute_correlation_matrix
+
+        md_list = [{"ticker": t, **d} for t, d in (market_data or {}).items()]
+        correlation_matrix = compute_correlation_matrix(md_list)
+        _, total_usd = aggregate_positions(
+            portfolio.get("holdings", []),
+            settings.get("cad_per_usd_assumption", 1.37),
+        )
+        if total_usd and positions:
+            for alert in concentration_alerts(positions, total_usd, correlation_matrix):
+                pair = alert.get("pair", "")
+                warnings.append(
+                    _warn(
+                        "medium",
+                        "CONCENTRATION",
+                        pair,
+                        alert.get("message", f"Concentration risk: {pair}"),
+                        "Review combined weight of correlated positions and consider reducing exposure.",
+                    )
+                )
+    except Exception:
+        pass
 
     return [warning.to_dict() for warning in warnings]
 

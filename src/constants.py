@@ -4,6 +4,9 @@ Shared symbol lists and small constants used across multiple modules.
 Keep this file dependency-free — only stdlib imports.
 """
 
+# Default CAD/USD assumption used when live FX is unavailable.
+CAD_PER_USD_DEFAULT = 1.37
+
 # Daily-reset 2x/3x leveraged ETFs — should not be held > ~14 days due to decay.
 # Used by report_generator (warning section) and referenced by the system prompt
 # in claude_analyst (rule 11).

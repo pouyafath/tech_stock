@@ -23,15 +23,18 @@ def classify_regime(fred_data: dict, market_context: dict) -> dict:
     fred_data = fred_data or {}
     market_context = market_context or {}
 
-    # --- VIX ---
-    vix_entry = market_context.get("VIX") or {}
-    if isinstance(vix_entry, dict):
-        vix = vix_entry.get("price") or vix_entry.get("current_price")
-    else:
-        try:
-            vix = float(vix_entry)
-        except (TypeError, ValueError):
-            vix = None
+    # --- VIX --- (FRED stores as fred_data["VIXCLS"]["value"])
+    vix = fred_data.get("VIXCLS", {}).get("value")
+    if vix is None:
+        # Fallback: try market_context for live quote data
+        vix_entry = market_context.get("VIX") or {}
+        if isinstance(vix_entry, dict):
+            vix = vix_entry.get("price") or vix_entry.get("current_price")
+        else:
+            try:
+                vix = float(vix_entry)
+            except (TypeError, ValueError):
+                vix = None
     if vix is None:
         vix = 20.0
     try:
@@ -39,8 +42,12 @@ def classify_regime(fred_data: dict, market_context: dict) -> dict:
     except (TypeError, ValueError):
         vix = 20.0
 
-    # --- Yield curve ---
-    yield_curve = fred_data.get("T10Y2Y") or fred_data.get("yield_curve_10y2y")
+    # --- Yield curve --- (FRED stores as fred_data["T10Y2Y"]["value"])
+    yc_entry = fred_data.get("T10Y2Y") or fred_data.get("yield_curve_10y2y")
+    if isinstance(yc_entry, dict):
+        yield_curve = yc_entry.get("value")
+    else:
+        yield_curve = yc_entry
     try:
         yield_curve = float(yield_curve) if yield_curve is not None else None
     except (TypeError, ValueError):

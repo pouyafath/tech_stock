@@ -25,15 +25,10 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from src._utils import safe_float as _safe_float
+
 DEFAULT_QUINTILE_TOP = 0.4  # top 40% = leaders (handles small N: with 8 ETFs, 3 leaders)
 DEFAULT_QUINTILE_BOT = 0.4  # bottom 40% = laggards
-
-
-def _safe_float(value, default: float | None = None) -> float | None:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
 
 
 def rank_sectors(market_context: dict, lookback: str = "change_pct_21d") -> list[dict]:

@@ -1,4 +1,5 @@
 from src.report_generator import (
+    _render_concentration_alerts_section,
     _render_critical_actions_section,
     generate_markdown,
     leveraged_etf_warnings,
@@ -153,3 +154,19 @@ def test_critical_actions_groups_quote_mismatches():
     assert "2 holdings differ" in section
     assert "SOXL 50.0%" in section
     assert "Check whether the holdings CSV" not in section
+
+
+def test_concentration_alerts_rendered_in_markdown():
+    """Concentration alert warnings with code CONCENTRATION appear in the report."""
+    warnings = [
+        {
+            "severity": "medium",
+            "code": "CONCENTRATION",
+            "ticker": "NVDA/AMD",
+            "message": "NVDA and AMD are highly correlated (0.92) with combined weight 22.5% — exceeds 15% threshold.",
+            "action_required": "Review combined weight of correlated positions and consider reducing exposure.",
+        }
+    ]
+    section = "\n".join(_render_concentration_alerts_section(warnings))
+    assert "Concentration Alerts" in section
+    assert "NVDA/AMD" in section

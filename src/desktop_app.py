@@ -8,6 +8,7 @@ and desktop app all run the same report pipeline.
 
 from __future__ import annotations
 
+import logging
 import os
 import queue
 import re
@@ -21,6 +22,7 @@ from tkinter.scrolledtext import ScrolledText
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+logger = logging.getLogger(__name__)
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -455,7 +457,7 @@ class _OnboardingWizard(tk.Toplevel):
                 try:
                     save_api_key("ANTHROPIC_API_KEY", key)
                 except Exception:
-                    pass
+                    logger.debug("Failed to save API key", exc_info=True)
             self._advance()
         elif self._current == "budgets":
             try:
@@ -469,7 +471,7 @@ class _OnboardingWizard(tk.Toplevel):
                     pass
                 settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
             except Exception:
-                pass
+                logger.debug("Failed to save budget settings", exc_info=True)
             self._advance()
         elif self._current == "csv_walkthrough":
             csv_path = self._csv_path_var.get().strip()

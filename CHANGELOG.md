@@ -4,6 +4,30 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.27.0] — 2026-06-07
+
+### Bug Fixes
+- Fixed macro-regime conviction gate using wrong key `market_context` — now reads `recommendation["macro_regime"]` directly
+- Fixed conviction gate comparing against non-existent `conviction_score` field — now uses the correct `conviction` field
+
+### Features
+- Wired `macro_regime.classify_regime()` into main pipeline: fetches FRED series from `enriched["macro"]["series"]` and stores result in `recommendation["macro_regime"]`
+- Wired `concentration_alerts()` into `evaluate()` quality gates: appends `CONCENTRATION` warnings for highly-correlated position pairs exceeding weight threshold
+- Added "Concentration Alerts" subsection to markdown report rendered by `report_generator.py`
+- Fixed `macro_regime.classify_regime()` to read VIX from `fred_data["VIXCLS"]["value"]` and yield curve from `fred_data["T10Y2Y"]["value"]`
+
+### Cleanup
+- Consolidated `safe_float` duplicates: merged NaN/inf handling into `src._utils.safe_float()`; removed private `_safe_float` from `market_data.py` and `sector_rotation.py`
+- Added `CAD_PER_USD_DEFAULT = 1.37` constant to `src/constants.py`
+- Moved inline `import time as _time` and `import logging as _logging` in `claude_analyst.py` to top-level imports
+- Added `logger.debug(..., exc_info=True)` to previously-silent `except Exception: pass` blocks in `desktop_app.py`
+- Added `.coverage`, `.coverage.*`, `htmlcov/`, `.pytest_cache/` to `.gitignore`
+- Added `pytest.importorskip("tkinter")` to `tests/test_desktop_app_macos.py`
+- Expanded CI ruff format check scope to include `ui/` and `tools/` directories
+- Added tests for macro-regime conviction gate (correct key fires, wrong key does not) and concentration alerts rendering
+
+---
+
 ## [1.26.0] — 2026-06-07
 
 ### Added

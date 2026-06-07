@@ -566,6 +566,34 @@ def _render_quality_warnings_section(warnings: list[dict]) -> list[str]:
     return lines
 
 
+def _render_concentration_alerts_section(warnings: list[dict]) -> list[str]:
+    """Render a subsection for CONCENTRATION quality warnings."""
+    concentration = [w for w in (warnings or []) if w.get("code") == "CONCENTRATION"]
+    if not concentration:
+        return []
+    lines = [
+        "### Concentration Alerts",
+        "",
+        "| Pair | Issue | Required Action |",
+        "|---|---|---|",
+    ]
+    for w in concentration:
+        lines.append(
+            "| "
+            + " | ".join(
+                _table_cell(v)
+                for v in [
+                    w.get("ticker") or "",
+                    w.get("message", ""),
+                    w.get("action_required", ""),
+                ]
+            )
+            + " |"
+        )
+    lines += ["", ""]
+    return lines
+
+
 def _render_critical_actions_section(
     warnings: list[dict],
     recommendations: list[dict],
@@ -1072,6 +1100,7 @@ def generate_markdown(
     )
 
     lines += _render_quality_warnings_section(quality_warnings)
+    lines += _render_concentration_alerts_section(quality_warnings)
     lines += _render_critical_actions_section(
         quality_warnings,
         recs_for_report,

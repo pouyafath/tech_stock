@@ -53,6 +53,7 @@ from src.decision_journal import (
 from src.drift_tracker import compute_drift, get_previous_session
 from src.enriched_data import enrich
 from src.fee_calculator import build_fee_snapshot
+from src.macro_regime import classify_regime
 from src.market_data import add_options_implied_moves, get_context_moves, get_market_data
 from src.news_fetcher import get_news_for_tickers
 from src.portfolio_analytics import (
@@ -984,6 +985,15 @@ def run(
         sys.exit(1)
 
     recommendation = apply_trade_sizes(recommendation, portfolio, market_data)
+
+    # ── Macro regime classification ───────────────────────────────────────
+    # Use FRED series data (from enriched["macro"]["series"]) so classify_regime
+    # can read VIXCLS and T10Y2Y in their native {"value": ...} format.
+    try:
+        fred_series = ((enriched.get("macro") or {}).get("series")) or {}
+        recommendation["macro_regime"] = classify_regime(fred_series, market_context)
+    except Exception:
+        pass
 
     # ── Compute drift between this run and the previous session ───────────
     drift = recommendation.get("drift_vs_previous") or compute_drift(

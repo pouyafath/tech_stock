@@ -24,6 +24,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from src._utils import safe_float as _safe_float_base
 from src.cache import cached
 from src.config import load_settings
 from src.constants import CROSS_ASSET_TICKERS, SECTOR_ROTATION_TICKERS
@@ -33,13 +34,8 @@ from src.constants import CROSS_ASSET_TICKERS, SECTOR_ROTATION_TICKERS
 
 def _safe_float(x) -> float | None:
     """Convert possibly-NaN value to None or rounded float."""
-    try:
-        v = float(x)
-        if math.isnan(v) or math.isinf(v):
-            return None
-        return round(v, 4)
-    except (TypeError, ValueError):
-        return None
+    v = _safe_float_base(x)
+    return round(v, 4) if v is not None else None
 
 
 def _first_float(*values) -> float | None:

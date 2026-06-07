@@ -4,6 +4,7 @@ Small shared helpers used across loaders, the backtester, and the drift tracker.
 Underscore-prefixed module name signals "internal — no public API guarantees."
 """
 
+import math
 import re
 
 # Recommendation log filename pattern: 20260423_2101_morning.json
@@ -11,16 +12,25 @@ _FILENAME_RE = re.compile(r"^(\d{4})(\d{2})(\d{2})_\d{4}_(morning|afternoon)\.js
 
 
 def safe_float(v) -> float | None:
-    """Convert a possibly-blank/quoted string to float, returning None on failure."""
+    """Convert a possibly-blank/quoted string to float, returning None on failure.
+
+    Also returns None for NaN and infinite values.
+    """
     if v is None:
         return None
     if isinstance(v, (int, float)):
-        return float(v)
+        f = float(v)
+        if math.isnan(f) or math.isinf(f):
+            return None
+        return f
     s = str(v).strip().strip('"')
     if not s:
         return None
     try:
-        return float(s)
+        f = float(s)
+        if math.isnan(f) or math.isinf(f):
+            return None
+        return f
     except ValueError:
         return None
 

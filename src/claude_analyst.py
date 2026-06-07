@@ -6,7 +6,9 @@ reduce costs on repeated runs.
 """
 
 import json
+import logging as _logging
 import os
+import time as _time
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -1291,8 +1293,6 @@ def _create_message(client, model: str, settings: dict, messages: list[dict]):
             last_exc = exc
         if delay is None:
             break
-        import time as _time
-
         print(f"[claude_analyst] Rate limit hit, retrying in {delay}s (attempt {attempt + 1}/3)...")
         _time.sleep(delay)
     raise last_exc
@@ -1512,8 +1512,6 @@ def call_claude(
             ],
         )
     except Exception as _pass2_exc:
-        import logging as _logging
-
         _logging.getLogger(__name__).warning("Pass 2 failed, falling back to Pass 1: %s", _pass2_exc)
         recommendation = first_recommendation
         recommendation["pass2_fallback"] = True
