@@ -1,851 +1,365 @@
-# How tech_stock Analyzes & Suggests Trading Signals
+# How tech_stock Analyzes Portfolios And Produces Signals
 
-Comprehensive guide to the analysis pipeline, data sources, and signal generation methodology.
+This document explains the analysis methodology, data sources, quality controls,
+and limitations of tech_stock. It is intended for users who want to understand
+why the application made a recommendation and for auditors who want to evaluate
+the report's trustworthiness.
 
----
+> tech_stock is a research and decision-support tool. It does not place trades,
+> guarantee data freshness, or provide financial advice.
 
-## 🎯 Signal Generation Pipeline
+## Summary
 
-The program follows a multi-stage analysis flow:
+tech_stock combines two types of analysis:
 
-```
-User Portfolio (Wealthsimple CSV)
-    ↓
-[Normalization, CDR/share-class rollups, CASH handling]
-    ↓
-Market Data Fetching (quotes, history, fundamentals, volatility, beta)
-    ↓
-News, enrichment APIs, macro context, and source degradation records
-    ↓
-Fee Modeling (realistic trading costs)
-    ↓
-Portfolio Risk Analytics (concentration, drawdown, correlated pairs, hedge ideas)
-    ↓
-Claude Pass 1 (recommendation JSON)
-    ↓
-Deterministic Quality Gates + Drift/Previous-Session Review
-    ↓
-Claude Pass 2 (critique and revised recommendation JSON)
-    ↓
-ReportPipeline artifacts (markdown, CSV, JSON log, usage/cost)
-    ↓
-Shared UI View Models (Dashboard, Buy Signals, API Health, History)
-    ↓
-Trade Signals + Readiness Badges + Conviction Scores
-```
+1. **Deterministic analysis**: calculations and rules implemented in Python,
+   including position sizing, technical indicators, fee assumptions, portfolio
+   risk, quote reconciliation, quality warnings, and trade readiness.
+2. **Claude analysis**: synthesis of the structured portfolio, market, news,
+   catalyst, fee, risk, and historical context into recommendations and written
+   rationale.
 
----
+Claude does not receive an unstructured request to "pick stocks." It receives a
+structured context assembled by the application, and its first response is
+checked and revised before the final report is rendered.
 
-## 📊 Data Sources & APIs
+## End-To-End Pipeline
 
-### 1. **yfinance** (Primary Market Data Source)
-
-| Aspect | Details |
-|--------|---------|
-| **What** | Free Python wrapper for Yahoo Finance API |
-| **Data** | Live stock prices, historical OHLCV, fundamentals, news headlines |
-| **Cost** | ✅ **100% FREE** — no API key required |
-| **Access** | Direct HTTP requests to Yahoo Finance servers (no auth) |
-| **Availability** | Public data — available to all users worldwide |
-| **Rate Limits** | ~2000 requests/hour per IP (generally permissive) |
-| **Reliability** | 99%+ uptime; widely used in production |
-
-**Data Points Retrieved:**
-- Current price, quote timestamp/source, price basis, bid-ask spread
-- 1-day, 5-day, 1-month % change
-- 52-week high/low
-- Market cap, PE ratio (trailing + forward), FCF yield, margins, dividend fields
-- Sector, industry classification
-- Historical closes (roughly 10 months)
-- SMA cross, ATR(14), ATR as % of price, 5-day and 20-day volatility
-- Beta to SPY/QQQ/SMH where enough history exists
-- Analyst target fields from yfinance where available
-- Volume (daily + 30-day average)
-- News headlines (last 7 days per ticker)
-
-**Code Location:** `src/market_data.py`, `src/news_fetcher.py`
-
-```python
-# Example: How we fetch data
-import yfinance as yf
-ticker = yf.Ticker("NVDA")
-info = ticker.info  # fundamentals
-hist = ticker.history(start="2026-01-01", end="2026-04-24")  # OHLCV
-news = ticker.news  # headlines with sentiment scores
+```text
+Wealthsimple holdings CSV
+Optional activities CSV
+Configuration and watchlist
+        |
+        v
+Portfolio normalization
+Ticker, currency, CDR, share-class, ETF, and cash handling
+        |
+        v
+Market data and optional enrichment
+Quotes, history, technicals, fundamentals, news, analyst data, macro context
+        |
+        v
+Deterministic analytics
+Fees, concentration, beta, volatility, drawdown, correlation, position age
+        |
+        v
+Claude pass 1
+Structured recommendation JSON
+        |
+        v
+Quality gates, drift review, previous-session comparison, sizing
+        |
+        v
+Claude pass 2
+Complete revised recommendation JSON
+        |
+        v
+Normalization and report generation
+Markdown report, CSV table, JSON log, dashboards, journal, cost record
 ```
 
-### 2. **Wealthsimple (Portfolio Data Source)**
+## Inputs
 
-| Aspect | Details |
-|--------|---------|
-| **What** | Canadian/North American brokerage with CSV export |
-| **Data** | Holdings (ticker, quantity, cost basis, market value, P&L, currency) |
-| **Cost** | ✅ **FREE** — included with Wealthsimple Premium account |
-| **Access** | Manual CSV export from Account → Activity → Export Holdings Report |
-| **Availability** | Only for Wealthsimple Premium account holders |
-| **Frequency** | Updated in real-time; export as often as needed |
+### Holdings report
 
-**Data Points Retrieved:**
-- Ticker symbol
-- Quantity held
-- Average cost (CAD/USD)
-- Current market value
-- Unrealized P&L
-- Currency of position (USD/CAD)
-- Security type (stock, ETF, etc.)
-- Account designation
+The required real-portfolio input is a Wealthsimple holdings report. It provides
+the position quantities, reported market prices and values, book values,
+currencies, and unrealized returns used by the application.
 
-**Code Location:** `src/portfolio_loader.py`
+The holdings report is a snapshot. Export a fresh file before any paid run.
 
-### 3. **Anthropic Claude API (AI Analysis)**
+### Activities export
 
-| Aspect | Details |
-|--------|---------|
-| **What** | Large language model for multi-step reasoning |
-| **Data** | Analyzes market data, portfolio context, news, fees, quality gates, drift, and conviction scoring |
-| **Cost** | 💰 **PAID** — varies by portfolio size, model, and output length |
-| | Sonnet 4.6: typically ~$0.30–$0.70 for the current two-pass report |
-| | Opus 4.7: materially higher; use for deeper one-off reviews |
-| **Access** | REST API with API key (get free from https://console.anthropic.com/) |
-| **Availability** | Available to all users with API key |
-| **Rate Limits** | Tier-dependent (usually 1000+ requests/day for standard accounts) |
+The optional activities export provides transaction-level history. It improves:
 
-**What Claude Does:**
-1. **Context Integration** — understands your specific portfolio, risk tolerance, fees
-2. **Multi-step Reasoning** — correlates market events, news sentiment, technical patterns
-3. **Conviction Scoring** — 1-10 scale based on strength of thesis + expected move
-4. **Risk Assessment** — identifies concentration risk, leverage decay, whipsawing
-5. **Thesis Generation** — writes specific, testable reasoning for each trade
-6. **Second-Pass Revision** — receives quality warnings, drift, and the first JSON, then returns a complete revised JSON before reports are rendered
+- FIFO holding-day calculations.
+- Leveraged ETF holding-period warnings.
+- Previous-session execution checks.
+- Detection of recent trades that could make a new recommendation a whipsaw.
 
-**Code Location:** `src/claude_analyst.py`
+The activities export is not a substitute for the holdings report.
 
-```python
-# Simplified flow: pass 1 sends Claude the structured portfolio prompt.
-prompt = f"""
-Portfolio Summary:
-{portfolio_snapshot}
+### Configuration
 
-Market Data (current prices, sentiment, technicals):
-{market_data_summary}
+`config/settings.json` defines assumptions and thresholds such as:
 
-Recent News & Headlines:
-{news_formatted}
+- Claude model and token budget.
+- Wealthsimple account and fee assumptions.
+- Position and concentration caps.
+- Quote mismatch threshold.
+- News and history lookback periods.
+- Cache behavior.
+- Enrichment source switches.
+- Risk benchmarks and warning thresholds.
 
-Fee Snapshot (realistic round-trip costs):
-{fee_snapshot}
+The default fee model describes a Wealthsimple Premium USD account. Users with a
+different account type or broker must review it before relying on fee-aware
+outputs.
 
-Recent Trades (avoid whipsawing):
-{recent_activities}
+## Data Sources
 
-Your task: Recommend BUY/ADD/HOLD/TRIM/SELL for each ticker with:
-- Conviction (1-10)
-- Net expected return after fees
-- Thesis (why this move makes sense)
-- Time horizon (next session, 1-3 trading days, 1-2 weeks, 1-3 months, ...)
-- Risk controls (entry zone, stop loss, take profit)
-- Catalyst verification fields
-"""
+Data availability, freshness, quotas, and fields vary by provider, symbol,
+market, and API plan. tech_stock treats all external data as fallible and records
+degradation where possible.
 
-first_json = call_claude(prompt)
-quality_warnings = report_quality.evaluate(first_json, market_data, portfolio=portfolio)
-second_json = critique_and_revise(first_json, quality_warnings, drift_summary)
+| Source | Required | Typical use |
+|---|---|---|
+| Wealthsimple CSV | Yes for real portfolio analysis | Positions, quantities, reported values, cost basis, currencies |
+| Anthropic Claude | Yes for real recommendations | Structured reasoning, recommendation synthesis, second-pass critique |
+| yfinance | No API key | Quotes, history, fundamentals, technical inputs, some news and analyst fields |
+| Finnhub | Optional | Analyst recommendations, earnings calendar, insider activity, sentiment |
+| Polygon | Optional | Snapshot and previous-session market data where plan entitlements permit |
+| Twelve Data | Optional | Quote redundancy and some non-US symbol support |
+| FRED | Optional | Rates, yield curve, CPI, VIX, and FX context |
+| CoinGecko | Optional | Crypto risk-on/risk-off context |
+| Alpha Vantage | Optional and disabled by default | News and earnings enrichment |
+
+Missing optional sources do not stop the report. The application should show the
+resulting coverage gap or source degradation.
+
+## Market And Technical Analysis
+
+The market-data layer can calculate or retrieve:
+
+- Current or fallback price, source, timestamp, price basis, previous close, and
+  daily change.
+- Historical closes and volume.
+- 52-week high and low.
+- RSI, MACD, Bollinger Bands, SMA 50, SMA 200, and SMA cross state.
+- ATR(14), ATR as a percentage of price, and short/medium-term volatility.
+- Beta and correlation to configured benchmarks such as SPY, QQQ, and SMH.
+- Market capitalization, valuation ratios, FCF yield, margins, dividend fields,
+  and analyst target fields where available.
+- Optional options-implied move when enabled and available.
+
+Technical indicators are context, not proof. The application should not treat a
+single RSI, MACD, or moving-average value as sufficient justification for a
+trade.
+
+## News, Catalysts, And Professional Analysis
+
+tech_stock can analyze external professional analysis indirectly through
+structured provider data such as analyst recommendations, consensus counts,
+target prices, upgrades, downgrades, earnings calendars, insider activity, and
+news sentiment.
+
+It does not subscribe to or read private brokerage research reports unless a
+configured data source provides that information through its API. It should not
+invent individual analyst targets or present unsourced poster-style statistics.
+
+Large movers require special attention:
+
+- A significant move should have a catalyst summary or a manual-review flag.
+- BUY/ADD recommendations on large movers should be downgraded or blocked when a
+  required catalyst is missing.
+- The report should clearly name the catalyst source when one is verified.
+
+## Portfolio Risk Analysis
+
+The deterministic portfolio layer can calculate:
+
+- Position and company-level exposure.
+- Sector exposure and concentration.
+- Top-three concentration.
+- Portfolio beta.
+- Annualized volatility.
+- Max drawdown estimate.
+- Highly correlated pairs.
+- Leveraged ETF exposure and holding duration.
+- Position age and stale-position risk.
+- Trailing-stop state.
+- Hedge suggestions when risk thresholds are exceeded.
+
+Economically equivalent lines, such as USD shares and related CDRs, may be
+rolled up for exposure analysis while remaining separate tradeable rows.
+
+Inverse ETF hedge suggestions are risk controls, not default recommendations.
+They should include sizing caps and risk notes.
+
+## Fee-Aware Analysis
+
+The application compares expected return with the configured trading-cost
+hurdle. The default settings include assumptions for:
+
+- Commission.
+- FX spread.
+- Bid-ask spread by capitalization tier.
+- Regulatory fees.
+
+The default configuration is not correct for every account. A CAD account,
+currency conversion, another broker, or a different subscription tier can
+materially change the result.
+
+Review:
+
+```text
+config/settings.json -> account_type
+config/settings.json -> fee_model
+config/settings.json -> min_net_expected_return_pct
 ```
 
----
-
-## 🧠 Analysis Methodology
-
-### Phase 1: Market Data Normalization
-
-```python
-# src/market_data.py: compute_indicators()
-
-1. RSI(14) via Wilder smoothing
-   → Identifies overbought (>70) / oversold (<30) conditions
-   
-2. MACD (12, 26, 9)
-   → Momentum oscillator: tracks trend acceleration/deceleration
-   
-3. Bollinger Bands (20, 2σ)
-   → Volatility measurement + mean reversion opportunity
-   
-4. SMA 50 / 200
-   → Long-term trend confirmation
-   
-5. Volume Spike Ratio (today vs 30d avg)
-   → Identifies unusual activity (breakout confirmation)
-   
-6. Price vs 52-week High/Low
-   → Context for mean-reversion probability
-
-7. ATR(14), ATR % of price, 5-day and 20-day volatility
-   → Turns stops, expected ranges, and position risk into measurable numbers
-
-8. Beta/correlation to SPY, QQQ, and SMH where possible
-   → Flags whether a position is mostly market/sector exposure or ticker-specific risk
-```
-
-### Phase 2: Fee-Aware Hurdle
-
-```python
-# src/fee_calculator.py
-
-Bid-ask spreads by cap tier:
-  Megacap (AAPL, MSFT, NVDA)     → ~0.05% round-trip
-  Large-cap (AMD, CRM, AVGO)     → ~0.15% round-trip
-  Mid-cap (PLTR, ARM, SMCI)      → ~0.40% round-trip
-  
-Wealthsimple Premium costs:
-  Commission                      → $0
-  FX Spread (USD account)        → $0 (zero-margin model)
-  SEC regulatory fee             → ~$0.03/trade (~0.005% for $5k)
-
-Decision Rule:
-  IF net_expected_return > min_net_expected_return_pct (default 0.5%)
-    THEN recommend BUY/ADD
-  ELSE
-    HOLD or SELL
-```
-
-This **refuses** churn trades (trades where fees exceed expected return).
-
-### Phase 3: Sentiment Aggregation
-
-```python
-# src/news_fetcher.py: aggregate_sentiment()
-
-1. Fetch last 7 days of headlines per ticker
-2. Score each headline with VADER sentiment (-1.0 to +1.0)
-3. Aggregate to: avg_sentiment, bullish/neutral/bearish counts
-4. Include in Claude prompt for context
-
-Example: "NVDA beats earnings"
-  → VADER score: +0.87 (strongly bullish)
-  → Context: beats expected guidance, guidance raise
-```
-
-### Phase 4: Claude Multi-Step Reasoning
-
-Claude receives **all** data in a structured prompt and performs:
-
-1. **Correlation Analysis**
-   - Does price action match news sentiment?
-   - Is RSI extreme? Is there momentum confirmation (MACD)?
-   - Does volume support the move?
-
-2. **Risk Assessment**
-   - Position concentration in portfolio?
-   - Leveraged ETF decay over time?
-   - Recent whipsaw activity in this ticker?
-
-3. **Thesis Development**
-   - What's the specific catalyst (earnings, FDA, sector rotation)?
-   - What's the invalidation condition (if X happens, thesis breaks)?
-   - What's the time horizon (this week vs next quarter)?
-
-4. **Conviction Scoring**
-   - 1-3: Weak thesis, high uncertainty
-   - 4-6: Moderate conviction, some risks
-   - 7-9: Strong thesis, clear catalyst
-   - 10: Exceptional setup, high-conviction trade
-
-5. **Fee-Adjusted Returns**
-   - Expected move: +5%?
-   - Fees: -0.4%
-   - Net expected: +4.6%
-   - Hurdle rate: 0.5% → ✅ PASS → Recommend BUY
-
-### Phase 5: Deterministic Quality Gates
-
-Claude is not the only control surface. After the first Claude pass, the app runs deterministic checks in `src/report_quality.py`.
-
-The quality layer can warn or block on:
-- stale or unstamped quotes
-- quote-vs-holdings mismatches
-- missing catalyst verification for large movers or near-earnings names
-- missing analyst/insider/enrichment citations when those claims are used
-- invalid time horizons
-- missing risk controls
-- oversized ticker or company-level exposure
-- inconsistent Bear Case / Bull Case ranges
-
-The second Claude pass receives these warnings, the first JSON, drift, and previous-session comparison, then must return a complete revised JSON. The final report still renders unresolved warnings near the top so a stale quote or missing catalyst cannot be hidden inside prose.
-
-### Phase 6: Trade Readiness View Models
-
-All UIs consume shared view models from `src/view_models.py`. Buy Signals are classified before display:
-
-| Readiness | Meaning |
-|-----------|---------|
-| `Trade Ready` | Fresh timestamped quote, required catalysts satisfied, no blocking quality warnings |
-| `Review First` | Usable idea, but medium/low warnings, missing optional source coverage, or manual review flag |
-| `Blocked` | Stale/unstamped quote, market-data error, missing required catalyst, over-position cap, or high blocking warning |
-
-The Buy Signals tabs in Desktop, Streamlit, and Textual show only source-backed fields: current price, quote time/source, consensus, target upside, catalyst/source, warnings, and risk controls. The app does not invent analyst-poster numbers when the source is unavailable.
-
-### Phase 7: Self-Calibration via Backtesting
-
-```python
-# src/backtester.py: run_backtest()
-
-For each past recommendation in data/recommendations_log/:
-  1. Extract action (BUY, ADD, HOLD, TRIM, SELL)
-  2. Extract conviction (1-10)
-  3. Find historical price at trade entry date
-  4. Compare to current price
-  5. Calculate actual return
-  6. Stratify by conviction to identify blind spots
-
-Example findings:
-  "Trades I marked 8/10 conviction have 72% hit rate"
-  "Trades marked 4/10 have only 38% hit rate" → lower conviction threshold
-  "NVDA recommendations beat baseline by +3.2%" → calibrate towards NVDA conviction
-```
-
-Claude **uses this feedback** in the next session to adjust conviction scores.
-
----
-
-## 📡 How Data Reaches the Program
-
-### Flow 1: CSV Upload (Wealthsimple)
-
-```
-1. User exports Holdings CSV from Wealthsimple
-   File: holdings-report-2026-04-29.csv
-   
-2. Program detects via find_csv_by_date():
-   a. Checks ~/Downloads/ (most common)
-   b. Searches entire home directory
-   c. Checks temp folder (temporary_upload/)
-   
-3. User confirms: "Is this the correct file?" (Y/N)
-   
-4. Program copies to temp folder:
-   temporary_upload/holdings-report-2026-04-29.csv
-   
-5. Program parses CSV and normalizes:
-   - Strip whitespace from all fields
-   - Remove quotes from values
-   - Parse numeric fields (quantity, cost, price)
-   - Deduplicate share classes (GOOGL vs GOOG)
-```
-
-**Code:** `src/main.py:find_csv_by_date()`, `src/main.py:copy_csv_to_temp()`, `src/portfolio_loader.py:parse_holdings_csv()`
-
-### Flow 2: yfinance (Market Data)
-
-```
-1. Program gets list of tickers from portfolio + watchlist
-   Example: ["NVDA", "MSFT", "PLTR", "ARM", "IONQ", ...]
-   
-2. For each ticker, make parallel requests:
-   - Fetch current price + bid-ask
-   - Fetch 10 months of historical OHLCV
-   - Fetch fundamental info (PE, market cap, sector, industry)
-   - Fetch last 7 days of news headlines
-   
-3. yfinance queries Yahoo Finance API:
-   GET https://query2.finance.yahoo.com/v10/finance/quoteSummary/NVDA
-   GET https://query1.finance.yahoo.com/v7/finance/chart/NVDA?interval=1d
-   GET https://feeds.finance.yahoo.com/news/rss?symbols=NVDA
-   
-4. Program caches response for 1 hour (pickle in data/.cache/)
-   - Avoids redundant requests if user runs again
-   - Speeds up cold-cache runs from ~60s to ~10s (parallel fetching)
-   
-5. Compute technical indicators:
-   RSI, MACD, Bollinger Bands, SMA 50/200, volume spike ratio
-```
-
-**Code:** `src/market_data.py:get_market_data()`, `src/market_data.py:compute_indicators()`
-
-### Flow 3: Anthropic Claude API
-
-```
-1. Program constructs JSON payload with all data:
-   {
-     "portfolio": {...},
-     "market_data": {...},
-     "news": {...},
-     "fees": {...},
-     "recent_activities": {...},
-     "backtest_summary": {...},
-     "settings": {...}
-   }
-   
-2. Program sends the first Claude request:
-   POST https://api.anthropic.com/v1/messages
-   Authorization: Bearer sk-ant-api03-...
-   Body: structured prompt + data
-   
-3. Anthropic servers process via the selected model:
-   - Sonnet 4.6 is the normal daily model
-   - Opus 4.7 is available for deeper, higher-cost reviews
-   - Input/output/cache tokens are counted for each pass
-   - Model reasons through multi-step analysis
-   - Generates JSON response with recommendations
-   
-4. Program validates and critiques the first JSON:
-   - Normalize schema fields
-   - Run deterministic quality gates
-   - Compare against previous-session drift
-   - Build a critique payload for the second pass
-
-5. Program sends the second Claude request:
-   - Includes first-pass JSON, quality warnings, drift summary, and previous-session comparison
-   - Requires a complete revised JSON, not a patch
-   - Aggregates token/cost usage across both calls
-
-6. Stable prompt parts are cached via prompt caching:
-   - Same portfolio structure = cache HIT
-   - Saves ~3000 input tokens on next request (~$0.015 savings)
-   - Cache TTL: 5 minutes
-   
-7. Program parses the revised JSON response:
-   - Extract each ticker's recommendation
-   - Validate conviction scores (1-10)
-   - Validate expected returns are realistic
-   - Extract thesis, risk controls, catalyst fields, and hedge suggestions
-   
-8. Save to data/recommendations_log/YYYYMMDD_HHMM_morning.json
-   - Used for backtesting
-   - Used for drift tracking
-   - Used for self-calibration
-   - Used by the shared Dashboard and Buy Signals view models
-```
-
-**Code:** `src/claude_analyst.py:call_claude()`
-
----
-
-## ✅ API Accessibility
-
-| API | Free? | Auth Required? | Availability | Auth Method |
-|-----|-------|----------------|--------------|-------------|
-| yfinance (Yahoo Finance) | ✅ YES | ❌ NO | Public data, all users | No API key |
-| Wealthsimple CSV | ✅ YES | ✅ YES (login) | Premium account holders only | Account login |
-| Anthropic Claude | ❌ PAID | ✅ YES | All users with API key | API key from console |
-| Finnhub | ✅ YES tier | ✅ YES | Analyst consensus, earnings, insider, sentiment | `FINNHUB_API_KEY` |
-| Polygon | ✅ YES tier | ✅ YES | Previous-session OHLCV/VWAP and optional snapshot fields | `POLYGON_API_KEY` |
-| Twelve Data | ✅ YES tier | ✅ YES | Quote and earnings fallback coverage | `TWELVE_DATA_API_KEY` |
-| FRED | ✅ YES | ✅ YES | Macro rates, inflation, VIX, USD/CAD context | `FRED_API_KEY` |
-| CoinGecko | ✅ YES tier | Optional | Crypto/macro risk context | `COINGECKO_API_KEY` |
-| Alpha Vantage | ✅ YES tier | ✅ YES | Optional news sentiment fallback | `ALPHA_VANTAGE_API_KEY` |
-
-### Cost Breakdown
-
-**Per run** (current two-pass report shape, enrichment enabled):
-
-| Component | Cost | Notes |
-|-----------|------|-------|
-| Sonnet 4.6 | ~$0.30–$0.70 | Recommended for daily use; latest 31-ticker paid run cost $0.6341 |
-| Opus 4.7 | ~$1.50–$3.00+ | Better for complex portfolios |
-| yfinance | $0 | Completely free |
-| Wealthsimple | Included | Free with Premium account |
-
-**Monthly** (2 runs/day):
-
-| Model | Daily | Monthly |
-|-------|-------|---------|
-| Sonnet 4.6 | ~$0.60–$1.40 | ~$18–$42 |
-| Opus 4.7 | ~$3.00–$6.00+ | ~$90–$180+ |
-
----
-
-## 🔄 Caching & Efficiency
-
-### Prompt Caching (Claude API)
-
-The system implements **prompt caching** to reduce costs:
-
-```
-Request 1 (morning):
-  System prompt (stable)     → cache_control: ephemeral
-  Market data (volatile)     → regular input
-  Portfolio (stable)         → cache_control: ephemeral
-  Cost: $X tokens
-  
-Request 2 (afternoon, same portfolio):
-  System prompt              → HIT ✓ (cached)
-  Market data (refreshed)    → new
-  Portfolio (same)           → HIT ✓ (cached)
-  Cost: $X - cached_tokens (20-30% savings typical)
-```
-
-### Data Caching (Local Pickle)
-
-```
-data/.cache/market_data/
-  NVDA_10.pkl              → expires 1 hour after creation
-  MSFT_10.pkl              → 
-  ...
-  
-data/.cache/news/
-  NVDA.pkl                 → expires 1 hour
-  MSFT.pkl                 →
-  
-data/.cache/historical_price/
-  NVDA_2026-04-24.pkl      → expires 30 days
-  ...
-```
-
-This massively speeds up repeated runs:
-- Cold cache (all data fresh): ~60s (serial) → ~10s (parallel)
-- Warm cache (most data cached): ~2s
-
----
-
-## 🤔 Other Free APIs Worth Considering
-
-### 1. **Alpha Vantage** (Alternative to yfinance)
-
-```python
-# Free tier: 5 API calls/minute, 500/day
-# Paid tier: $200+/month
-
-Key advantages over yfinance:
-  ✓ More reliable (dedicated service, not scraping)
-  ✓ Official stock market data
-  ✓ Technical indicators built-in (RSI, MACD, etc.)
-  ✓ Forex + crypto support
-  
-Key disadvantages:
-  ✗ Rate limited (5/min on free tier)
-  ✗ No news headlines (separate API)
-  ✗ Less fundamentals data than Yahoo
-  
-When to use:
-  - If yfinance becomes unstable
-  - For more reliable batch processing
-  - When you need guaranteed uptime
-  
-Cost: FREE tier (limited), or $200/month for professional
-
-API Key: https://www.alphavantage.co/
-```
-
-**Example:**
-```python
-import requests
-response = requests.get(
-    'https://www.alphavantage.co/query',
-    params={
-        'function': 'GLOBAL_QUOTE',
-        'symbol': 'NVDA',
-        'apikey': 'YOUR_KEY'
-    }
-)
-```
-
-### 2. **Finnhub** (Fundamental + News)
-
-```python
-# Free tier: 60 API calls/minute
-# News + fundamentals focus (less technical data)
-
-Key advantages:
-  ✓ Excellent news sentiment (not just headlines)
-  ✓ Company fundamentals (earnings, dividends, etc.)
-  ✓ Very generous free tier (60 calls/min)
-  ✓ Simple REST API
-  
-Key disadvantages:
-  ✗ No historical candle data (need yfinance)
-  ✗ Limited technical indicators
-  ✗ Missing some markets (only major US stocks)
-  
-When to use:
-  - Supplement yfinance for better news sentiment
-  - For company fundamental analysis
-  - When you need more API calls per minute
-  
-Cost: FREE tier (excellent), or $99/month professional
-
-API Key: https://finnhub.io/
-```
-
-**Example:**
-```python
-import requests
-response = requests.get(
-    'https://finnhub.io/api/v1/news',
-    params={
-        'symbol': 'NVDA',
-        'token': 'YOUR_KEY'
-    }
-)
-# Returns: [{headline, summary, source, sentiment_score, ...}, ...]
-```
-
-### 3. **IEX Cloud** (Institutional-grade, Freemium)
-
-```python
-# Free tier: 100 messages/month (very limited)
-# Paid tier: $9-99/month depending on features
-
-Key advantages:
-  ✓ Institutional-grade data quality
-  ✓ Real-time stock prices (not delayed)
-  ✓ Large corpus of companies
-  ✓ Python SDK available
-  
-Key disadvantages:
-  ✗ Very limited free tier (100/month)
-  ✗ Expensive for frequent use
-  ✗ Overkill for retail use cases
-  
-When to use:
-  - If you need guaranteed reliability
-  - For institutional/professional trading
-  - When you have budget for data API
-  
-Cost: FREE tier (very limited), $9-99/month
-
-API Key: https://iexcloud.io/
-```
-
-### 4. **Twelve Data** (Modern Alternative)
-
-```python
-# Free tier: 800 API calls/day, 2 requests/second
-# Good balance of free tier and data quality
-
-Key advantages:
-  ✓ Comprehensive data (stocks, forex, crypto, ETFs)
-  ✓ Real-time data included in free tier
-  ✓ Good technical indicators
-  ✓ News feeds
-  ✓ Global markets (not just US)
-  
-Key disadvantages:
-  ✗ Smaller company (less established than Yahoo/Alpha)
-  ✗ API design is more complex
-  ✗ Fundamentals data limited on free tier
-  
-When to use:
-  - For international/emerging markets
-  - For crypto alongside stocks
-  - When you need higher free tier limits
-  
-Cost: FREE tier (good), or $50-500/month
-
-API Key: https://twelvedata.com/
-```
-
-### 5. **Polygon.io** (Professional Alternative)
-
-```python
-# Free tier: 5 API calls/minute
-# Options, crypto, forex support
-
-Key advantages:
-  ✓ Professional-grade data
-  ✓ Full options chain data (Greeks)
-  ✓ Crypto markets included
-  ✓ Very detailed historical data
-  
-Key disadvantages:
-  ✗ Overkill for basic stock analysis
-  ✗ More complex API
-  ✗ Limited free tier
-  
-When to use:
-  - For options analysis
-  - For professional traders
-  - When you need extreme data granularity
-  
-Cost: FREE tier (limited), $199+/month
-
-API Key: https://polygon.io/
-```
-
-### 6. **EODHD** (End-of-Day Historical Data)
-
-```python
-# Free tier: 20 API calls/day, limited symbols
-# Excellent for EOD data (when you don't need real-time)
-
-Key advantages:
-  ✓ Clean, reliable EOD data
-  ✓ Fundamentals + technicals
-  ✓ Global markets (40,000+ symbols)
-  ✓ Affordable if you upgrade
-  
-Key disadvantages:
-  ✗ Very limited free tier (20/day)
-  ✗ End-of-day only (not intraday)
-  ✗ Requires API key even for free
-  
-When to use:
-  - For daily/weekly trading strategies
-  - When you need global market coverage
-  - For automated backtesting
-  
-Cost: FREE tier (very limited), $20-100/month
-
-API Key: https://eodhd.com/
-```
-
----
-
-## 🎯 Recommended API Stack for Beginners
-
-### Tier 1: Completely Free
-
-```
-yfinance (primary)
-  ├─ Prices, history, fundamentals
-  ├─ News headlines
-  └─ No limits, no auth required
-
-+ Finnhub (supplement)
-  ├─ Better news sentiment
-  └─ 60 calls/minute free
-  
-+ Manual CSV from Wealthsimple
-  └─ Your portfolio data
-  
-Cost: $0/month
-Limitation: News sentiment is basic (VADER)
-```
-
-**Good for:** Most retail traders, small portfolios
-
-### Tier 2: Paid AI Analysis (~$0.30–$0.70 per Sonnet run)
-
-```
-yfinance (primary)
-+ Anthropic Claude Sonnet 4.6 (analysis)
-  ├─ Multi-step reasoning
-  ├─ Conviction scoring
-  └─ ~$0.30–$0.70 per full current two-pass run
-
-Cost: roughly $18–$42/month at 2x daily Sonnet runs, depending on portfolio size and output length
-Gain: AI-powered analysis, backtesting, self-calibration
-```
-
-**Good for:** Active traders who run 2x daily, want AI insights
-
-### Tier 3: Professional Setup (higher-cost runs + optional enrichment)
-
-```
-yfinance (primary)
-+ Finnhub (sentiment overlay)
-+ Anthropic Claude Opus 4.7 (deeper analysis)
-  └─ roughly $1.50-$3.00+ per current two-pass run, depending on portfolio size
-
-Optional upgrades:
-  + Polygon / Twelve Data for quote redundancy
-  + FRED for macro context and USD/CAD support
-  + CoinGecko for crypto risk context
-  + Alpha Vantage for optional sentiment redundancy
-  + Paid market-data plans only if free tiers are insufficient
-
-Cost: $25-300/month depending on frequency
-Gain: Redundancy, professional-grade analysis, higher accuracy
-```
-
-**Good for:** Full-time traders, managed portfolios, hedge funds
-
----
-
-## 🔐 Privacy & Security Notes
-
-### Data Retention
-
-1. **Wealthsimple CSVs**
-   - Stored locally in `temporary_upload/` folder (user's computer)
-   - Can be deleted after session completes
-   - Never sent to third parties (except Claude for analysis)
-
-2. **Claude Analysis**
-   - Sent to Anthropic API (encrypted HTTPS)
-   - Used for analysis only
-   - Logged by Anthropic (standard API logging)
-   - Deleted after response returned (no long-term storage)
-
-3. **yfinance Data**
-   - Cached locally in `data/.cache/` (public market data)
-   - 1-hour TTL for prices/news
-   - 30-day TTL for historical prices
-   - No sensitive user data (tickers are public)
-
-4. **Recommendations**
-   - Stored locally in `data/recommendations_log/`
-   - Reported back to Claude for self-calibration (for accuracy)
-   - Can be deleted manually
-
-### API Key Security
-
-- **Anthropic API Key**
-  - Store in `API_KEYS.txt` or `.env` (both git-ignored)
-  - Never commit to version control
-  - Treat like password; rotate periodically
-  
-- **Other APIs**
-  - Same best practices
-  - The Desktop and Streamlit API key managers mask configured values and can add/update/delete keys without printing full secrets
-  - Current storage mode is file-based; OS credential stores are planned as an optional future mode
-  - Audit API key usage regularly
-
----
-
-## 📈 Example: Full Signal Analysis for NVDA
-
-### Input Data
-
-```json
-{
-  "ticker": "NVDA",
-  "current_price": 208.27,
-  "change_1d": +4.32%,
-  "change_5d": +8.91%,
-  "pe_ratio": 54.3,
-  "market_cap": 5.12T,
-  "52w_high": 228.50,
-  "52w_low": 89.20,
-  "rsi_14": 72.4,  // overbought
-  "macd_hist": 8.2,  // bullish momentum
-  "bb_pct": 0.78,  // near upper band
-  "sma_50": 198.30,
-  "price_vs_sma50": +5.0%,
-  "volume_spike": 1.8x,  // above normal
-  "news_sentiment": 0.65,  // bullish
-  "portfolio_pct": 12.5%,  // concentration risk
-  "cost_basis": 145.30,
-  "unrealized_return": +43.3%
-}
-```
-
-### Claude Analysis
-
-> **NVDA: Position sizing risk vs momentum opportunity**
->
-> **Current Setup:**
-> - Price broke above SMA-50, MACD histogram positive (momentum confirmed)
-> - RSI 72.4 suggests overbought, but above 70 is normal in strong trends
-> - Volume spike (1.8x) shows institutional participation
-> - News sentiment 0.65 (positive catalysts: AI adoption, data center)
->
-> **The Problem:**
-> - NVDA already 12.5% of portfolio (above 10% concentration limit)
-> - PE ratio 54.3 is elevated (market pricing in 25%+ growth expectations)
-> - Price at 91% of 52-week high (limited room to upside before consolidation)
->
-> **Recommendation:**
-> - **ACTION: HOLD** (not ADD)
-> - **THESIS:** Momentum is real, but position is already large. Better to:
->   - Deploy new capital to underweight positions (ARM, PLTR below SMA-50)
->   - Rebalance if NVDA hits 12% of portfolio again
->   - Watch for RSI > 80 (exhaustion signal) as exit
-> - **TIME HORIZON:** 1-3 months
-> - **CONVICTION:** 7/10 (strong momentum, but concentration risk is real)
-> - **NET EXPECTED RETURN:** N/A (HOLD = no entry fees)
-
----
-
-**Last Updated:** May 24, 2026
-**Document Version:** 1.14.1
-**Author:** Tech Stock Team + Claude Opus 4.7
+## Claude's Role
+
+Claude receives structured context including:
+
+- Portfolio positions and exposure.
+- Market data, technical indicators, and fundamentals.
+- News, catalyst, analyst, earnings, macro, and risk context.
+- Fee assumptions.
+- Recent activities.
+- Historical recommendation performance.
+- Decision-journal scorecard.
+- Drift and thesis-tracking context.
+
+Claude is asked to return structured recommendation JSON with fields such as:
+
+- Action: `BUY`, `ADD`, `HOLD`, `TRIM`, or `SELL`.
+- Conviction.
+- Time horizon.
+- Expected move and expected range.
+- Thesis and invalidation.
+- Risk controls.
+- Catalyst verification.
+- Manual-review state.
+- Hedge suggestions.
+
+The model can still be wrong. The deterministic quality layer exists to make
+common failures visible and to force a second review.
+
+## Two-Pass Review
+
+### Pass 1
+
+Claude produces an initial complete recommendation object.
+
+### Deterministic review
+
+The application normalizes the response, evaluates report-quality warnings,
+compares the result with previous sessions, applies policy gates, and computes
+deterministic sizing.
+
+### Pass 2
+
+Claude receives:
+
+- The first recommendation JSON.
+- Quality warnings.
+- Drift summary.
+- Previous-session comparison.
+- Instructions to return a complete revised JSON object.
+
+Both calls contribute to the usage and cost totals shown in the report.
+
+## Quality Controls
+
+Quality controls include both warning generation and policy gates.
+
+Examples:
+
+- Stale or unstamped quote.
+- Holdings-vs-quote mismatch.
+- Missing catalyst on a large mover.
+- Missing enrichment citation.
+- Invalid time horizon.
+- Oversized position or company exposure.
+- Missing risk controls.
+- Range inconsistency.
+- Missing analyst or insider citation.
+- BUY/ADD above a configured position cap.
+- Market-data error.
+- Leveraged ETF holding-period risk.
+- Thesis decay.
+- Trailing-stop breach.
+- Drawdown circuit breaker.
+
+Warnings include a severity, code, ticker, message, and required action where
+applicable.
+
+## Trade Readiness
+
+The UI classifies signals into three readiness states:
+
+| State | Meaning |
+|---|---|
+| `TRADE_READY` | Fresh enough quote, no blocking warning, and required catalyst/source checks satisfied. |
+| `REVIEW_FIRST` | The signal may be usable, but warnings, optional-source degradation, or manual review remain. |
+| `BLOCKED` | A stale or unstamped quote, missing required catalyst, market-data error, or position-cap issue prevents action. |
+
+Trade readiness is a quality classification, not a prediction of profitability.
+
+## Data Confidence
+
+Reports and dashboards summarize:
+
+- Quote freshness.
+- Source coverage.
+- Catalyst coverage.
+- Warning count.
+- Overall readiness.
+
+The Data Confidence block is the first place to look before reading the action
+queue.
+
+## Outputs And Audit Trail
+
+Each successful run normally writes:
+
+| Output | Purpose |
+|---|---|
+| Markdown report | Human-readable research memo |
+| Recommendation CSV | Compact table for review and tracking |
+| JSON recommendation log | Structured session snapshot for history and backtesting |
+| Cost log entry | Anthropic usage and estimated cost |
+| Decision-journal entries | Pending user decisions for later outcome scoring |
+
+Past recommendation logs feed the backtester, drift tracker, performance views,
+and learning loop.
+
+## Important Limitations
+
+- External quotes may be delayed, stale, previous-close, or otherwise
+  non-executable.
+- API provider plans can restrict fields or endpoints.
+- News and catalyst coverage can be incomplete.
+- Analyst consensus is not independent truth and can be stale.
+- Wealthsimple CSV values are snapshots and can differ from fetched quotes.
+- Technical indicators are backward-looking.
+- Backtest results are based on the application's own historical recommendation
+  logs and are not proof of future performance.
+- Claude can misinterpret data, overstate confidence, or produce an incorrect
+  thesis.
+- Taxes, account-specific restrictions, liquidity, order-book depth, and user
+  circumstances may not be fully modeled.
+
+## Recommended Review Workflow
+
+Before taking action:
+
+1. Confirm that the holdings CSV is fresh.
+2. Read Data Confidence and quality warnings.
+3. Verify quote source, timestamp, currency, and previous close.
+4. Verify the catalyst for any large mover.
+5. Review the account fee and FX assumptions.
+6. Check position and company exposure after the proposed trade.
+7. Review stop, take-profit, invalidation, and time horizon.
+8. Confirm the order type and executable market price in the brokerage app.
+
+## Code References
+
+| Area | Module |
+|---|---|
+| Holdings parsing | `src/portfolio_loader.py` |
+| Activities parsing | `src/activity_loader.py` |
+| Market data and indicators | `src/market_data.py` |
+| Optional enrichment | `src/enriched_data.py` |
+| Claude prompt and calls | `src/claude_analyst.py` |
+| Quality warnings and gates | `src/report_quality.py` |
+| Data Confidence | `src/data_confidence.py` |
+| Portfolio analytics | `src/portfolio_analytics.py` |
+| Recommendation sizing | `src/recommendation_sizing.py` |
+| Report rendering | `src/report_generator.py` |
+| Backtesting | `src/backtester.py` |
+| Drift tracking | `src/drift_tracker.py` |
+| Decision journal | `src/decision_journal.py` |
+
+For the full module map, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

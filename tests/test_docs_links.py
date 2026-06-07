@@ -1,4 +1,4 @@
-"""Validate internal markdown links inside docs/ and root-level *.md.
+"""Validate internal markdown links in the project's maintained documentation.
 
 CI fails if a docs link points at a file that doesn't exist — useful when
 we move docs around or rename them.
@@ -15,14 +15,19 @@ ROOT = Path(__file__).resolve().parents[1]
 
 _MARKDOWN_LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 
-# Only validate the docs that we own — the long README + bundled docs.
+# Validate the user-facing and maintainer documentation that we own.
 _TARGETS = [
     ROOT / "README.md",
+    ROOT / "QUICKSTART.md",
+    ROOT / "ANALYSIS_AND_SIGNALS.md",
     ROOT / "CONTRIBUTING.md",
     ROOT / "CHANGELOG.md",
     ROOT / "docs" / "ARCHITECTURE.md",
     ROOT / "docs" / "COOKBOOK.md",
     ROOT / "docs" / "RELEASE_PROCESS.md",
+    ROOT / "docs" / "USER_GUIDE.md",
+    ROOT / "docs" / "TROUBLESHOOTING.md",
+    ROOT / "temporary_upload" / "README.md",
 ]
 
 
@@ -61,7 +66,17 @@ def test_docs_internal_links_resolve(path):
 
 def test_readme_advertises_all_docs():
     text = (ROOT / "README.md").read_text(encoding="utf-8")
-    for advertised in ("docs/ARCHITECTURE.md", "docs/COOKBOOK.md", "docs/RELEASE_PROCESS.md", "CONTRIBUTING.md", "CHANGELOG.md"):
+    for advertised in (
+        "QUICKSTART.md",
+        "docs/USER_GUIDE.md",
+        "docs/TROUBLESHOOTING.md",
+        "ANALYSIS_AND_SIGNALS.md",
+        "docs/ARCHITECTURE.md",
+        "docs/COOKBOOK.md",
+        "docs/RELEASE_PROCESS.md",
+        "CONTRIBUTING.md",
+        "CHANGELOG.md",
+    ):
         assert advertised in text, f"README should advertise {advertised}"
 
 

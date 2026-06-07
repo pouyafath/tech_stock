@@ -97,9 +97,25 @@ def test_demo_smoke_test_uses_bundled_samples_without_paid_calls():
 
 
 def test_cli_doctor_json_outputs_payload(monkeypatch, capsys):
-    monkeypatch.setattr(preflight, "build_preflight", lambda **_kwargs: {"app_version": "1.21.0", "summary_rows": []})
+    monkeypatch.setattr(
+        preflight,
+        "build_preflight",
+        lambda **_kwargs: {"app_version": "1.21.0", "summary_rows": [], "next_action": "Ready for a report run."},
+    )
 
     code = preflight.cli_doctor(["--json"])
 
     assert code == 0
     assert '"app_version": "1.21.0"' in capsys.readouterr().out
+
+
+def test_doctor_text_includes_next_action():
+    text = preflight.doctor_text(
+        {
+            "app_version": "1.23.0",
+            "summary_rows": [{"check": "API keys", "status": "FAIL", "detail": "missing"}],
+            "next_action": "Add ANTHROPIC_API_KEY in API_KEYS.txt or .env, then run API Checks again.",
+        }
+    )
+
+    assert "Next action: Add ANTHROPIC_API_KEY" in text
