@@ -12,7 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Callable
+from typing import Any
 
 
 @dataclass

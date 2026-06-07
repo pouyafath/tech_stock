@@ -148,6 +148,10 @@ Current local suite: `pytest -q` passes with 515 tests in ~2 s.
 
 ## 📖 Documentation
 
+- **[`QUICKSTART.md`](QUICKSTART.md)** — five-minute setup guide.
+- **[`docs/USER_GUIDE.md`](docs/USER_GUIDE.md)** — complete user guide.
+- **[`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md)** — troubleshooting common issues.
+- **[`ANALYSIS_AND_SIGNALS.md`](ANALYSIS_AND_SIGNALS.md)** — methodology and signal definitions.
 - **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** — module map, data flow, the 7 quality gates, the learning loop, storage layout.
 - **[`docs/COOKBOOK.md`](docs/COOKBOOK.md)** — common workflows: demo mode, scheduling, budget caps, replaying old sessions, custom notifications.
 - **[`docs/RELEASE_PROCESS.md`](docs/RELEASE_PROCESS.md)** — how a `v*.*.*` tag triggers the three-platform CI build.
