@@ -1324,9 +1324,8 @@ with tab_performance:
 
     with st.expander("Paper Trading", expanded=False):
         try:
-            from src.paper_trading import _load_state as _load_paper_state
-
             from src.main import DATA_DIR as _DATA_DIR
+            from src.paper_trading import _load_state as _load_paper_state
 
             _paper_path = _DATA_DIR / "paper_portfolio.json"
             paper = _load_paper_state(_paper_path)
