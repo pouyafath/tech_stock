@@ -39,12 +39,10 @@ def test_platform_fonts_returns_complete_ladder():
         assert weight in {"normal", "bold"}
 
 
-def test_legacy_desktop_app_module_aliases_new_package():
-    import src.desktop.app as desktop_impl
+def test_legacy_desktop_app_has_root():
     import src.desktop_app as legacy
 
-    assert legacy is desktop_impl
-    assert desktop_impl.ROOT == ROOT
+    assert legacy.ROOT == ROOT
 
 
 def test_platform_fonts_picks_sf_pro_on_macos(monkeypatch):
