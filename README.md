@@ -52,9 +52,9 @@
 
 ---
 
-## ✨ What's New in v1.27.1 (June 10, 2026)
+## ✨ What's New in v1.27.2 (June 10, 2026)
 
-**Desktop consolidation and CI stabilization.**
+**Desktop consolidation and release hardening.**
 
 - **One canonical desktop implementation** — `src/desktop/app.py` now owns the
   embedded Tkinter app, while `src/desktop_app.py` is a thin compatibility
@@ -63,6 +63,9 @@
   duplicated GUI coverage from the headless coverage gate.
 - **Higher coverage floor** — CI now enforces 55% minimum coverage, with local
   validation at 66%.
+- **Release gate hardened** — tag-triggered release builds now run
+  `pip-audit` before packaging and opt GitHub Actions into the Node 24 runtime
+  ahead of GitHub's Node 20 deprecation.
 
 ## ✨ What's New in v1.24.0 (June 4, 2026)
 
@@ -1204,15 +1207,15 @@ For issues or questions:
 
 ---
 
-**Last updated:** June 10, 2026 — v1.27.1 desktop consolidation, CI coverage
-stabilization, macro-regime gates, concentration alerts, and v1 release-line
-cleanup.
-**Version:** 1.27.1
+**Last updated:** June 10, 2026 — v1.27.2 desktop consolidation, CI coverage
+stabilization, release-gate dependency auditing, Node 24 workflow readiness,
+macro-regime gates, concentration alerts, and v1 release-line cleanup.
+**Version:** 1.27.2
 **Status:** Production-ready v1 line — deterministic quality gates,
 trade-readiness classifier, Data Confidence, source-backed Buy Signals,
 doctor/preflight diagnostics, in-app updater with SHA-256 verification, API key
 manager, four interface options (CLI, Streamlit, Textual, native desktop),
 paper-trading mode, decision-journal scorecard, macro-regime controls, and
-concentration alerts. 637 tests pass locally.
+concentration alerts. 639 tests pass locally.
 
 See [CHANGELOG.md](CHANGELOG.md) for the per-release history.

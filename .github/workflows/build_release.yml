@@ -17,6 +17,9 @@ on:
       - "v*.*.*"
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   # ── Test gate (runs on every push, fast — caches kept warm) ────────────────
   test-gate:
@@ -51,6 +54,10 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: pytest -q
+
+      - name: Dependency vulnerability audit
+        if: matrix.os == 'ubuntu-22.04'
+        run: pip-audit --requirement requirements.txt
 
   # ── macOS .dmg ─────────────────────────────────────────────────────────────
   build-macos:

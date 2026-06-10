@@ -20,7 +20,7 @@ GitHub Release when the workflow is running from a version tag.
 3. Bump `src/version.py`.
 4. Add a new section to the top of `CHANGELOG.md`:
    ```markdown
-   ## [1.27.1] — 2026-06-10
+   ## [1.27.2] — 2026-06-10
 
    ### Added
    - ...
@@ -34,8 +34,8 @@ GitHub Release when the workflow is running from a version tag.
    ```
    git checkout main
    git pull --ff-only
-   git tag v1.27.1
-   git push origin v1.27.1
+   git tag v1.27.2
+   git push origin v1.27.2
    ```
 
 CI now takes over and creates a draft release after the test and build gates
@@ -76,6 +76,7 @@ Runs on macOS-14, windows-latest, ubuntu-22.04 in parallel:
 - ruff format check (no drift)
 - ruff lint
 - `pytest -q`
+- `pip-audit --requirement requirements.txt` on Ubuntu
 
 If any platform fails the gate, the build jobs **do not run**. The
 release is silently aborted — there's no draft to publish.
@@ -107,8 +108,8 @@ release is silently aborted — there's no draft to publish.
 
 ### release
 
-- Extracts the version from the tag (`refs/tags/v1.27.1` -> `1.27.1`)
-- Runs `python -m src.changelog_utils 1.27.1` to extract the
+- Extracts the version from the tag (`refs/tags/v1.27.2` -> `1.27.2`)
+- Runs `python -m src.changelog_utils 1.27.2` to extract the
   matching CHANGELOG section, falling back to `--latest` if the
   version isn't in the file yet
 - Downloads every artefact
@@ -153,11 +154,11 @@ from a local update-cache issue.
 If something is wrong with an artefact:
 
 ```
-git tag -d v1.27.1
-git push --delete origin v1.27.1
+git tag -d v1.27.2
+git push --delete origin v1.27.2
 # fix
-git tag v1.27.1
-git push origin v1.27.1
+git tag v1.27.2
+git push origin v1.27.2
 ```
 
 The CI re-runs end-to-end. The draft release is regenerated. If a tag
@@ -188,8 +189,8 @@ Reserve `v2.0.1` for the first patch **after** a real public `v2.0.0`.
   available (the workflow comment marks the spot).
 - Windows code-signing via `signtool` and a PFX certificate (the
   `build_windows.bat` already has the hook; CI just needs the secrets).
-- `pip-audit` step as part of `test-gate` so dependency vulns block
-  releases after false-positive handling is documented.
+- SBOM generation for release artifacts so packaged dependencies can be
+  audited after download as well as before packaging.
 
 ## Files Involved
 

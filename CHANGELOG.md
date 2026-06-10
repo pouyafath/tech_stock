@@ -4,6 +4,20 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.27.2] — 2026-06-10
+
+### CI
+- Opt GitHub Actions workflows into the Node 24 JavaScript runtime ahead
+  of GitHub's Node 20 runner deprecation.
+- Add `pip-audit` to the tag-triggered release test gate before packaging
+  artifacts.
+
+### Docs
+- Update release-process documentation to show the release audit gate and
+  move future security tightening toward SBOM generation.
+
+---
+
 ## [1.27.1] — 2026-06-10
 
 ### Fixed
