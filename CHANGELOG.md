@@ -4,6 +4,24 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.27.1] — 2026-06-10
+
+### Fixed
+- Restored `src/desktop_app.py` to a thin compatibility launcher that aliases
+  the canonical `src.desktop.app` implementation.
+- Consolidated the duplicated Tkinter desktop implementation into
+  `src/desktop/app.py`, preserving `python src/desktop_app.py` and legacy
+  imports while removing the duplicate coverage burden.
+
+### CI
+- Added coverage configuration that omits full GUI window modules from the
+  headless coverage gate while keeping import/helper tests active.
+- Raised the CI coverage floor from 45% to 55%; local validation reaches 66%.
+
+### Version bumped: 1.27.0 → 1.27.1
+
+---
+
 ## [1.27.0] — 2026-06-07
 
 ### Bug Fixes

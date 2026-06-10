@@ -52,6 +52,18 @@
 
 ---
 
+## ✨ What's New in v1.27.1 (June 10, 2026)
+
+**Desktop consolidation and CI stabilization.**
+
+- **One canonical desktop implementation** — `src/desktop/app.py` now owns the
+  embedded Tkinter app, while `src/desktop_app.py` is a thin compatibility
+  launcher for existing commands and imports.
+- **CI green path restored** — fixed the desktop alias regression and removed
+  duplicated GUI coverage from the headless coverage gate.
+- **Higher coverage floor** — CI now enforces 55% minimum coverage, with local
+  validation at 66%.
+
 ## ✨ What's New in v1.24.0 (June 4, 2026)
 
 **Quality, resilience & analytics improvements.**
@@ -66,7 +78,7 @@
 - **Degradation health surfaced** — `degradation_health()` now displays in the Streamlit Diagnostics tab.
 - **Claude analyst unit tests** — New test file with 14 tests covering normalization, schema validation, and Pass 2 fallback behavior.
 
-Current local suite: `pytest -q` passes with 592 tests (4 desktop-specific tests require tkinter display).
+Current local suite: `pytest -q` passes with 637 tests.
 
 ## ✨ What's New in v1.23.0 (June 3, 2026)
 
@@ -1135,7 +1147,8 @@ tech_stock/
 │   ├── preflight.py             ← Doctor command, release/update/API/CSV/budget/demo smoke checks
 │   ├── updater.py               ← GitHub Releases checks, downloads, checksums, update logs
 │   ├── version.py               ← App version for CLI, UIs, packaging, updater
-│   ├── desktop_app.py           ← Embedded no-browser dashboard
+│   ├── desktop/                 ← Embedded no-browser dashboard implementation
+│   ├── desktop_app.py           ← Backward-compatible desktop launcher/import wrapper
 │   ├── app_gui.py               ← Native tkinter launcher (used by .app/.exe bundle)
 │   └── ui_launcher.py           ← Shell menu wrapper (CLI / Streamlit / Textual / Desktop / Update)
 ├── ui/
@@ -1191,8 +1204,15 @@ For issues or questions:
 
 ---
 
-**Last updated:** May 29, 2026 — v1.21.0 stabilization, doctor/preflight, data confidence, and V2 readiness gate.
-**Version:** 1.21.0
-**Status:** Production-ready v1 line — deterministic quality gates, trade-readiness classifier, Data Confidence, source-backed Buy Signals, doctor/preflight diagnostics, in-app updater with SHA-256 verification, API key manager, four interface options (CLI, Streamlit, Textual, native desktop), paper-trading mode, decision-journal scorecard. 588 tests expected in the local suite.
+**Last updated:** June 10, 2026 — v1.27.1 desktop consolidation, CI coverage
+stabilization, macro-regime gates, concentration alerts, and v1 release-line
+cleanup.
+**Version:** 1.27.1
+**Status:** Production-ready v1 line — deterministic quality gates,
+trade-readiness classifier, Data Confidence, source-backed Buy Signals,
+doctor/preflight diagnostics, in-app updater with SHA-256 verification, API key
+manager, four interface options (CLI, Streamlit, Textual, native desktop),
+paper-trading mode, decision-journal scorecard, macro-regime controls, and
+concentration alerts. 637 tests pass locally.
 
 See [CHANGELOG.md](CHANGELOG.md) for the per-release history.

@@ -1,0 +1,9 @@
+[run]
+omit =
+    src/app_gui.py
+    src/desktop/app.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if __name__ == "__main__":

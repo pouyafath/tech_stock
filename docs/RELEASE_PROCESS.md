@@ -20,7 +20,7 @@ GitHub Release when the workflow is running from a version tag.
 3. Bump `src/version.py`.
 4. Add a new section to the top of `CHANGELOG.md`:
    ```markdown
-   ## [1.23.0] — 2026-06-05
+   ## [1.27.1] — 2026-06-10
 
    ### Added
    - ...
@@ -34,8 +34,8 @@ GitHub Release when the workflow is running from a version tag.
    ```
    git checkout main
    git pull --ff-only
-   git tag v1.23.0
-   git push origin v1.23.0
+   git tag v1.27.1
+   git push origin v1.27.1
    ```
 
 CI now takes over and creates a draft release after the test and build gates
@@ -107,8 +107,8 @@ release is silently aborted — there's no draft to publish.
 
 ### release
 
-- Extracts the version from the tag (`refs/tags/v1.23.0` -> `1.23.0`)
-- Runs `python -m src.changelog_utils 1.23.0` to extract the
+- Extracts the version from the tag (`refs/tags/v1.27.1` -> `1.27.1`)
+- Runs `python -m src.changelog_utils 1.27.1` to extract the
   matching CHANGELOG section, falling back to `--latest` if the
   version isn't in the file yet
 - Downloads every artefact
@@ -153,11 +153,11 @@ from a local update-cache issue.
 If something is wrong with an artefact:
 
 ```
-git tag -d v1.23.0
-git push --delete origin v1.23.0
+git tag -d v1.27.1
+git push --delete origin v1.27.1
 # fix
-git tag v1.23.0
-git push origin v1.23.0
+git tag v1.27.1
+git push origin v1.27.1
 ```
 
 The CI re-runs end-to-end. The draft release is regenerated. If a tag
