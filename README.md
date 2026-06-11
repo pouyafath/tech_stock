@@ -52,6 +52,19 @@
 
 ---
 
+## ✨ What's New in v1.28.0 (June 11, 2026)
+
+**Release-health diagnostics for safer updates.**
+
+- **Updater simulation in Doctor** — `python src/main.py doctor --simulate-current-version 1.27.2 --force-refresh`
+  checks GitHub Releases as if the installed app were an older version. This
+  verifies that a published update is visible without editing source files or
+  applying the update.
+- **Clearer release verification** — the doctor payload now records the
+  simulated current version and shows it in the Version summary row.
+- **Backward compatible** — existing CLI, Desktop, Streamlit, Textual, updater,
+  and report workflows continue to work unchanged.
+
 ## ✨ What's New in v1.27.2 (June 10, 2026)
 
 **Desktop consolidation and release hardening.**
@@ -477,6 +490,7 @@ python src/main.py morning --holdings ~/Holdings.csv --model opus
 | `python src/main.py check-update` | Check GitHub Releases for a newer version |
 | `python src/main.py update` | Update a source checkout with `git pull --ff-only` or stage a packaged update |
 | `python src/main.py doctor --json` | Run preflight diagnostics: version, updater cache, API keys, CSV freshness, budget, release assets |
+| `python src/main.py doctor --json --force-refresh --simulate-current-version 1.27.2` | Verify whether an older installed version would see the latest published release |
 
 **Windows PowerShell / Command Prompt:**
 
@@ -488,6 +502,7 @@ python src/main.py morning --holdings ~/Holdings.csv --model opus
 | `python src\main.py check-update` | Check GitHub Releases for a newer version |
 | `python src\main.py update` | Update a source checkout with `git pull --ff-only` or stage a packaged update |
 | `python src\main.py doctor --json` | Run preflight diagnostics: version, updater cache, API keys, CSV freshness, budget, release assets |
+| `python src\main.py doctor --json --force-refresh --simulate-current-version 1.27.2` | Verify whether an older installed version would see the latest published release |
 | `python -m streamlit run ui\streamlit_app.py` | Streamlit browser dashboard |
 | `python ui\textual_app.py` | Textual terminal dashboard |
 | `python src\desktop_app.py` | Embedded desktop dashboard |
@@ -544,7 +559,7 @@ All interactive interfaces check GitHub Releases on startup and ask before apply
 - **Desktop App:** open the **Updates** tab.
 - **Streamlit:** use the **Updates** section in the sidebar.
 - **Textual:** open the **Updates** tab; startup checks show an Update now / Later prompt.
-- **Terminal:** run `python src/main.py check-update`, `python src/main.py update`, or `python src/main.py doctor --json`.
+- **Terminal:** run `python src/main.py check-update`, `python src/main.py update`, or `python src/main.py doctor --json`. For release-health testing, add `--force-refresh --simulate-current-version <old-version>`.
 - **Unified launcher:** run `./run.sh 5`.
 
 Data is stored separately from the app binary, so updating does not remove your `reports/`, `data/recommendations_log/`, `temporary_upload/`, `config/`, `decision_journal.json`, `API_KEYS.txt`, or `.env` files. Update logs are written under the app workspace in `logs/update.log`.
@@ -1207,15 +1222,16 @@ For issues or questions:
 
 ---
 
-**Last updated:** June 10, 2026 — v1.27.2 desktop consolidation, CI coverage
-stabilization, release-gate dependency auditing, Node 24 workflow readiness,
-macro-regime gates, concentration alerts, and v1 release-line cleanup.
-**Version:** 1.27.2
+**Last updated:** June 11, 2026 — v1.28.0 release-health diagnostics, updater
+simulation, v1.27.2 desktop consolidation, CI coverage stabilization,
+release-gate dependency auditing, Node 24 workflow readiness, macro-regime
+gates, concentration alerts, and v1 release-line cleanup.
+**Version:** 1.28.0
 **Status:** Production-ready v1 line — deterministic quality gates,
 trade-readiness classifier, Data Confidence, source-backed Buy Signals,
 doctor/preflight diagnostics, in-app updater with SHA-256 verification, API key
 manager, four interface options (CLI, Streamlit, Textual, native desktop),
 paper-trading mode, decision-journal scorecard, macro-regime controls, and
-concentration alerts. 639 tests pass locally.
+concentration alerts. 640 tests pass locally.
 
 See [CHANGELOG.md](CHANGELOG.md) for the per-release history.

@@ -443,6 +443,13 @@ Force a live GitHub release lookup:
 python src/main.py doctor --json --force-refresh
 ```
 
+Verify whether an older installed app would see the newest published release
+without applying an update:
+
+```bash
+python src/main.py doctor --json --force-refresh --simulate-current-version 1.27.2
+```
+
 Also validate bundled demo data and UI view models without Anthropic spend:
 
 ```bash
@@ -452,6 +459,7 @@ python src/main.py doctor --json --force-refresh --demo-smoke
 The doctor payload includes:
 
 - Installed and latest published version.
+- Optional simulated installed version for release-health checks.
 - Update cache age and source.
 - Release asset and checksum availability.
 - Workspace paths and writability.

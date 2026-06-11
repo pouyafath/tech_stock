@@ -26,12 +26,13 @@ is on an older release than GitHub:
 ```bash
 .venv/bin/python -m src.main doctor --json
 .venv/bin/python -m src.main doctor --json --force-refresh
+.venv/bin/python -m src.main doctor --json --force-refresh --simulate-current-version 1.27.2
 ```
 
-The JSON payload includes installed version, latest published release,
-update-cache age/source, workspace paths, API-key discovery, API status,
-CSV freshness, monthly budget status, and release asset/checksum
-availability.
+The JSON payload includes installed version, optional simulated installed
+version, latest published release, update-cache age/source, workspace paths,
+API-key discovery, API status, CSV freshness, monthly budget status, and
+release asset/checksum availability.
 
 To also validate bundled samples and view-model rendering without
 Anthropic spend:

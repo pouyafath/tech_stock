@@ -20,7 +20,7 @@ GitHub Release when the workflow is running from a version tag.
 3. Bump `src/version.py`.
 4. Add a new section to the top of `CHANGELOG.md`:
    ```markdown
-   ## [1.27.2] — 2026-06-10
+   ## [1.28.0] — 2026-06-11
 
    ### Added
    - ...
@@ -34,8 +34,8 @@ GitHub Release when the workflow is running from a version tag.
    ```
    git checkout main
    git pull --ff-only
-   git tag v1.27.2
-   git push origin v1.27.2
+   git tag v1.28.0
+   git push origin v1.28.0
    ```
 
 CI now takes over and creates a draft release after the test and build gates
@@ -108,8 +108,8 @@ release is silently aborted — there's no draft to publish.
 
 ### release
 
-- Extracts the version from the tag (`refs/tags/v1.27.2` -> `1.27.2`)
-- Runs `python -m src.changelog_utils 1.27.2` to extract the
+- Extracts the version from the tag (`refs/tags/v1.28.0` -> `1.28.0`)
+- Runs `python -m src.changelog_utils 1.28.0` to extract the
   matching CHANGELOG section, falling back to `--latest` if the
   version isn't in the file yet
 - Downloads every artefact
@@ -143,22 +143,31 @@ Do not publish a draft release until these checks pass:
    - update result is live, not cached
    - release asset and checksum availability are true where expected
    - demo smoke passes without API keys or Anthropic spend
-5. Publish the draft release only after the checklist is clean.
+5. Prepare the post-publish updater check command for the previous public
+   version, for example:
+   ```
+   python src/main.py doctor --json --force-refresh --simulate-current-version 1.27.2
+   ```
+6. Publish the draft release only after the pre-publish checklist is clean.
+
+Immediately after publishing, run the prepared command and confirm
+`update.available` is true and `update.latest_version` equals the release you
+just published.
 
 If the in-app updater still sees an older public version, use
-`doctor --json --force-refresh` to separate a real GitHub Releases issue
-from a local update-cache issue.
+`doctor --json --force-refresh --simulate-current-version <old-version>` to
+separate a real GitHub Releases issue from a local update-cache issue.
 
 ## Hot Fixes And Re-Tagging
 
 If something is wrong with an artefact:
 
 ```
-git tag -d v1.27.2
-git push --delete origin v1.27.2
+git tag -d v1.28.0
+git push --delete origin v1.28.0
 # fix
-git tag v1.27.2
-git push origin v1.27.2
+git tag v1.28.0
+git push origin v1.28.0
 ```
 
 The CI re-runs end-to-end. The draft release is regenerated. If a tag

@@ -253,11 +253,18 @@ def _summary_rows(payload: dict[str, Any]) -> list[dict[str, str]]:
     csv = payload.get("csv_freshness") or {}
     budget = payload.get("budget") or {}
 
+    simulated_current = payload.get("simulated_current_version")
+    version_detail = f"installed {payload.get('app_version')} / latest {update.get('latest_version') or 'unknown'}"
+    if simulated_current:
+        version_detail = (
+            f"installed {payload.get('app_version')}; "
+            f"simulated current {simulated_current} / latest {update.get('latest_version') or 'unknown'}"
+        )
     rows.append(
         {
             "check": "Version",
             "status": "UPDATE" if update.get("available") else "OK",
-            "detail": f"installed {payload.get('app_version')} / latest {update.get('latest_version') or 'unknown'}",
+            "detail": version_detail,
         }
     )
     rows.append(
@@ -336,16 +343,22 @@ def build_preflight(
     force_update: bool = False,
     live_api_checks: bool = False,
     include_demo_smoke: bool = False,
+    simulated_current_version: str | None = None,
     timeout: float = 6.0,
 ) -> dict[str, Any]:
     """Build the doctor payload used by CLI and UI Diagnostics."""
     try:
-        update_info = check_for_update(timeout=timeout, use_cache=not force_update)
+        update_info = check_for_update(
+            current_version=simulated_current_version,
+            timeout=timeout,
+            use_cache=not force_update,
+        )
     except Exception as exc:  # noqa: BLE001
-        update_info = UpdateInfo(current_version=APP_VERSION, error=str(exc))
+        update_info = UpdateInfo(current_version=simulated_current_version or APP_VERSION, error=str(exc))
 
     payload: dict[str, Any] = {
         "app_version": APP_VERSION,
+        "simulated_current_version": simulated_current_version,
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "update": _update_status(update_info),
         "workspace": _workspace_status(),
@@ -396,12 +409,18 @@ def cli_doctor(argv: list[str] | None = None) -> int:
     parser.add_argument("--force-refresh", action="store_true", help="Bypass the update-check cache.")
     parser.add_argument("--live-api-checks", action="store_true", help="Run live connectivity probes for configured APIs.")
     parser.add_argument("--demo-smoke", action="store_true", help="Validate bundled demo data and UI view models without paid API calls.")
+    parser.add_argument(
+        "--simulate-current-version",
+        metavar="VERSION",
+        help="Run update diagnostics as if the installed app were VERSION, without applying an update.",
+    )
     args = parser.parse_args(argv)
 
     payload = build_preflight(
         force_update=args.force_refresh,
         live_api_checks=args.live_api_checks,
         include_demo_smoke=args.demo_smoke,
+        simulated_current_version=args.simulate_current_version,
     )
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))

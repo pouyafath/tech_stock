@@ -4,6 +4,20 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.28.0] — 2026-06-11
+
+### Added
+- Added `python src/main.py doctor --simulate-current-version VERSION` so
+  release checks can confirm that an older installed app sees the newest
+  published GitHub Release without editing `src/version.py` or applying an
+  update.
+
+### Docs
+- Documented the release-health command for validating updater detection after
+  publishing a release.
+
+---
+
 ## [1.27.2] — 2026-06-10
 
 ### CI

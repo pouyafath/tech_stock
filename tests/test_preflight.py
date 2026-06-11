@@ -51,6 +51,39 @@ def test_build_preflight_flags_stale_csv(monkeypatch, tmp_path):
     assert payload["csv_freshness"]["holdings"]["candidate_count"] == 1
 
 
+def test_build_preflight_can_simulate_older_installed_version(monkeypatch, tmp_path):
+    from src import main
+
+    captured: dict[str, str | None] = {}
+
+    monkeypatch.setattr(main, "api_key_search_paths", lambda: [])
+    monkeypatch.setattr(main, "_load_api_keys_from_file", lambda: None)
+    monkeypatch.setattr(main, "UPLOAD_DIR", tmp_path / "uploads")
+    monkeypatch.setattr(main, "runtime_locations", lambda: {"workspace": tmp_path})
+
+    def fake_check_for_update(**kwargs):
+        captured["current_version"] = kwargs.get("current_version")
+        return UpdateInfo(
+            current_version=kwargs.get("current_version"),
+            latest_version="1.27.2",
+            available=True,
+            asset_name="tech_stock.dmg",
+            asset_available=True,
+            checksum_available=True,
+            release_url="https://example.test/releases/v1.27.2",
+        )
+
+    monkeypatch.setattr(preflight, "check_for_update", fake_check_for_update)
+
+    payload = preflight.build_preflight(simulated_current_version="1.27.1", timeout=0.1)
+
+    assert captured["current_version"] == "1.27.1"
+    assert payload["simulated_current_version"] == "1.27.1"
+    assert payload["update"]["current_version"] == "1.27.1"
+    assert payload["update"]["available"] is True
+    assert any("simulated current 1.27.1" in row["detail"] for row in payload["summary_rows"])
+
+
 def test_build_preflight_surfaces_budget_state(monkeypatch, tmp_path):
     from src import main
 
@@ -97,15 +130,22 @@ def test_demo_smoke_test_uses_bundled_samples_without_paid_calls():
 
 
 def test_cli_doctor_json_outputs_payload(monkeypatch, capsys):
+    captured = {}
+
+    def fake_build_preflight(**kwargs):
+        captured["kwargs"] = kwargs
+        return {"app_version": "1.21.0", "summary_rows": [], "next_action": "Ready for a report run."}
+
     monkeypatch.setattr(
         preflight,
         "build_preflight",
-        lambda **_kwargs: {"app_version": "1.21.0", "summary_rows": [], "next_action": "Ready for a report run."},
+        fake_build_preflight,
     )
 
-    code = preflight.cli_doctor(["--json"])
+    code = preflight.cli_doctor(["--json", "--simulate-current-version", "1.20.0"])
 
     assert code == 0
+    assert captured["kwargs"]["simulated_current_version"] == "1.20.0"
     assert '"app_version": "1.21.0"' in capsys.readouterr().out
 
 

@@ -207,9 +207,18 @@ python src/main.py doctor --json --force-refresh
 python src/main.py check-update
 ```
 
+To test whether an older installed version would see the latest published
+release without installing anything, simulate that installed version:
+
+```bash
+python src/main.py doctor --json --force-refresh --simulate-current-version 1.27.2
+```
+
 Inspect:
 
 - `update.latest_version`
+- `update.current_version`
+- `simulated_current_version`
 - `update.from_cache`
 - `update.cache_age_seconds`
 - `update.release_url`
