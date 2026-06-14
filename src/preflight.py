@@ -111,17 +111,27 @@ def _csv_date_from_name(path: Path) -> str | None:
 
 
 def _csv_freshness() -> dict[str, Any]:
-    from src.main import UPLOAD_DIR
+    from src.data_files import csv_search_dirs, discover_csv_candidates, selected_data_files
 
-    search_dirs = [UPLOAD_DIR, Path.home() / "Downloads"]
+    search_dirs = csv_search_dirs()
+    selected = selected_data_files()
     out: dict[str, Any] = {}
     now = datetime.now()
-    for kind, pattern in {"holdings": "holdings-report*.csv", "activities": "activities-export*.csv"}.items():
+    for kind in ("holdings", "activities"):
         candidates: list[Path] = []
-        for directory in search_dirs:
-            if directory.exists():
-                candidates.extend(directory.glob(pattern))
-        unique = sorted({path.resolve() for path in candidates if path.exists()}, key=lambda p: (p.stat().st_mtime, p.name), reverse=True)
+        if selected.get(kind):
+            candidates.append(selected[kind])
+        candidates.extend(discover_csv_candidates(kind, limit=20))
+        seen: set[Path] = set()
+        unique: list[Path] = []
+        for path in candidates:
+            if not path or not path.exists():
+                continue
+            key = path.resolve()
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(path)
         latest = unique[0] if unique else None
         inspections: list[dict[str, Any]] = []
         for path in unique[:5]:

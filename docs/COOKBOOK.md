@@ -41,6 +41,18 @@ Anthropic spend:
 .venv/bin/python -m src.main doctor --json --demo-smoke
 ```
 
+## Save the correct Wealthsimple CSVs
+
+Open **Data Files** in Desktop, Streamlit, or Textual. Confirm the Holdings and
+Activities rows, then save them as defaults. The app stores only the paths in:
+
+```text
+config/data_files.json
+```
+
+Use **Run demo smoke test** from the same screen to validate the installed app
+without API keys or Anthropic spend.
+
 ## Run a single CLI report
 
 ```bash

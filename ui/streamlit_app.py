@@ -39,11 +39,13 @@ from src.ui_support import (  # noqa: E402
     buy_signal_view,
     check_update_available,
     current_app_version,
+    data_files_view,
     decision_journal_view,
     decision_scorecard_summary,
     default_run_settings,
     degradation_health,
     delete_api_key,
+    demo_smoke_view,
     diagnostics_support_bundle,
     diagnostics_view,
     find_default_csvs,
@@ -51,14 +53,17 @@ from src.ui_support import (  # noqa: E402
     latest_report,
     learning_view,
     list_reports,
+    pre_run_checklist_view,
     preview_holdings_csv,
     read_editable_json,
     read_text_file,
     relative_to_root,
+    report_history_view,
     run_backtest_summary,
     run_report_from_ui,
     save_api_key,
     save_decision_from_ui,
+    save_selected_data_files,
     save_uploaded_bytes,
     validate_json_text,
     write_editable_json,
@@ -524,6 +529,7 @@ _html(
     tab_buy,
     tab_report,
     tab_run,
+    tab_data_files,
     tab_history,
     tab_performance,
     tab_backtest,
@@ -538,6 +544,7 @@ _html(
         "🎯 Buy Signals",
         "📝 Today's Report",
         "▶️ Run Report",
+        "🗂 Data Files",
         "📚 History",
         "💹 Performance",
         "📈 Backtest",
@@ -1027,6 +1034,50 @@ def _render_run_tab() -> None:
         value=False,
         help="Loads CSV, parses portfolio, fetches market data — but stops before the Claude API call.",
     )
+    is_dry_run = st.session_state.get("dry_run_mode", False)
+    checklist_holdings_path, checklist_activities_path = _resolve_run_inputs(
+        holdings_mode,
+        holdings_path_text,
+        holdings_upload,
+        activities_mode,
+        activities_path_text,
+        activities_upload,
+    )
+    checklist = pre_run_checklist_view(
+        holdings_csv=checklist_holdings_path,
+        activities_csv=checklist_activities_path,
+        use_fallback_config=holdings_mode == "Fallback config",
+        dry_run=is_dry_run,
+    )
+    st.markdown("### Pre-run checklist")
+    if checklist.get("rows"):
+        st.dataframe(pd.DataFrame(checklist["rows"]), hide_index=True, width="stretch")
+    if not checklist.get("can_run"):
+        st.error(checklist.get("next_action") or "Fix blocking checklist items before running.")
+    elif checklist.get("warning_count"):
+        st.warning(f"{checklist['warning_count']} warning(s) found. Review before running.")
+    else:
+        st.success("Checklist passed. Ready to run.")
+
+    col_save_paths, col_demo = st.columns(2)
+    with col_save_paths:
+        if st.button("💾 Save these file paths as defaults", width="stretch", key="run_save_data_paths"):
+            path = save_selected_data_files(checklist_holdings_path, checklist_activities_path)
+            _toast(f"Saved defaults to {relative_to_root(path)}")
+            st.rerun()
+    with col_demo:
+        if st.button("🧪 Run demo smoke test", width="stretch", key="run_demo_smoke"):
+            result = demo_smoke_view()
+            if result.get("ok"):
+                st.success(
+                    f"Demo smoke passed: {sum(1 for row in result.get('checks', []) if row.get('ok'))}/{len(result.get('checks', []))} checks."
+                )
+            else:
+                st.error("; ".join(result.get("errors") or ["Demo smoke failed."]))
+
+    allow_warning_run = True
+    if checklist.get("can_run") and checklist.get("warning_count"):
+        allow_warning_run = st.checkbox("I reviewed the warnings and want to run anyway.", key="run_warning_override")
 
     if st.button("▶ Run report", type="primary", width="stretch", key="run_report_btn"):
         holdings_path, activities_path = _resolve_run_inputs(
@@ -1041,13 +1092,17 @@ def _render_run_tab() -> None:
         if holdings_mode != "Fallback config" and holdings_path is None:
             st.error("Select a holdings CSV, upload one, or choose fallback config mode.")
             st.stop()
+        if not checklist.get("can_run"):
+            st.error(checklist.get("next_action") or "Fix blocking checklist items before running.")
+            st.stop()
+        if checklist.get("warning_count") and not allow_warning_run:
+            st.error("Review the pre-run warnings and tick the confirmation box before running.")
+            st.stop()
 
         for label, path in [("Holdings", holdings_path), ("Activities", activities_path)]:
             if path is not None and not path.exists():
                 st.error(f"{label} CSV not found: {path}")
                 st.stop()
-
-        is_dry_run = st.session_state.get("dry_run_mode", False)
 
         status = st.status(
             "Dry-run validation — market data only (Claude skipped)"
@@ -1129,40 +1184,122 @@ with tab_run:
     _render_run_tab()
 
 
+# ─── Data Files ────────────────────────────────────────────────────────────
+
+with tab_data_files:
+    st.subheader("Data Files / Workspace")
+    st.caption("The app uses these paths for CSV inputs, reports, logs, API keys, and uploads.")
+    view = data_files_view()
+    rows = view.get("rows") or []
+    if rows:
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+    else:
+        _html(empty_state("No file status available", "Refresh the page to rebuild the Data Files view."))
+
+    selected = view.get("selected") or {}
+    col_h, col_a = st.columns(2)
+    with col_h:
+        holdings_default = st.text_input(
+            "Default Holdings CSV",
+            value=str(selected.get("holdings") or ""),
+            key="data_files_holdings_default",
+        )
+    with col_a:
+        activities_default = st.text_input(
+            "Default Activities CSV",
+            value=str(selected.get("activities") or ""),
+            key="data_files_activities_default",
+        )
+    col_save, col_demo = st.columns(2)
+    with col_save:
+        if st.button("Save defaults", type="primary", width="stretch", key="data_files_save_defaults"):
+            path = save_selected_data_files(holdings_default, activities_default)
+            _toast(f"Saved Data Files defaults to {relative_to_root(path)}")
+            st.rerun()
+    with col_demo:
+        if st.button("Run demo smoke test", width="stretch", key="data_files_demo_smoke"):
+            result = demo_smoke_view()
+            if result.get("ok"):
+                st.success(
+                    f"Demo smoke passed: {sum(1 for row in result.get('checks', []) if row.get('ok'))}/{len(result.get('checks', []))}."
+                )
+            else:
+                st.error("; ".join(result.get("errors") or ["Demo smoke failed."]))
+
+    with st.expander("CSV candidates found"):
+        for kind, candidates in (view.get("csv_candidates") or {}).items():
+            st.markdown(f"**{kind.title()}**")
+            if candidates:
+                st.code("\n".join(candidates), language=None)
+            else:
+                st.caption("No candidates found.")
+
+
 # ─── History ───────────────────────────────────────────────────────────────
 
 with tab_history:
-    reports = list_reports(limit=200)
-    if not reports:
+    history_view = report_history_view(limit=200)
+    history_rows = history_view.get("rows") or []
+    reports = [row.get("report_path") for row in history_rows if row.get("report_path")]
+    if not history_rows:
         _html(empty_state("No reports in history", "Past reports will appear here after your first run."))
     else:
-        col_filter, col_search = st.columns([1, 3])
+        col_filter, col_signal, col_search = st.columns([1, 1, 3])
         session_filter = col_filter.selectbox("Session", ["all", "morning", "afternoon"], key="hist_session")
+        signal_filter = col_signal.selectbox("Signals", ["all", "warnings", "buy/add", "trim/sell"], key="hist_signal")
         search = col_search.text_input("🔎 Search filename", key="hist_search")
         filtered = [
-            path
-            for path in reports
-            if (session_filter == "all" or session_filter in path.name) and (not search or search.lower() in path.name.lower())
+            row
+            for row in history_rows
+            if (session_filter == "all" or row.get("session") == session_filter)
+            and (not search or search.lower() in str(row.get("filename", "")).lower())
+            and (
+                signal_filter == "all"
+                or (signal_filter == "warnings" and row.get("warning_count", 0) > 0)
+                or (signal_filter == "buy/add" and row.get("buy_add_count", 0) > 0)
+                or (signal_filter == "trim/sell" and row.get("trim_sell_count", 0) > 0)
+            )
         ]
         if not filtered:
             _html(empty_state("No reports match filters", "Try clearing the search or changing the session filter."))
         else:
-            labels = [relative_to_root(path) for path in filtered]
+            table_rows = [
+                {
+                    "report": row.get("report"),
+                    "session": row.get("session"),
+                    "buy/add": row.get("buy_add_count"),
+                    "trim/sell": row.get("trim_sell_count"),
+                    "warnings": row.get("warning_count"),
+                    "data_conf": row.get("data_confidence"),
+                    "holdings_csv": Path(row.get("holdings_csv") or "").name,
+                    "activities_csv": Path(row.get("activities_csv") or "").name,
+                }
+                for row in filtered
+            ]
+            st.dataframe(pd.DataFrame(table_rows), hide_index=True, width="stretch")
+            labels = [row.get("report") or str(row.get("report_path")) for row in filtered]
             compare = st.checkbox("🔀 Compare two reports side-by-side", key="hist_compare")
             if compare and len(filtered) > 1:
                 col_a, col_b = st.columns(2)
                 with col_a:
                     sel_a = st.selectbox("Report A", labels, key="hist_a")
                     with st.container(border=True, height=600):
-                        st.markdown(read_text_file(filtered[labels.index(sel_a)]))
+                        st.markdown(read_text_file(filtered[labels.index(sel_a)].get("report_path")))
                 with col_b:
                     sel_b = st.selectbox("Report B", labels, index=min(1, len(labels) - 1), key="hist_b")
                     with st.container(border=True, height=600):
-                        st.markdown(read_text_file(filtered[labels.index(sel_b)]))
+                        st.markdown(read_text_file(filtered[labels.index(sel_b)].get("report_path")))
             else:
                 selected_label = st.selectbox("Report", labels, key="hist_selected")
-                selected_report = filtered[labels.index(selected_label)]
+                selected_row = filtered[labels.index(selected_label)]
+                selected_report = selected_row.get("report_path")
                 with st.container(border=True):
+                    st.caption(
+                        f"Holdings: `{selected_row.get('holdings_csv') or 'unknown'}` · "
+                        f"Activities: `{selected_row.get('activities_csv') or 'none'}` · "
+                        f"Warnings: {selected_row.get('warning_count', 0)} · "
+                        f"Data confidence: {selected_row.get('data_confidence') or 'unknown'}"
+                    )
                     st.markdown(read_text_file(selected_report))
 
 

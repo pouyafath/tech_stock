@@ -4,6 +4,31 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.30.0] — 2026-06-13
+
+### Added
+- Added a shared Data Files / Workspace view model showing the current
+  holdings CSV, activities CSV, API key file, reports folder, recommendation
+  logs folder, uploads folder, and workspace status.
+- Added persistent CSV path defaults in `config/data_files.json`, with save
+  controls in Desktop, Streamlit, and Textual.
+- Added a shared pre-run checklist for paid report runs covering required
+  Anthropic key, holdings schema, activities schema, sample/demo files,
+  monthly budget, optional API coverage, and update status.
+- Added one-click demo smoke actions to Desktop, Streamlit, and Textual so a
+  user can validate bundled sample data and UI view models without Anthropic
+  spend.
+- Added enriched report-history metadata with input CSV paths, BUY/ADD counts,
+  TRIM/SELL counts, warning counts, and data-confidence labels.
+
+### Changed
+- Desktop, Streamlit, and Textual now use the same selected CSV defaults and
+  the same pre-run blocking logic before launching the paid pipeline.
+- New recommendation JSON logs include an `input_files` block recording the
+  holdings CSV, activities CSV, and portfolio source used for the run.
+
+---
+
 ## [1.29.0] — 2026-06-13
 
 ### Added

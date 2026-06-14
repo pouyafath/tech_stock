@@ -312,8 +312,12 @@ include:
 - **Buy Signals**: source-backed BUY/ADD and add-on-dip ideas with readiness
   filters, quote details, targets, catalysts, warnings, and risk controls.
 - **Run Report**: model, budget, CSV selection, preview, and report execution.
+- **Data Files**: current holdings/activities CSV defaults, API-key file,
+  reports folder, recommendation logs folder, uploads folder, and workspace
+  status.
 - **Report Viewer**: styled markdown display, search, and latest report loading.
-- **History**: previous report browsing and rendering.
+- **History**: previous report browsing with input CSV names, warning counts,
+  action counts, data-confidence labels, and rendering.
 - **Config Editor**: validated editing for settings, watchlist, and fallback
   portfolio JSON.
 - **API Checks**: key management, discovery paths, and connectivity checks.
@@ -436,6 +440,33 @@ Each successful report run normally creates:
 - Cost record: `data/cost_log.jsonl`
 - Decision-journal additions: `data/decision_journal.json`
 
+### Saved data-file defaults
+
+Desktop, Streamlit, and Textual can save your selected Holdings and Activities
+CSV paths to:
+
+```text
+config/data_files.json
+```
+
+This file stores paths only. It does not copy or upload your Wealthsimple CSVs.
+The app uses saved paths first, then falls back to auto-discovery in the
+workspace upload folder and common OS folders such as Downloads.
+
+### Pre-run checklist
+
+Before a paid report run, all UIs now show the same checklist:
+
+- Anthropic API key configured.
+- Holdings CSV exists, is readable, is a holdings export, and is not sample data.
+- Activities CSV is either valid or intentionally absent.
+- Monthly budget is not hard-blocked.
+- Optional API coverage is visible as a warning, not a hard failure.
+- Update status is visible.
+
+Blocking issues stop the paid run before Claude is called. Non-blocking warnings
+can be reviewed and accepted from the UI.
+
 ## Diagnostics
 
 Run the preflight doctor before a paid run or when troubleshooting:
@@ -478,6 +509,10 @@ The doctor payload includes:
 
 Desktop and Streamlit Diagnostics show the same CSV Health data in a table so
 you can verify the app is using the right export before spending on a report.
+
+The **Data Files** view is the faster place to check exactly which paths will be
+used. Use it before a paid run when you have multiple Wealthsimple exports in
+Downloads or the workspace upload folder.
 
 ## Updates
 

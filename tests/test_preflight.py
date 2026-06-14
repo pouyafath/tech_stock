@@ -39,6 +39,7 @@ def test_build_preflight_flags_stale_csv(monkeypatch, tmp_path):
     uploads.mkdir()
     (uploads / "holdings-report-2026-01-01.csv").write_text("Symbol,Quantity\nNVDA,1\n", encoding="utf-8")
     monkeypatch.setattr(main, "UPLOAD_DIR", uploads)
+    monkeypatch.setattr(main, "CONFIG_DIR", tmp_path / "config")
     monkeypatch.setattr(preflight.Path, "home", classmethod(lambda cls: tmp_path))
     monkeypatch.setattr(main, "api_key_search_paths", lambda: [])
     monkeypatch.setattr(main, "_load_api_keys_from_file", lambda: None)
@@ -62,6 +63,7 @@ def test_build_preflight_blocks_sample_holdings_as_default_input(monkeypatch, tm
         encoding="utf-8",
     )
     monkeypatch.setattr(main, "UPLOAD_DIR", uploads)
+    monkeypatch.setattr(main, "CONFIG_DIR", tmp_path / "config")
     monkeypatch.setattr(preflight.Path, "home", classmethod(lambda cls: tmp_path))
     monkeypatch.setattr(main, "api_key_search_paths", lambda: [])
     monkeypatch.setattr(main, "_load_api_keys_from_file", lambda: None)

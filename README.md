@@ -35,8 +35,10 @@
 - ✅ **Buy Signals View** — Source-backed BUY/ADD and add-on-dip snapshots with analyst consensus, targets, catalysts, quality warnings, and data-source notes
 - ✅ **Trade Readiness Badges** — Buy Signals are classified as Trade Ready / Review First / Blocked using deterministic quote, catalyst, quality-gate, and source checks
 - ✅ **Data Confidence** — Reports and dashboards show quote freshness, source coverage, catalyst coverage, warning counts, and readiness status before trade details
-- ✅ **Doctor / Preflight** — `python src/main.py doctor --json` checks version, update cache, API keys, CSV freshness, budget status, release assets, and demo smoke readiness
+- ✅ **Doctor / Preflight** — `python src/main.py doctor --json` checks version, update cache, API keys, CSV Health, budget status, release assets, and demo smoke readiness
 - ✅ **CSV Health** — Detects Wealthsimple holdings vs activities schemas, swapped files, stale exports, and sample/demo CSVs before paid runs
+- ✅ **Data Files / Workspace** — Every UI can show and save the exact CSV, API key, report, log, upload, and workspace paths the app will use
+- ✅ **Pre-run Checklist** — Paid runs stop before Claude spend if API keys, CSV schemas, sample files, or budget checks are blocking
 - ✅ **Verified Updates** — Release downloads are checked against published SHA256 checksums when available
 - ✅ **8 Time Horizons** — Intraday / next session / 1-3 trading days / 1-2 weeks / 1-3 months / 3-6 months / 6-12 months / 12-36 months
 - ✅ **6 Enrichment APIs** — Parallel data from Finnhub, Polygon, Twelve Data, FRED, CoinGecko (+ optional Alpha Vantage)
@@ -52,6 +54,24 @@
 - ✅ **Fast Parallel Fetching** — Concurrent API requests with caching and graceful degradation
 
 ---
+
+## ✨ What's New in v1.30.0 (June 13, 2026)
+
+**Usability release: make setup and inputs hard to get wrong.**
+
+- **Data Files / Workspace** — Desktop, Streamlit, and Textual now show the
+  current holdings CSV, activities CSV, API key file, reports folder, logs
+  folder, uploads folder, and workspace status in one place.
+- **Saved CSV defaults** — save selected holdings/activities paths to
+  `config/data_files.json` so the app reuses the correct files on the next
+  launch.
+- **Shared pre-run checklist** — all UIs validate Anthropic key, CSV schemas,
+  sample/demo files, budget status, optional API coverage, and update status
+  before a paid report run.
+- **Demo smoke buttons** — all UIs can validate bundled sample data and view
+  models without API keys or Claude spend.
+- **History context** — report history now shows input CSV names, action counts,
+  warning counts, and data-confidence labels when JSON logs are available.
 
 ## ✨ What's New in v1.29.0 (June 13, 2026)
 
@@ -503,7 +523,7 @@ python src/main.py morning --holdings ~/Holdings.csv --model opus
 | `./run.sh 5` | Skip menu → check for updates |
 | `python src/main.py check-update` | Check GitHub Releases for a newer version |
 | `python src/main.py update` | Update a source checkout with `git pull --ff-only` or stage a packaged update |
-| `python src/main.py doctor --json` | Run preflight diagnostics: version, updater cache, API keys, CSV freshness, budget, release assets |
+| `python src/main.py doctor --json` | Run preflight diagnostics: version, updater cache, API keys, CSV Health, budget, release assets |
 | `python src/main.py doctor --json --force-refresh --simulate-current-version 1.27.2` | Verify whether an older installed version would see the latest published release |
 
 **Windows PowerShell / Command Prompt:**
@@ -515,7 +535,7 @@ python src/main.py morning --holdings ~/Holdings.csv --model opus
 | `python src\main.py afternoon --model opus --holdings "%USERPROFILE%\Downloads\holdings-report-YYYY-MM-DD.csv"` | Direct afternoon CLI run with Opus |
 | `python src\main.py check-update` | Check GitHub Releases for a newer version |
 | `python src\main.py update` | Update a source checkout with `git pull --ff-only` or stage a packaged update |
-| `python src\main.py doctor --json` | Run preflight diagnostics: version, updater cache, API keys, CSV freshness, budget, release assets |
+| `python src\main.py doctor --json` | Run preflight diagnostics: version, updater cache, API keys, CSV Health, budget, release assets |
 | `python src\main.py doctor --json --force-refresh --simulate-current-version 1.27.2` | Verify whether an older installed version would see the latest published release |
 | `python -m streamlit run ui\streamlit_app.py` | Streamlit browser dashboard |
 | `python ui\textual_app.py` | Textual terminal dashboard |
@@ -536,10 +556,11 @@ The Desktop App is a native Tkinter dashboard that runs inside the application w
 Tabs:
 - **Dashboard** — Shows the next action, portfolio/risk metric cards, Data Confidence, priority action queue, quality gates, stop breaches, drift, hedge ideas, market context, watchlist signals, and Claude cost
 - **Buy Signals** — Shows source-backed BUY/ADD and add-on-dip snapshots with readiness badges, Data Confidence, filters, overview cards, consensus/targets, catalysts/risks, and source notes
-- **Run Report** — Select session/model/budgets, confirm auto-detected Wealthsimple CSV paths, preview holdings, and run the same report pipeline as CLI mode with live progress
+- **Run Report** — Select session/model/budgets, confirm Wealthsimple CSV paths, preview holdings, check setup, run no-spend demo smoke, and run the same report pipeline as CLI mode with live progress
 - **Report Viewer** — Opens the latest generated markdown report with styled headings, readable paragraph spacing, aligned table blocks, native word search, highlighted matches, Next/Previous controls, and search paths behind **Show Search Paths**
-- **History** — Browse previous markdown reports from all configured report search folders and view/search them with the same styled markdown renderer
+- **History** — Browse previous markdown reports with input CSV names, action counts, warning counts, data-confidence labels, and the same styled markdown renderer
 - **Config Editor** — Edit `config/settings.json`, `config/watchlist.json`, or fallback `config/portfolio.json` with JSON validation
+- **Data Files** — Show and save the exact holdings CSV, activities CSV, API key file, reports folder, recommendation logs folder, uploads folder, and workspace path
 - **API Checks** — Check Anthropic, yfinance, Finnhub, Polygon, Twelve Data, FRED, CoinGecko, and Alpha Vantage connectivity; show every API-key file path and active storage mode; add/update/delete API keys from the app
 - **Diagnostics** — Shows Preflight/doctor status, source degradation health, recent errors, a redacted support bundle, and Anthropic spend/budget telemetry
 - **Updates** — Check GitHub Releases, force-refresh the update cache, download/apply newer versions, verify release checksums when present, and view update logs
@@ -1236,17 +1257,19 @@ For issues or questions:
 
 ---
 
-**Last updated:** June 13, 2026 — v1.29.0 CSV Health diagnostics, swapped-file
-protection, sample-data paid-run blocking, v1.28.0 release-health diagnostics,
+**Last updated:** June 13, 2026 — v1.30.0 Data Files workspace, pre-run
+checklists, saved CSV defaults, no-spend demo smoke buttons, richer history,
+v1.29.0 CSV Health diagnostics, swapped-file protection, sample-data paid-run
+blocking, v1.28.0 release-health diagnostics,
 updater simulation, v1.27.2 desktop consolidation, CI coverage stabilization,
 release-gate dependency auditing, Node 24 workflow readiness, macro-regime
 gates, concentration alerts, and v1 release-line cleanup.
-**Version:** 1.29.0
+**Version:** 1.30.0
 **Status:** Production-ready v1 line — deterministic quality gates,
 trade-readiness classifier, Data Confidence, source-backed Buy Signals,
 doctor/preflight diagnostics, in-app updater with SHA-256 verification, API key
 manager, four interface options (CLI, Streamlit, Textual, native desktop),
 paper-trading mode, decision-journal scorecard, macro-regime controls, and
-concentration alerts. 646 tests pass locally.
+concentration alerts. 652 tests pass locally.
 
 See [CHANGELOG.md](CHANGELOG.md) for the per-release history.

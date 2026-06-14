@@ -19,6 +19,16 @@ from pathlib import Path
 from typing import Any
 
 from src.backtester import run_backtest
+from src.data_files import (
+    build_pre_run_checklist,
+    discover_csv_candidates,
+    format_pre_run_checklist,
+    save_data_file_defaults,
+    selected_data_files,
+)
+from src.data_files import (
+    data_files_view as build_data_files_view,
+)
 from src.decision_journal import (
     journal_status,
     load_journal,
@@ -37,7 +47,6 @@ from src.main import (
     UPLOAD_DIR,
     _load_api_keys_from_file,
     api_key_search_paths,
-    find_csv_by_date,
     report_search_paths,
     runtime_locations,
 )
@@ -177,10 +186,7 @@ def normalize_optional_path(path_value: str | Path | None) -> Path | None:
 
 
 def find_default_csvs() -> dict[str, Path | None]:
-    return {
-        "holdings": find_csv_by_date("holdings-report"),
-        "activities": find_csv_by_date("activities-export"),
-    }
+    return selected_data_files()
 
 
 def default_run_settings() -> dict[str, Any]:
@@ -209,16 +215,8 @@ def save_uploaded_bytes(name: str, data: bytes) -> Path:
 
 
 def discover_csv_files(pattern_prefix: str, limit: int = 20) -> list[Path]:
-    candidates: list[Path] = []
-    patterns = [f"{pattern_prefix}-*.csv", f"{pattern_prefix}*.csv"]
-    search_dirs = [UPLOAD_DIR, Path.home() / "Downloads"]
-    for directory in search_dirs:
-        if not directory.exists():
-            continue
-        for pattern in patterns:
-            candidates.extend(directory.glob(pattern))
-    unique = sorted({p.resolve() for p in candidates if p.exists()}, key=lambda p: p.stat().st_mtime, reverse=True)
-    return unique[:limit]
+    kind = "holdings" if pattern_prefix.startswith("holdings") else "activities"
+    return discover_csv_candidates(kind, limit=limit)
 
 
 def preview_holdings_csv(path: str | Path | None, limit: int = 25) -> dict[str, Any]:
@@ -261,12 +259,30 @@ def run_report_from_ui(
     dry_run: bool = False,
 ) -> UiRunResult:
     model_id, model_name = resolve_model(model_choice)
+    holdings_path = normalize_optional_path(holdings_csv)
+    activities_path = normalize_optional_path(activities_csv)
+    use_fallback_config = holdings_path is None
+
+    checklist = build_pre_run_checklist(
+        holdings_csv=holdings_path,
+        activities_csv=activities_path,
+        use_fallback_config=use_fallback_config,
+        dry_run=dry_run,
+    )
+    checklist_text = format_pre_run_checklist(checklist)
+    if not checklist.get("can_run"):
+        return UiRunResult(
+            ok=False,
+            console=checklist_text,
+            error=checklist.get("next_action") or "Pre-run checklist has blocking issues.",
+            dry_run=dry_run,
+            dry_run_data={"pre_run_checklist": checklist} if dry_run else None,
+        )
 
     if dry_run:
         try:
-            resolved_holdings = normalize_optional_path(holdings_csv)
-            if resolved_holdings is not None:
-                portfolio = parse_holdings_csv(resolved_holdings)
+            if holdings_path is not None:
+                portfolio = parse_holdings_csv(holdings_path)
             else:
                 portfolio = {"holdings": []}
             holdings = portfolio.get("holdings") or []
@@ -280,7 +296,7 @@ def run_report_from_ui(
             )
             return UiRunResult(
                 ok=True,
-                console="Dry run complete — Claude API not called.",
+                console=f"{checklist_text}\n\nDry run complete — Claude API not called.",
                 error=None,
                 report_path=None,
                 csv_path=None,
@@ -293,6 +309,7 @@ def run_report_from_ui(
                     "total_value_usd": round(total_value_usd, 2),
                     "position_count": len(holdings),
                     "market_data_fetched": len(market_data),
+                    "pre_run_checklist": checklist,
                     "error": None,
                 },
             )
@@ -302,17 +319,20 @@ def run_report_from_ui(
                 console="",
                 error=str(exc),
                 dry_run=True,
-                dry_run_data={"dry_run": True, "portfolio_loaded": False, "error": str(exc)},
+                dry_run_data={"dry_run": True, "portfolio_loaded": False, "pre_run_checklist": checklist, "error": str(exc)},
             )
 
     console = io.StringIO()
+    console.write(checklist_text + "\n\n")
     stream = TeeProgressIO(console, on_progress)
     try:
+        if holdings_path or activities_path:
+            save_data_file_defaults(holdings=holdings_path, activities=activities_path)
         with contextlib.redirect_stdout(stream), contextlib.redirect_stderr(stream):
             artifacts = ReportPipeline().run(
                 session_type=session_type,
-                holdings_csv=normalize_optional_path(holdings_csv),
-                activities_csv=normalize_optional_path(activities_csv),
+                holdings_csv=holdings_path,
+                activities_csv=activities_path,
                 budget_usd=budget_usd,
                 budget_cad=budget_cad,
                 model_id=model_id,
@@ -364,6 +384,55 @@ def list_reports(limit: int = 25) -> list[Path]:
             reports.append(path)
     reports = sorted(reports, key=lambda p: (p.stat().st_mtime, p.name), reverse=True)
     return reports[:limit]
+
+
+def report_history_view(limit: int = 100) -> dict[str, Any]:
+    """Return report history rows enriched with matching JSON-log metadata."""
+    reports = list_reports(limit=limit)
+    logs = {path.stem: path for path in list_logs(limit=max(limit * 2, 50))}
+    rows: list[dict[str, Any]] = []
+    for report in reports:
+        log_path = logs.get(report.stem)
+        payload: dict[str, Any] = {}
+        if log_path:
+            try:
+                payload = json.loads(log_path.read_text(encoding="utf-8"))
+            except Exception as exc:  # noqa: BLE001
+                payload = {"error": str(exc)}
+        recs = payload.get("recommendations") or []
+        warnings = payload.get("quality_warnings") or []
+        readiness_values = [((rec.get("trade_readiness") or rec.get("readiness") or "") if isinstance(rec, dict) else "") for rec in recs]
+        input_files = payload.get("input_files") or {}
+        rows.append(
+            {
+                "report_path": report,
+                "report": relative_to_root(report),
+                "filename": report.name,
+                "session": _session_from_name(report.name),
+                "modified": datetime.fromtimestamp(report.stat().st_mtime).isoformat(timespec="seconds"),
+                "log_path": log_path,
+                "holdings_csv": input_files.get("holdings_csv") or "",
+                "activities_csv": input_files.get("activities_csv") or "",
+                "recommendation_count": len(recs),
+                "buy_add_count": sum(1 for rec in recs if (rec.get("action") or "").upper() in {"BUY", "ADD"}),
+                "trim_sell_count": sum(1 for rec in recs if (rec.get("action") or "").upper() in {"TRIM", "SELL"}),
+                "warning_count": len(warnings),
+                "trade_ready_count": readiness_values.count("TRADE_READY"),
+                "review_first_count": readiness_values.count("REVIEW_FIRST"),
+                "blocked_count": readiness_values.count("BLOCKED"),
+                "data_confidence": (payload.get("data_confidence") or {}).get("label") or "",
+                "error": payload.get("error") or "",
+            }
+        )
+    return {"rows": rows, "reports": reports}
+
+
+def _session_from_name(filename: str) -> str:
+    stem = Path(filename).stem
+    parts = stem.split("_")
+    if parts and parts[-1] in {"morning", "afternoon"}:
+        return parts[-1]
+    return ""
 
 
 def latest_report() -> Path | None:
@@ -582,6 +651,31 @@ def buy_signal_view(
 def demo_smoke_view() -> dict[str, Any]:
     """Run the no-spend demo smoke test for UI buttons."""
     return run_demo_smoke_test()
+
+
+def data_files_view() -> dict[str, Any]:
+    """Shared Data Files / Workspace screen model."""
+    return build_data_files_view()
+
+
+def save_selected_data_files(holdings: str | Path | None, activities: str | Path | None) -> Path:
+    """Persist UI-selected holdings/activities defaults."""
+    return save_data_file_defaults(holdings=holdings, activities=activities, clear_missing=True)
+
+
+def pre_run_checklist_view(
+    *,
+    holdings_csv: str | Path | None,
+    activities_csv: str | Path | None = None,
+    use_fallback_config: bool = False,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    return build_pre_run_checklist(
+        holdings_csv=normalize_optional_path(holdings_csv),
+        activities_csv=normalize_optional_path(activities_csv),
+        use_fallback_config=use_fallback_config,
+        dry_run=dry_run,
+    )
 
 
 def read_text_file(path: str | Path | None) -> str:

@@ -21,6 +21,13 @@ def test_run_report_from_ui_calls_canonical_runner(monkeypatch, tmp_path, capsys
         return {"report_path": report, "csv_path": csv, "log_path": log}
 
     monkeypatch.setattr(ui_support, "ReportPipeline", lambda: ReportPipeline(runner=fake_run))
+    monkeypatch.setattr(
+        ui_support,
+        "build_pre_run_checklist",
+        lambda **_kwargs: {"can_run": True, "warning_count": 0, "rows": []},
+    )
+    monkeypatch.setattr(ui_support, "format_pre_run_checklist", lambda _checklist: "Pre-run checklist: OK")
+    monkeypatch.setattr(ui_support, "save_data_file_defaults", lambda **_kwargs: None)
 
     result = ui_support.run_report_from_ui(
         session_type="morning",
@@ -46,6 +53,13 @@ def test_run_report_from_ui_streams_progress(monkeypatch, tmp_path):
         return {"report_path": report, "csv_path": csv, "log_path": log}
 
     monkeypatch.setattr(ui_support, "ReportPipeline", lambda: ReportPipeline(runner=fake_run))
+    monkeypatch.setattr(
+        ui_support,
+        "build_pre_run_checklist",
+        lambda **_kwargs: {"can_run": True, "warning_count": 0, "rows": []},
+    )
+    monkeypatch.setattr(ui_support, "format_pre_run_checklist", lambda _checklist: "Pre-run checklist: OK")
+    monkeypatch.setattr(ui_support, "save_data_file_defaults", lambda **_kwargs: None)
 
     result = ui_support.run_report_from_ui(
         session_type="morning",
@@ -55,6 +69,26 @@ def test_run_report_from_ui_streams_progress(monkeypatch, tmp_path):
 
     assert result.ok is True
     assert progress == ["phase one", "phase two"]
+
+
+def test_run_report_from_ui_blocks_failed_preflight(monkeypatch):
+    monkeypatch.setattr(
+        ui_support,
+        "build_pre_run_checklist",
+        lambda **_kwargs: {
+            "can_run": False,
+            "next_action": "Add ANTHROPIC_API_KEY.",
+            "blocking_count": 1,
+            "rows": [{"check": "Anthropic API key", "blocking": True}],
+        },
+    )
+    monkeypatch.setattr(ui_support, "format_pre_run_checklist", lambda _checklist: "blocked")
+
+    result = ui_support.run_report_from_ui(session_type="morning", model_choice="sonnet")
+
+    assert result.ok is False
+    assert result.error == "Add ANTHROPIC_API_KEY."
+    assert result.console == "blocked"
 
 
 def test_list_reports_returns_newest_first(monkeypatch, tmp_path):
@@ -101,6 +135,40 @@ def test_latest_log_summary_reads_current_dashboard_fields(monkeypatch, tmp_path
     assert summary["watchlist_flags"][0]["ticker"] == "CRM"
     assert summary["sector_warnings"] == ["tech concentration"]
     assert summary["session_summary"] == "summary"
+
+
+def test_report_history_view_includes_input_files_and_signal_counts(monkeypatch, tmp_path):
+    report_dir = tmp_path / "reports"
+    log_dir = tmp_path / "recommendations_log"
+    report_dir.mkdir()
+    log_dir.mkdir()
+    report = report_dir / "20260613_0900_morning.md"
+    report.write_text("# Report", encoding="utf-8")
+    log = log_dir / "20260613_0900_morning.json"
+    log.write_text(
+        json.dumps(
+            {
+                "input_files": {
+                    "holdings_csv": "/tmp/holdings-report-2026-06-13.csv",
+                    "activities_csv": "/tmp/activities-export-2026-06-13.csv",
+                },
+                "recommendations": [{"action": "BUY"}, {"action": "TRIM"}],
+                "quality_warnings": [{"severity": "medium"}],
+                "data_confidence": {"label": "Review First"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ui_support, "REPORTS_DIR", report_dir)
+    monkeypatch.setattr(ui_support, "RECS_LOG_DIR", log_dir)
+
+    view = ui_support.report_history_view()
+    row = view["rows"][0]
+
+    assert row["holdings_csv"].endswith("holdings-report-2026-06-13.csv")
+    assert row["buy_add_count"] == 1
+    assert row["trim_sell_count"] == 1
+    assert row["warning_count"] == 1
 
 
 def test_write_editable_json_validates_and_formats(monkeypatch, tmp_path):

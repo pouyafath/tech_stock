@@ -13,6 +13,32 @@ It checks the installed version, latest published release, update cache,
 workspace, API key discovery, CSV Health, monthly budget, release assets,
 checksums, bundled demo data, and UI view models.
 
+## A Paid Run Is Blocked Before It Starts
+
+Desktop, Streamlit, and Textual run a shared pre-run checklist before calling
+Claude. A blocked paid run means one of these checks failed:
+
+- `ANTHROPIC_API_KEY` is missing.
+- Holdings CSV is missing, unreadable, incomplete, sample/demo data, or actually
+  an activities export.
+- Activities CSV is selected in the wrong field.
+- Monthly budget is hard-blocked.
+
+Fix the action shown in the checklist, then run again. Non-blocking warnings
+such as stale optional activities data or missing optional APIs can be accepted
+from the UI.
+
+## The App Keeps Selecting The Wrong CSV
+
+Open **Data Files** in Desktop, Streamlit, or Textual and check the Holdings and
+Activities rows. Save the correct paths as defaults. The app writes them to:
+
+```text
+config/data_files.json
+```
+
+Delete or edit that file if you want to return to auto-discovery.
+
 ## CSV Health Shows FAIL Or WARN
 
 Doctor, Desktop Diagnostics, and Streamlit Diagnostics show a **CSV Health**

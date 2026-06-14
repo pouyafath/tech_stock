@@ -89,6 +89,7 @@ write; Claude API call).
 | `src/onboarding.py` | First-run wizard state machine |
 | `src/cost_tracker.py` | Anthropic spend log + monthly budget enforcement |
 | `src/csv_health.py` | Wealthsimple CSV schema inspection, swapped-file detection, and sample/demo guards |
+| `src/data_files.py` | Saved CSV defaults, Data Files / Workspace view model, and shared paid-run checklist |
 | `src/preflight.py` | Doctor command, update/API/CSV Health/budget/release checks, and no-spend demo smoke test |
 | `src/workspace_export.py` | Sanitised zip export of the user's workspace |
 | `src/notifications.py` | Cross-platform desktop notifications (macOS osascript / Linux notify-send / Windows BurntToast) |
@@ -101,7 +102,7 @@ write; Claude API call).
 | `src/app_gui.py` | Native launcher (PyInstaller entry) |
 | `src/ui_launcher.py` | Shell launcher used by `./run.sh` |
 | `src/ui_theme.py` | Shared palette + HTML helpers + Streamlit CSS bundle |
-| `src/ui_support.py` | UI-facing data aggregators (`learning_view`, `diagnostics_view`, `decision_scorecard_summary`, preflight surfaces, etc.) |
+| `src/ui_support.py` | UI-facing data aggregators (`learning_view`, `diagnostics_view`, `decision_scorecard_summary`, Data Files, pre-run checklist, history surfaces, etc.) |
 | **Infra** | |
 | `src/updater.py` | GitHub Releases auto-update + checksum verification |
 | `src/changelog_utils.py` | CHANGELOG section parser (used by CI release workflow) |

@@ -1107,6 +1107,12 @@ def _run_impl(
     except Exception:
         pass
 
+    recommendation["input_files"] = {
+        "holdings_csv": str(holdings_csv.resolve()) if holdings_csv else "",
+        "activities_csv": str(activities_csv.resolve()) if activities_csv else "",
+        "portfolio_source": "wealthsimple_csv" if holdings_csv else "config/portfolio.json",
+    }
+
     log_path = save_recommendation_log(recommendation, session_type)
     if settings.get("enable_decision_journal", True):
         seeded = seed_from_recommendation_log(

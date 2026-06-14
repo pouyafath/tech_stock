@@ -38,8 +38,10 @@ from src.ui_support import (
     buy_signal_view,
     check_update_available,
     current_app_version,
+    data_files_view,
     default_run_settings,
     delete_api_key,
+    demo_smoke_view,
     diagnostics_support_bundle,
     diagnostics_view,
     find_default_csvs,
@@ -47,13 +49,16 @@ from src.ui_support import (
     latest_report,
     learning_view,
     list_reports,
+    pre_run_checklist_view,
     preview_holdings_csv,
     read_editable_json,
     read_text_file,
     relative_to_root,
+    report_history_view,
     report_locations,
     run_report_from_ui,
     save_api_key,
+    save_selected_data_files,
     validate_json_text,
     write_editable_json,
 )
@@ -869,11 +874,13 @@ class DesktopApp(tk.Tk):
         self.settings_sub = ttk.Notebook(self.settings_tab, style="Sub.TNotebook")
         self.settings_sub.pack(fill="both", expand=True, padx=4, pady=4)
         self.prefs_subtab = ttk.Frame(self.settings_sub)
+        self.data_files_subtab = ttk.Frame(self.settings_sub)
         self.health_subtab = ttk.Frame(self.settings_sub)
         self.schedule_subtab = ttk.Frame(self.settings_sub)
         self.editor_subtab = ttk.Frame(self.settings_sub)
         self.update_subtab = ttk.Frame(self.settings_sub)
         self.settings_sub.add(self.prefs_subtab, text=" Preferences ")
+        self.settings_sub.add(self.data_files_subtab, text=" Data Files ")
         self.settings_sub.add(self.health_subtab, text=" API Keys ")
         self.settings_sub.add(self.schedule_subtab, text=" Schedule ")
         self.settings_sub.add(self.editor_subtab, text=" Advanced Editor ")
@@ -884,6 +891,7 @@ class DesktopApp(tk.Tk):
         self.report_tab = self.report_subtab
         self.history_tab = self.history_subtab
         self.editor_tab = self.editor_subtab
+        self.data_files_tab = self.data_files_subtab
         self.health_tab = self.health_subtab
         self.schedule_tab = self.schedule_subtab
         self.update_tab = self.update_subtab
@@ -897,6 +905,7 @@ class DesktopApp(tk.Tk):
         self._build_learning_tab()
         self._build_diagnostics_tab()
         self._build_preferences_tab()
+        self._build_data_files_tab()
         self._build_schedule_tab()
         self._build_editor_tab()
         self._build_health_tab()
@@ -975,6 +984,8 @@ class DesktopApp(tk.Tk):
         self._warmed_tabs.add(key)
         if sub == "Schedule":
             self.refresh_schedule_tab()
+        elif sub == "Data Files":
+            self.refresh_data_files_tab()
 
     def _refresh_active_tab(self) -> None:
         """⌘R handler — re-run the data-load for whichever tab is in front."""
@@ -995,6 +1006,7 @@ class DesktopApp(tk.Tk):
             sub = self._sub_tab_name(self.settings_sub)
             sub_actions = {
                 "Schedule": self.refresh_schedule_tab,
+                "Data Files": self.refresh_data_files_tab,
                 "Advanced Editor": self.load_editor_file,
                 "API Keys": self.start_connectivity_check,
                 "Updates": lambda: self.start_update_check(startup=False),
@@ -1021,6 +1033,7 @@ class DesktopApp(tk.Tk):
                 self.reports_sub.select(tab_frame)
             elif tab_frame in (
                 self.prefs_subtab,
+                self.data_files_subtab,
                 self.health_subtab,
                 self.schedule_subtab,
                 self.editor_subtab,
@@ -1458,8 +1471,24 @@ class DesktopApp(tk.Tk):
         preview_btn = ttk.Button(actions, text="Preview My Holdings", command=self.preview_holdings)
         preview_btn.pack(side="left", padx=8)
         self._tip(preview_btn, "Show a preview of positions from your holdings CSV")
+        checklist_btn = ttk.Button(actions, text="Check Setup", command=self.refresh_run_preflight)
+        checklist_btn.pack(side="left", padx=8)
+        self._tip(checklist_btn, "Validate API keys, CSV files, budget, and update status before spending on Claude")
+        demo_btn = ttk.Button(actions, text="Run Demo Smoke Test", command=self.run_demo_smoke_check)
+        demo_btn.pack(side="left", padx=8)
+        self._tip(demo_btn, "Validate bundled sample data and UI view models without Anthropic spend")
         self.run_status = tk.StringVar(value=f"Ready — press {MOD_LABEL}N to get started.")
         ttk.Label(actions, textvariable=self.run_status, background=self.panel, foreground=self.muted).pack(side="left", padx=12)
+
+        preflight = self._panel(self.run_tab, "Pre-run Checklist")
+        preflight.pack(fill="x", padx=16, pady=(0, 16))
+        self.run_preflight_tree = self._make_tree(
+            preflight,
+            ["check", "status", "detail", "action"],
+            [150, 90, 520, 440],
+            height=7,
+        )
+        self.run_preflight_tree.pack(fill="x")
 
         # Progress bar (hidden until report runs)
         self._report_progress_frame = tk.Frame(form, bg=self.panel)
@@ -2227,6 +2256,77 @@ class DesktopApp(tk.Tk):
         except Exception as exc:
             self._pref_status.set(f"Save failed: {exc}")
             self._set_status("Failed to save preferences.", tone="error")
+
+    # ── Data Files tab ──────────────────────────────────────────────────────
+    def _build_data_files_tab(self) -> None:
+        toolbar = ttk.Frame(self.data_files_tab)
+        toolbar.pack(fill="x", padx=16, pady=16)
+        ttk.Button(toolbar, text="Refresh", command=self.refresh_data_files_tab).pack(side="left")
+        ttk.Button(toolbar, text="Save Current Run Paths", command=self.save_current_data_file_paths).pack(side="left", padx=8)
+        ttk.Button(toolbar, text="Open Workspace", command=lambda: self._open_data_location("Workspace")).pack(side="left", padx=8)
+        ttk.Button(toolbar, text="Open Reports", command=lambda: self._open_data_location("Reports folder")).pack(side="left", padx=8)
+        ttk.Button(toolbar, text="Open Logs", command=lambda: self._open_data_location("Recommendation logs")).pack(side="left", padx=8)
+        ttk.Button(toolbar, text="Open Uploads", command=lambda: self._open_data_location("Uploads folder")).pack(side="left", padx=8)
+        self.data_files_status = tk.StringVar(value="Open this tab to inspect workspace files.")
+        ttk.Label(toolbar, textvariable=self.data_files_status, style="Muted.TLabel").pack(side="left", padx=12)
+
+        files = self._panel(self.data_files_tab, "Data Files / Workspace")
+        files.pack(fill="both", expand=True, padx=16, pady=(0, 16))
+        self.data_files_tree = self._make_tree(
+            files,
+            ["resource", "status", "path", "detail", "action"],
+            [170, 90, 430, 330, 360],
+            height=10,
+        )
+        self.data_files_tree.pack(fill="both", expand=True)
+        self._data_file_locations: dict[str, Path] = {}
+        self.refresh_data_files_tab()
+
+    def refresh_data_files_tab(self) -> None:
+        try:
+            view = data_files_view()
+        except Exception as exc:  # noqa: BLE001
+            self.data_files_status.set(f"Failed to load data files: {exc}")
+            return
+        rows = []
+        self._data_file_locations = {}
+        for row in view.get("rows") or []:
+            rows.append(
+                [
+                    row.get("resource") or "",
+                    row.get("status") or "",
+                    row.get("path") or "",
+                    row.get("detail") or "",
+                    row.get("action") or "",
+                ]
+            )
+            if row.get("path"):
+                self._data_file_locations[row.get("resource") or ""] = Path(row["path"])
+        self._replace_tree_rows(self.data_files_tree, rows)
+        fail = sum(1 for row in view.get("rows") or [] if row.get("status") == "FAIL")
+        warn = sum(1 for row in view.get("rows") or [] if row.get("status") == "WARN")
+        self.data_files_status.set(f"{fail} blocking issue(s), {warn} warning(s).")
+
+    def save_current_data_file_paths(self) -> None:
+        try:
+            path = save_selected_data_files(
+                self.holdings_var.get().strip() or None,
+                self.activities_var.get().strip() or None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("Could not save paths", str(exc))
+            return
+        self.data_files_status.set(f"Saved defaults to {relative_to_root(path)}.")
+        self.refresh_data_files_tab()
+
+    def _open_data_location(self, label: str) -> None:
+        path = getattr(self, "_data_file_locations", {}).get(label)
+        if not path:
+            self.refresh_data_files_tab()
+            path = getattr(self, "_data_file_locations", {}).get(label)
+        if not path:
+            return
+        self._reveal_in_finder(path)
 
     # ── Schedule tab (v1.18) ────────────────────────────────────────────────
     def _build_schedule_tab(self) -> None:
@@ -3229,6 +3329,48 @@ class DesktopApp(tk.Tk):
             f"{preview.get('position_count')} positions\n{preview.get('exported_at', '')}\n\n{sample}",
         )
 
+    def refresh_run_preflight(self) -> dict[str, Any]:
+        checklist = pre_run_checklist_view(
+            holdings_csv=self.holdings_var.get().strip() or None,
+            activities_csv=self.activities_var.get().strip() or None,
+            use_fallback_config=not bool(self.holdings_var.get().strip()),
+        )
+        rows = []
+        for row in checklist.get("rows") or []:
+            rows.append(
+                [
+                    row.get("check") or "",
+                    row.get("status") or "",
+                    row.get("detail") or "",
+                    row.get("action") or "",
+                ]
+            )
+        self._replace_tree_rows(self.run_preflight_tree, rows)
+        if checklist.get("can_run"):
+            if checklist.get("warning_count"):
+                self.run_status.set(f"Checklist passed with {checklist['warning_count']} warning(s).")
+            else:
+                self.run_status.set("Checklist passed. Ready to generate a report.")
+        else:
+            self.run_status.set(f"Checklist blocked: {checklist.get('next_action')}")
+        return checklist
+
+    def run_demo_smoke_check(self) -> None:
+        try:
+            result = demo_smoke_view()
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("Demo smoke failed", str(exc))
+            return
+        passed = sum(1 for row in result.get("checks", []) if row.get("ok"))
+        total = len(result.get("checks", []))
+        detail = "\n".join(
+            f"{'OK' if row.get('ok') else 'FAIL'} - {row.get('name')}: {row.get('detail')}" for row in result.get("checks", [])
+        )
+        if result.get("ok"):
+            messagebox.showinfo("Demo smoke passed", f"{passed}/{total} checks passed.\n\n{detail}")
+        else:
+            messagebox.showerror("Demo smoke failed", f"{passed}/{total} checks passed.\n\n{detail}")
+
     def confirm_detected_csv_paths(self) -> None:
         if os.environ.get("TECH_STOCK_SKIP_PATH_CONFIRM") == "1":
             return
@@ -3264,6 +3406,17 @@ class DesktopApp(tk.Tk):
         except ValueError:
             messagebox.showerror("Invalid budget", "Budget fields must be numeric.")
             return
+
+        checklist = self.refresh_run_preflight()
+        if not checklist.get("can_run"):
+            messagebox.showerror("Cannot run report yet", checklist.get("next_action") or "Fix blocking pre-run checklist items.")
+            return
+        if checklist.get("warning_count"):
+            warning_lines = "\n".join(
+                f"- {row.get('check')}: {row.get('detail')}" for row in checklist.get("rows") or [] if row.get("status") == "WARN"
+            )
+            if not messagebox.askyesno("Pre-run warnings", f"{warning_lines}\n\nRun anyway?"):
+                return
 
         self.run_button.configure(state="disabled")
         self.console_text.delete("1.0", "end")
@@ -3901,17 +4054,37 @@ class DesktopApp(tk.Tk):
 
     def refresh_history(self) -> None:
         self.refresh_report_paths_text()
-        self.history_paths = list_reports(limit=100)
+        view = report_history_view(limit=100)
+        self.history_rows = view.get("rows") or []
+        self.history_paths = [row.get("report_path") for row in self.history_rows if row.get("report_path")]
         self.history_list.delete(0, "end")
-        for path in self.history_paths:
-            self.history_list.insert("end", f"{path.name}  -  {relative_to_root(path.parent)}")
+        for row in self.history_rows:
+            report_path = row.get("report_path")
+            if not report_path:
+                continue
+            label = (
+                f"{Path(report_path).name}  |  "
+                f"BUY/ADD {row.get('buy_add_count', 0)}  "
+                f"TRIM/SELL {row.get('trim_sell_count', 0)}  "
+                f"WARN {row.get('warning_count', 0)}  |  "
+                f"Holdings {Path(row.get('holdings_csv') or '').name or 'unknown'}"
+            )
+            self.history_list.insert("end", label)
 
     def _history_selected(self, _event: object) -> None:
         selection = self.history_list.curselection()
         if not selection:
             return
         path = self.history_paths[selection[0]]
-        self._render_markdown(self.history_text, read_text_file(path) or "## Could not read report")
+        row = (getattr(self, "history_rows", []) or [{}])[selection[0]]
+        metadata = (
+            f"## Report Metadata\n\n"
+            f"- Holdings CSV: `{row.get('holdings_csv') or 'unknown'}`\n"
+            f"- Activities CSV: `{row.get('activities_csv') or 'none'}`\n"
+            f"- BUY/ADD: {row.get('buy_add_count', 0)} | TRIM/SELL: {row.get('trim_sell_count', 0)} | "
+            f"Warnings: {row.get('warning_count', 0)} | Data confidence: {row.get('data_confidence') or 'unknown'}\n\n---\n\n"
+        )
+        self._render_markdown(self.history_text, metadata + (read_text_file(path) or "## Could not read report"))
         self._refresh_search_after_text_change("history")
 
     def load_editor_file(self) -> None:
