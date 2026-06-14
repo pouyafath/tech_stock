@@ -51,6 +51,30 @@ def test_build_preflight_flags_stale_csv(monkeypatch, tmp_path):
     assert payload["csv_freshness"]["holdings"]["candidate_count"] == 1
 
 
+def test_build_preflight_blocks_sample_holdings_as_default_input(monkeypatch, tmp_path):
+    from src import main
+
+    uploads = tmp_path / "uploads"
+    uploads.mkdir()
+    (uploads / "holdings-report-sample.csv").write_text(
+        "Symbol,Quantity,Market Price,Market Price Currency,Book Value (Market),Market Value,Market Unrealized Returns\n"
+        "NVDA,1,100,USD,90,100,10\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(main, "UPLOAD_DIR", uploads)
+    monkeypatch.setattr(preflight.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(main, "api_key_search_paths", lambda: [])
+    monkeypatch.setattr(main, "_load_api_keys_from_file", lambda: None)
+    monkeypatch.setattr(main, "runtime_locations", lambda: {"workspace": tmp_path})
+    monkeypatch.setattr(preflight, "check_for_update", lambda **_kwargs: UpdateInfo(current_version="1.29.0"))
+
+    payload = preflight.build_preflight(timeout=0.1)
+
+    assert payload["csv_freshness"]["holdings"]["is_sample"] is True
+    assert payload["csv_freshness"]["holdings"]["status"] == "FAIL"
+    assert "sample CSVs are for demo mode only" in payload["next_action"]
+
+
 def test_build_preflight_can_simulate_older_installed_version(monkeypatch, tmp_path):
     from src import main
 

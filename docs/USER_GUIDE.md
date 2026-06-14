@@ -215,6 +215,13 @@ Do not choose an activities export in the Holdings field. These are different
 schemas. Newer versions of tech_stock detect a swapped file and show an
 actionable correction message.
 
+When both selected files are reversed, tech_stock corrects the pair before the
+report run. When only one wrong file is selected, the run stops early and tells
+you which field needs the file.
+
+Sample files such as `holdings-report-sample.csv` are demo-only. Paid runs block
+sample holdings unless demo mode is active.
+
 ### File discovery
 
 Interactive flows search common locations for recent files and ask the user to
@@ -464,9 +471,13 @@ The doctor payload includes:
 - Release asset and checksum availability.
 - Workspace paths and writability.
 - API key discovery and configured-source status.
-- Holdings and activities CSV freshness.
+- CSV Health: holdings/activities schema kind, freshness, swapped-file status,
+  sample/demo detection, and action text.
 - Monthly Anthropic budget status.
 - Optional demo smoke-test results.
+
+Desktop and Streamlit Diagnostics show the same CSV Health data in a table so
+you can verify the app is using the right export before spending on a report.
 
 ## Updates
 

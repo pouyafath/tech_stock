@@ -654,6 +654,7 @@ def diagnostics_view(*, hours: int = 24) -> dict[str, Any]:
             bucket["health"] = "down"
     try:
         summary["preflight"] = build_preflight(force_update=False, live_api_checks=False, include_demo_smoke=False, timeout=4.0)
+        summary["csv_health"] = summary["preflight"].get("csv_freshness") or {}
     except Exception as exc:  # noqa: BLE001
         summary["preflight"] = {
             "summary_rows": [
@@ -664,6 +665,7 @@ def diagnostics_view(*, hours: int = 24) -> dict[str, Any]:
                 }
             ]
         }
+        summary["csv_health"] = {}
     return summary
 
 

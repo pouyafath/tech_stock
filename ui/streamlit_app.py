@@ -1927,6 +1927,24 @@ def _render_diagnostics() -> None:
     else:
         _html(empty_state("Preflight unavailable", "Refresh diagnostics to rebuild the doctor payload."))
 
+    csv_health = view.get("csv_health") or preflight.get("csv_freshness") or {}
+    if csv_health:
+        st.markdown("### CSV Health")
+        csv_rows = []
+        for kind in ("holdings", "activities"):
+            item = csv_health.get(kind) or {}
+            csv_rows.append(
+                {
+                    "type": kind.title(),
+                    "status": item.get("status") or "",
+                    "detected": item.get("schema_kind") or "missing",
+                    "path": item.get("latest_path") or "not found",
+                    "age_hours": item.get("age_hours"),
+                    "action": item.get("action") or "",
+                }
+            )
+        st.dataframe(pd.DataFrame(csv_rows), hide_index=True, width="stretch")
+
     sources = view.get("sources") or {}
     if not sources:
         _html(

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from src.cost_tracker import check_budget, spend_summary
+from src.csv_health import inspect_csv
 from src.onboarding import demo_snapshot
 from src.updater import UpdateInfo, check_for_update
 from src.version import APP_VERSION
@@ -122,16 +123,44 @@ def _csv_freshness() -> dict[str, Any]:
                 candidates.extend(directory.glob(pattern))
         unique = sorted({path.resolve() for path in candidates if path.exists()}, key=lambda p: (p.stat().st_mtime, p.name), reverse=True)
         latest = unique[0] if unique else None
-        age_hours = None
-        if latest:
-            age_hours = round((now.timestamp() - latest.stat().st_mtime) / 3600, 2)
+        inspections: list[dict[str, Any]] = []
+        for path in unique[:5]:
+            inspection = inspect_csv(path, expected_kind=kind).to_dict()
+            inspection["age_hours"] = round((now.timestamp() - path.stat().st_mtime) / 3600, 2)
+            inspection["filename_date"] = _csv_date_from_name(path)
+            inspections.append(inspection)
+        latest_inspection = inspections[0] if inspections else inspect_csv(None, expected_kind=kind).to_dict()
+        age_hours = latest_inspection.get("age_hours") if latest else None
+        stale = age_hours is None or age_hours > 72
+        if kind == "activities" and latest is None:
+            status = "WARN"
+        elif kind == "holdings" and latest is None:
+            status = "FAIL"
+        elif latest_inspection.get("swapped") or (kind == "holdings" and not latest_inspection.get("ok_for_expected")):
+            status = "FAIL"
+        elif latest_inspection.get("is_sample") and kind == "holdings":
+            status = "FAIL"
+        elif stale or latest_inspection.get("is_sample") or not latest_inspection.get("ok_for_expected"):
+            status = "WARN"
+        else:
+            status = "OK"
         out[kind] = {
             "latest_path": latest,
-            "filename_date": _csv_date_from_name(latest) if latest else None,
+            "filename_date": latest_inspection.get("filename_date") if latest else None,
             "candidate_count": len(unique),
             "age_hours": age_hours,
-            "stale": age_hours is None or age_hours > 72,
+            "stale": stale,
             "search_dirs": search_dirs,
+            "status": status,
+            "schema_kind": latest_inspection.get("kind"),
+            "schema_confidence": latest_inspection.get("confidence"),
+            "schema_ok": latest_inspection.get("ok_for_expected"),
+            "swapped": latest_inspection.get("swapped"),
+            "is_sample": latest_inspection.get("is_sample"),
+            "issues": latest_inspection.get("issues") or [],
+            "action": latest_inspection.get("action") or "",
+            "inspection": latest_inspection,
+            "recent_candidates": inspections,
         }
     return out
 
@@ -290,11 +319,21 @@ def _summary_rows(payload: dict[str, Any]) -> list[dict[str, str]]:
     )
     for kind in ("holdings", "activities"):
         item = csv.get(kind) or {}
+        issues = item.get("issues") or []
+        issue_text = f"; issue={issues[0]}" if issues else ""
+        detail = (
+            f"{item.get('latest_path') or 'not found'}; "
+            f"kind={item.get('schema_kind') or 'missing'}; "
+            f"age_hours={item.get('age_hours')}"
+            f"{issue_text}"
+        )
+        if item.get("action") and item.get("status") in {"FAIL", "WARN"}:
+            detail = f"{detail}; action={item.get('action')}"
         rows.append(
             {
                 "check": f"{kind.title()} CSV",
-                "status": "WARN" if item.get("stale") else "OK",
-                "detail": f"{item.get('latest_path') or 'not found'}; age_hours={item.get('age_hours')}",
+                "status": item.get("status") or ("WARN" if item.get("stale") else "OK"),
+                "detail": detail,
             }
         )
     rows.append(
@@ -329,8 +368,17 @@ def _next_action(payload: dict[str, Any]) -> str:
     holdings = csv.get("holdings") or {}
     if not holdings.get("latest_path"):
         return "Upload or select a Wealthsimple holdings-report CSV before running a paid report."
+    if holdings.get("is_sample"):
+        return "Select a real Wealthsimple holdings-report CSV; sample CSVs are for demo mode only."
+    if holdings.get("swapped"):
+        return "Move the activities export out of the Holdings field and select a holdings-report CSV."
+    if holdings.get("status") == "FAIL":
+        return holdings.get("action") or "Fix the Holdings CSV before running a paid report."
     if holdings.get("stale"):
         return "Export a fresh Wealthsimple holdings-report CSV before trading from the report."
+    activities = csv.get("activities") or {}
+    if activities.get("swapped"):
+        return "Move the holdings report out of the Activities field, or leave Activities blank."
     if update.get("available"):
         return f"Update to {update.get('latest_version')} after reviewing the release notes."
     if api.get("optional_missing", 0):

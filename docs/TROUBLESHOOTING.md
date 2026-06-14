@@ -10,8 +10,23 @@ python src/main.py doctor --json --force-refresh --demo-smoke
 ```
 
 It checks the installed version, latest published release, update cache,
-workspace, API key discovery, CSV freshness, monthly budget, release assets,
+workspace, API key discovery, CSV Health, monthly budget, release assets,
 checksums, bundled demo data, and UI view models.
+
+## CSV Health Shows FAIL Or WARN
+
+Doctor, Desktop Diagnostics, and Streamlit Diagnostics show a **CSV Health**
+table for Holdings and Activities. It reports:
+
+- detected schema kind: `holdings`, `activities`, partial, unknown, or missing
+- file age in hours
+- whether the file is sample/demo data
+- whether a holdings export and activities export appear swapped
+- the action to take before a paid run
+
+`FAIL` means fix the Holdings CSV before running a paid report. `WARN` means
+the app can usually run, but the data may be stale or the optional activities
+file is missing.
 
 ## The App Says The Holdings CSV Is Missing Required Columns
 
@@ -37,6 +52,18 @@ transaction-level fields such as `activity_type`, `direction`,
 
 Recent versions of tech_stock detect swapped files and show a direct correction
 message.
+
+If both files are supplied in the wrong fields, current versions auto-correct
+the pair before the report run. If only one wrong file is supplied, the run
+stops early with an actionable message.
+
+## The App Is Using `holdings-report-sample.csv`
+
+Sample CSVs are for demo mode only. A paid run is blocked when the Holdings CSV
+is a sample file because it would produce a report for fake holdings.
+
+Use **Browse** or pass `--holdings` with your real Wealthsimple
+`holdings-report-YYYY-MM-DD.csv`.
 
 ## The App Cannot Find My CSV Files
 

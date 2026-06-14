@@ -31,8 +31,8 @@ is on an older release than GitHub:
 
 The JSON payload includes installed version, optional simulated installed
 version, latest published release, update-cache age/source, workspace paths,
-API-key discovery, API status, CSV freshness, monthly budget status, and
-release asset/checksum availability.
+API-key discovery, API status, CSV Health, monthly budget status, and release
+asset/checksum availability.
 
 To also validate bundled samples and view-model rendering without
 Anthropic spend:

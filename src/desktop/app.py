@@ -2425,6 +2425,16 @@ class DesktopApp(tk.Tk):
         )
         self.diagnostics_preflight_tree.pack(fill="x")
 
+        csv_panel = self._panel(self.diagnostics_tab, "CSV Health")
+        csv_panel.pack(fill="x", padx=16, pady=(0, 12))
+        self.diagnostics_csv_tree = self._make_tree(
+            csv_panel,
+            ["type", "status", "detected", "age_hours", "path", "action"],
+            [100, 90, 140, 90, 420, 360],
+            height=2,
+        )
+        self.diagnostics_csv_tree.pack(fill="x")
+
         # Per-source table
         sources_panel = self._panel(self.diagnostics_tab, "Sources")
         sources_panel.pack(fill="x", padx=16, pady=(0, 12))
@@ -2494,6 +2504,22 @@ class DesktopApp(tk.Tk):
         for row in (view.get("preflight") or {}).get("summary_rows") or []:
             preflight_rows.append([row.get("check") or "", row.get("status") or "", row.get("detail") or ""])
         self._replace_tree_rows(self.diagnostics_preflight_tree, preflight_rows)
+
+        csv_rows = []
+        csv_health = view.get("csv_health") or (view.get("preflight") or {}).get("csv_freshness") or {}
+        for kind in ("holdings", "activities"):
+            item = csv_health.get(kind) or {}
+            csv_rows.append(
+                [
+                    kind.title(),
+                    item.get("status") or "",
+                    item.get("schema_kind") or "missing",
+                    str(item.get("age_hours") if item.get("age_hours") is not None else ""),
+                    str(item.get("latest_path") or "not found"),
+                    item.get("action") or "",
+                ]
+            )
+        self._replace_tree_rows(self.diagnostics_csv_tree, csv_rows)
 
         # — Sources table —
         source_rows = []

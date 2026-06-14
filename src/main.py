@@ -42,6 +42,7 @@ from src.activity_loader import holding_days_by_ticker, parse_activities_csv
 from src.backtester import run_backtest
 from src.claude_analyst import call_claude
 from src.constants import DEDUP_PAIRS, SKIP_MARKET_DATA
+from src.csv_health import validate_csv_pair
 from src.decision_journal import (
     journal_status,
     load_journal,
@@ -818,6 +819,17 @@ def _run_impl(
 
     watchlist = load_json(CONFIG_DIR / "watchlist.json")
     settings = load_json(CONFIG_DIR / "settings.json")
+
+    if holdings_csv or activities_csv:
+        csv_validation = validate_csv_pair(
+            holdings_csv,
+            activities_csv,
+            allow_sample=os.environ.get("TECH_STOCK_DEMO_MODE") == "1",
+        )
+        holdings_csv = csv_validation.get("holdings_csv")
+        activities_csv = csv_validation.get("activities_csv")
+        for warning in csv_validation.get("warnings") or []:
+            print(f"{C.YELLOW}[tech_stock] {warning}{C.RESET}")
 
     # Load portfolio
     if holdings_csv:

@@ -4,6 +4,25 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.29.0] — 2026-06-13
+
+### Added
+- Added shared Wealthsimple CSV inspection for holdings and activities exports,
+  including schema kind, confidence, missing columns, sample/demo detection,
+  and actionable correction text.
+- Added CSV Health output to doctor/preflight diagnostics and surfaced the same
+  health payload in Desktop and Streamlit Diagnostics.
+- Added run-level CSV pair validation that automatically corrects swapped
+  holdings/activities paths when both files are provided in the wrong fields.
+
+### Fixed
+- Blocked accidental paid runs on `holdings-report-sample.csv` unless demo mode
+  is explicitly active.
+- Reused the same swapped-file detection in both holdings and activities
+  parsers for consistent error messages.
+
+---
+
 ## [1.28.0] — 2026-06-11
 
 ### Added

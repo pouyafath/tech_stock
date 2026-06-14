@@ -15,6 +15,7 @@ from pathlib import Path
 
 from src._utils import clean_csv_row, safe_float
 from src.constants import LEVERAGED_ETFS
+from src.csv_health import inspect_csv
 
 # Minimum columns we need from the Wealthsimple Activities CSV.
 REQUIRED_ACTIVITIES_COLUMNS = {
@@ -24,16 +25,6 @@ REQUIRED_ACTIVITIES_COLUMNS = {
     "quantity",
     "unit_price",
     "net_cash_amount",
-}
-
-HOLDINGS_EXPORT_COLUMNS = {
-    "symbol",
-    "quantity",
-    "market price",
-    "market price currency",
-    "book value (market)",
-    "market value",
-    "market unrealized returns",
 }
 
 
@@ -80,9 +71,9 @@ def parse_activities_csv(
 
     # ── Validate CSV schema ─────────────────────────────────────────────
     if reader.fieldnames:
+        inspection = inspect_csv(csv_path, expected_kind="activities")
         actual_cols = {c.strip().strip('"') for c in reader.fieldnames}
-        normalised_cols = {c.lower() for c in actual_cols}
-        if HOLDINGS_EXPORT_COLUMNS <= normalised_cols:
+        if inspection.swapped:
             raise ValueError(
                 "This file looks like a Wealthsimple Holdings CSV, but it was selected as the Activities CSV. "
                 "Choose an activities-export CSV for the Activities field, and put this holdings-report CSV in the "

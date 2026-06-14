@@ -36,6 +36,7 @@
 - ✅ **Trade Readiness Badges** — Buy Signals are classified as Trade Ready / Review First / Blocked using deterministic quote, catalyst, quality-gate, and source checks
 - ✅ **Data Confidence** — Reports and dashboards show quote freshness, source coverage, catalyst coverage, warning counts, and readiness status before trade details
 - ✅ **Doctor / Preflight** — `python src/main.py doctor --json` checks version, update cache, API keys, CSV freshness, budget status, release assets, and demo smoke readiness
+- ✅ **CSV Health** — Detects Wealthsimple holdings vs activities schemas, swapped files, stale exports, and sample/demo CSVs before paid runs
 - ✅ **Verified Updates** — Release downloads are checked against published SHA256 checksums when available
 - ✅ **8 Time Horizons** — Intraday / next session / 1-3 trading days / 1-2 weeks / 1-3 months / 3-6 months / 6-12 months / 12-36 months
 - ✅ **6 Enrichment APIs** — Parallel data from Finnhub, Polygon, Twelve Data, FRED, CoinGecko (+ optional Alpha Vantage)
@@ -51,6 +52,19 @@
 - ✅ **Fast Parallel Fetching** — Concurrent API requests with caching and graceful degradation
 
 ---
+
+## ✨ What's New in v1.29.0 (June 13, 2026)
+
+**CSV import reliability and safer paid runs.**
+
+- **CSV Health diagnostics** — Doctor, Desktop Diagnostics, and Streamlit
+  Diagnostics now show detected CSV type, schema status, age, path, and the
+  recommended fix.
+- **Swapped-file protection** — If holdings and activities CSVs are selected in
+  the wrong fields, report runs auto-correct them when both files are present;
+  one-file mistakes fail early with a clear action.
+- **Sample-data blocking** — sample/demo holdings CSVs are blocked for paid
+  runs unless demo mode is explicitly active.
 
 ## ✨ What's New in v1.28.0 (June 11, 2026)
 
@@ -1222,16 +1236,17 @@ For issues or questions:
 
 ---
 
-**Last updated:** June 11, 2026 — v1.28.0 release-health diagnostics, updater
-simulation, v1.27.2 desktop consolidation, CI coverage stabilization,
+**Last updated:** June 13, 2026 — v1.29.0 CSV Health diagnostics, swapped-file
+protection, sample-data paid-run blocking, v1.28.0 release-health diagnostics,
+updater simulation, v1.27.2 desktop consolidation, CI coverage stabilization,
 release-gate dependency auditing, Node 24 workflow readiness, macro-regime
 gates, concentration alerts, and v1 release-line cleanup.
-**Version:** 1.28.0
+**Version:** 1.29.0
 **Status:** Production-ready v1 line — deterministic quality gates,
 trade-readiness classifier, Data Confidence, source-backed Buy Signals,
 doctor/preflight diagnostics, in-app updater with SHA-256 verification, API key
 manager, four interface options (CLI, Streamlit, Textual, native desktop),
 paper-trading mode, decision-journal scorecard, macro-regime controls, and
-concentration alerts. 640 tests pass locally.
+concentration alerts. 646 tests pass locally.
 
 See [CHANGELOG.md](CHANGELOG.md) for the per-release history.

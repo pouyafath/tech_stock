@@ -88,7 +88,8 @@ write; Claude API call).
 | **Productisation (v1.19)** | |
 | `src/onboarding.py` | First-run wizard state machine |
 | `src/cost_tracker.py` | Anthropic spend log + monthly budget enforcement |
-| `src/preflight.py` | Doctor command, update/API/CSV/budget/release checks, and no-spend demo smoke test |
+| `src/csv_health.py` | Wealthsimple CSV schema inspection, swapped-file detection, and sample/demo guards |
+| `src/preflight.py` | Doctor command, update/API/CSV Health/budget/release checks, and no-spend demo smoke test |
 | `src/workspace_export.py` | Sanitised zip export of the user's workspace |
 | `src/notifications.py` | Cross-platform desktop notifications (macOS osascript / Linux notify-send / Windows BurntToast) |
 | `src/scheduling.py` | Per-user launchd / Task Scheduler / cron installer |
