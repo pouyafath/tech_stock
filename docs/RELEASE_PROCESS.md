@@ -16,6 +16,8 @@ GitHub Release when the workflow is running from a version tag.
    .venv/bin/python -m pytest -q
    .venv/bin/ruff check src/ tests/ ui/ tools/
    .venv/bin/ruff format --check src/ tests/ ui/ tools/
+   .venv/bin/python -m src.main setup --json
+   .venv/bin/python -m src.main support-bundle --json --output-dir /tmp/tech_stock_support_smoke
    ```
 3. Bump `src/version.py`.
 4. Add a new section to the top of `CHANGELOG.md`:
@@ -143,12 +145,18 @@ Do not publish a draft release until these checks pass:
    - update result is live, not cached
    - release asset and checksum availability are true where expected
    - demo smoke passes without API keys or Anthropic spend
-5. Prepare the post-publish updater check command for the previous public
+5. Run `python src/main.py setup --json` and confirm the setup view shows the
+   correct installed version, workspace, API-key discovery state, and
+   recommended CSV candidates.
+6. Run `python src/main.py support-bundle --json --output-dir /tmp/tech_stock_release_support`
+   and confirm it creates a zip without raw CSV contents, API keys, `.env`,
+   `API_KEYS.txt`, caches, or generated reports.
+7. Prepare the post-publish updater check command for the previous public
    version, for example:
    ```
    python src/main.py doctor --json --force-refresh --simulate-current-version 1.27.2
    ```
-6. Publish the draft release only after the pre-publish checklist is clean.
+8. Publish the draft release only after the pre-publish checklist is clean.
 
 Immediately after publishing, run the prepared command and confirm
 `update.available` is true and `update.latest_version` equals the release you

@@ -41,10 +41,26 @@ Anthropic spend:
 .venv/bin/python -m src.main doctor --json --demo-smoke
 ```
 
+## Confirm first-run setup state
+
+Use the shorter setup command when you only need the next action and the files
+the app plans to use:
+
+```bash
+.venv/bin/python -m src.main setup
+.venv/bin/python -m src.main setup --json
+```
+
+The output includes workspace status, API-key discovery, pre-run checklist
+results, recommended Holdings and Activities CSV candidates, and demo smoke
+availability.
+
 ## Save the correct Wealthsimple CSVs
 
-Open **Data Files** in Desktop, Streamlit, or Textual. Confirm the Holdings and
-Activities rows, then save them as defaults. The app stores only the paths in:
+Open **Data Files** in Desktop, Streamlit, or Textual. Confirm the Setup
+Readiness summary first, then check the **CSV Candidates** rows. The recommended
+row is the file the app would auto-select; confirm or override it before a paid
+run. The app stores only the paths in:
 
 ```text
 config/data_files.json
@@ -52,6 +68,20 @@ config/data_files.json
 
 Use **Run demo smoke test** from the same screen to validate the installed app
 without API keys or Anthropic spend.
+
+## Export a redacted support bundle
+
+When a run is blocked or the UI is behaving unexpectedly, export a support zip:
+
+```bash
+.venv/bin/python -m src.main support-bundle
+.venv/bin/python -m src.main support-bundle --json
+.venv/bin/python -m src.main support-bundle --output-dir ~/Desktop
+```
+
+The bundle includes doctor output, setup readiness, CSV metadata, and recent
+diagnostics. It intentionally excludes raw CSV contents, generated reports, API
+keys, `.env`, `API_KEYS.txt`, caches, and temporary uploads.
 
 ## Run a single CLI report
 

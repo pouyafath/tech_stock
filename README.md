@@ -39,6 +39,8 @@
 - ✅ **CSV Health** — Detects Wealthsimple holdings vs activities schemas, swapped files, stale exports, and sample/demo CSVs before paid runs
 - ✅ **Data Files / Workspace** — Every UI can show and save the exact CSV, API key, report, log, upload, and workspace paths the app will use
 - ✅ **Pre-run Checklist** — Paid runs stop before Claude spend if API keys, CSV schemas, sample files, or budget checks are blocking
+- ✅ **Setup Readiness** — `python src/main.py setup --json` and all UIs show first-run status, recommended CSVs, workspace readiness, and the next setup action
+- ✅ **Redacted Support Bundle** — `python src/main.py support-bundle` exports doctor/setup/data-file summaries and diagnostics logs without raw API keys or CSV contents
 - ✅ **Verified Updates** — Release downloads are checked against published SHA256 checksums when available
 - ✅ **8 Time Horizons** — Intraday / next session / 1-3 trading days / 1-2 weeks / 1-3 months / 3-6 months / 6-12 months / 12-36 months
 - ✅ **6 Enrichment APIs** — Parallel data from Finnhub, Polygon, Twelve Data, FRED, CoinGecko (+ optional Alpha Vantage)
@@ -54,6 +56,22 @@
 - ✅ **Fast Parallel Fetching** — Concurrent API requests with caching and graceful degradation
 
 ---
+
+## ✨ What's New in v1.31.0 (June 14, 2026)
+
+**Setup and supportability release: make first-run troubleshooting explicit.**
+
+- **Setup readiness everywhere** — CLI, Desktop, Streamlit, and Textual now
+  show onboarding state, workspace writability, API key status, paid-run
+  blockers, update status, demo availability, and one next action.
+- **CSV candidate confirmation** — Data Files views show the holdings and
+  activities CSVs found on disk, mark the recommended choice, and explain
+  sample/demo, stale, swapped, or incomplete exports.
+- **Redacted support bundle zip** — export a support zip from CLI or UI with
+  doctor/setup/data-file summaries and diagnostics logs. It excludes raw API
+  keys, `.env`, `.env.zip`, and raw Wealthsimple CSV contents.
+- **New CLI commands** — use `python src/main.py setup --json` for setup
+  readiness and `python src/main.py support-bundle` for support export.
 
 ## ✨ What's New in v1.30.0 (June 13, 2026)
 
@@ -525,6 +543,8 @@ python src/main.py morning --holdings ~/Holdings.csv --model opus
 | `python src/main.py update` | Update a source checkout with `git pull --ff-only` or stage a packaged update |
 | `python src/main.py doctor --json` | Run preflight diagnostics: version, updater cache, API keys, CSV Health, budget, release assets |
 | `python src/main.py doctor --json --force-refresh --simulate-current-version 1.27.2` | Verify whether an older installed version would see the latest published release |
+| `python src/main.py setup --json` | Show first-run/setup readiness, selected files, CSV candidates, and next action |
+| `python src/main.py support-bundle` | Export a redacted support zip under `exports/` |
 
 **Windows PowerShell / Command Prompt:**
 
@@ -537,6 +557,8 @@ python src/main.py morning --holdings ~/Holdings.csv --model opus
 | `python src\main.py update` | Update a source checkout with `git pull --ff-only` or stage a packaged update |
 | `python src\main.py doctor --json` | Run preflight diagnostics: version, updater cache, API keys, CSV Health, budget, release assets |
 | `python src\main.py doctor --json --force-refresh --simulate-current-version 1.27.2` | Verify whether an older installed version would see the latest published release |
+| `python src\main.py setup --json` | Show first-run/setup readiness, selected files, CSV candidates, and next action |
+| `python src\main.py support-bundle` | Export a redacted support zip under `exports\` |
 | `python -m streamlit run ui\streamlit_app.py` | Streamlit browser dashboard |
 | `python ui\textual_app.py` | Textual terminal dashboard |
 | `python src\desktop_app.py` | Embedded desktop dashboard |
@@ -560,9 +582,9 @@ Tabs:
 - **Report Viewer** — Opens the latest generated markdown report with styled headings, readable paragraph spacing, aligned table blocks, native word search, highlighted matches, Next/Previous controls, and search paths behind **Show Search Paths**
 - **History** — Browse previous markdown reports with input CSV names, action counts, warning counts, data-confidence labels, and the same styled markdown renderer
 - **Config Editor** — Edit `config/settings.json`, `config/watchlist.json`, or fallback `config/portfolio.json` with JSON validation
-- **Data Files** — Show and save the exact holdings CSV, activities CSV, API key file, reports folder, recommendation logs folder, uploads folder, and workspace path
+- **Data Files** — Show setup readiness, recommended CSV candidates, saved holdings/activities defaults, API key file, reports folder, recommendation logs folder, uploads folder, and workspace path
 - **API Checks** — Check Anthropic, yfinance, Finnhub, Polygon, Twelve Data, FRED, CoinGecko, and Alpha Vantage connectivity; show every API-key file path and active storage mode; add/update/delete API keys from the app
-- **Diagnostics** — Shows Preflight/doctor status, source degradation health, recent errors, a redacted support bundle, and Anthropic spend/budget telemetry
+- **Diagnostics** — Shows Preflight/doctor status, source degradation health, recent errors, copyable diagnostics, and a redacted support-bundle zip export
 - **Updates** — Check GitHub Releases, force-refresh the update cache, download/apply newer versions, verify release checksums when present, and view update logs
 
 The embedded viewer is a native styled markdown reader. Use Streamlit if you specifically want browser-rendered markdown, side-by-side history comparison, and download buttons.
@@ -1257,19 +1279,21 @@ For issues or questions:
 
 ---
 
-**Last updated:** June 13, 2026 — v1.30.0 Data Files workspace, pre-run
-checklists, saved CSV defaults, no-spend demo smoke buttons, richer history,
-v1.29.0 CSV Health diagnostics, swapped-file protection, sample-data paid-run
-blocking, v1.28.0 release-health diagnostics,
+**Last updated:** June 14, 2026 — v1.31.0 setup readiness, recommended CSV
+candidate confirmation, redacted support-bundle zip export, v1.30.0 Data Files
+workspace, pre-run checklists, saved CSV defaults, no-spend demo smoke buttons,
+richer history, v1.29.0 CSV Health diagnostics, swapped-file protection,
+sample-data paid-run blocking, v1.28.0 release-health diagnostics,
 updater simulation, v1.27.2 desktop consolidation, CI coverage stabilization,
 release-gate dependency auditing, Node 24 workflow readiness, macro-regime
 gates, concentration alerts, and v1 release-line cleanup.
-**Version:** 1.30.0
+**Version:** 1.31.0
 **Status:** Production-ready v1 line — deterministic quality gates,
 trade-readiness classifier, Data Confidence, source-backed Buy Signals,
-doctor/preflight diagnostics, in-app updater with SHA-256 verification, API key
-manager, four interface options (CLI, Streamlit, Textual, native desktop),
-paper-trading mode, decision-journal scorecard, macro-regime controls, and
-concentration alerts. 652 tests pass locally.
+doctor/preflight diagnostics, setup readiness, redacted support bundle export,
+in-app updater with SHA-256 verification, API key manager, four interface
+options (CLI, Streamlit, Textual, native desktop), paper-trading mode,
+decision-journal scorecard, macro-regime controls, and concentration alerts.
+655 tests pass locally.
 
 See [CHANGELOG.md](CHANGELOG.md) for the per-release history.

@@ -1286,6 +1286,16 @@ def main():
 
         raise SystemExit(cli_doctor(sys.argv[2:]))
 
+    if len(sys.argv) > 1 and sys.argv[1] == "setup":
+        from src.setup_readiness import cli_setup
+
+        raise SystemExit(cli_setup(sys.argv[2:]))
+
+    if len(sys.argv) > 1 and sys.argv[1] == "support-bundle":
+        from src.setup_readiness import cli_support_bundle
+
+        raise SystemExit(cli_support_bundle(sys.argv[2:]))
+
     if len(sys.argv) > 1 and sys.argv[1] in {"update", "check-update"}:
         raise SystemExit(cli_update_check(apply=sys.argv[1] == "update"))
 
@@ -1299,6 +1309,8 @@ CLI examples:
   python src/main.py morning --holdings ~/Downloads/holdings-report-2026-04-23.csv
   python src/main.py morning --holdings ~/Downloads/holdings-report.csv --activities ~/Downloads/activities-export.csv
   python src/main.py doctor --json
+  python src/main.py setup --json
+  python src/main.py support-bundle
   python src/main.py check-update
   python src/main.py update
         """,

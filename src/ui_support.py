@@ -55,6 +55,18 @@ from src.news_fetcher import aggregate_sentiment, get_news_for_tickers
 from src.portfolio_loader import parse_holdings_csv
 from src.preflight import build_preflight, run_demo_smoke_test
 from src.report_pipeline import ReportPipeline
+from src.setup_readiness import (
+    csv_choice_rows as build_csv_choice_rows,
+)
+from src.setup_readiness import (
+    export_support_bundle as export_setup_support_bundle,
+)
+from src.setup_readiness import (
+    setup_readiness_view as build_setup_readiness_view,
+)
+from src.setup_readiness import (
+    support_bundle_summary_text,
+)
 from src.updater import UpdateInfo, UpdateResult, apply_update, check_for_update
 from src.version import APP_VERSION
 from src.view_models import (
@@ -768,6 +780,24 @@ def diagnostics_support_bundle(*, limit: int = 500) -> str:
     from src.observability import support_bundle
 
     return support_bundle(limit=limit)
+
+
+def setup_readiness_view(*, include_demo_smoke: bool = False, force_update: bool = False) -> dict[str, Any]:
+    """Shared first-run/setup readiness model."""
+    return build_setup_readiness_view(include_demo_smoke=include_demo_smoke, force_update=force_update)
+
+
+def csv_choice_view(kind: str, *, limit: int = 12) -> list[dict[str, Any]]:
+    """Shared Wealthsimple CSV candidate/confirmation rows."""
+    return build_csv_choice_rows(kind, limit=limit)
+
+
+def export_support_bundle(*, output_dir: str | Path | None = None, include_demo_smoke: bool = False) -> dict[str, Any]:
+    """Export a redacted setup/support zip and return a UI-friendly summary."""
+    result = export_setup_support_bundle(output_dir=output_dir, include_demo_smoke=include_demo_smoke)
+    payload = result.to_dict()
+    payload["summary"] = support_bundle_summary_text(result)
+    return payload
 
 
 def degradation_health(source: str, *, minutes: int = 60) -> str | None:

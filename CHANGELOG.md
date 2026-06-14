@@ -4,6 +4,30 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.31.0] — 2026-06-14
+
+### Added
+- Added shared setup-readiness diagnostics used by CLI, Desktop, Streamlit,
+  and Textual. The view reports onboarding stage, workspace writability, API
+  key status, paid-run blockers, update status, demo availability, and a single
+  next action.
+- Added CSV candidate confirmation rows for holdings and activities exports,
+  including recommended file, schema confidence, sample/demo detection,
+  freshness, row count, and correction text.
+- Added `python src/main.py setup --json` for first-run/setup preflight and
+  `python src/main.py support-bundle` for creating a redacted support zip.
+- Added redacted support-bundle zip export from Desktop, Streamlit, and
+  Textual. The zip contains doctor/setup/data-file summaries and diagnostics
+  logs, but excludes raw API keys and raw Wealthsimple CSV contents.
+
+### Changed
+- Desktop Data Files now shows setup readiness and CSV candidates to confirm.
+- Streamlit Data Files now shows setup readiness and recommended CSV choices.
+- Textual Data Files now shows setup readiness, CSV candidates, and support
+  export status.
+
+---
+
 ## [1.30.0] — 2026-06-13
 
 ### Added

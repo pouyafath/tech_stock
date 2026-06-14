@@ -23,6 +23,7 @@ from src.ui_support import (  # noqa: E402
     apply_available_update,
     buy_signal_view,
     check_update_available,
+    csv_choice_view,
     current_app_version,
     data_files_view,
     decision_journal_view,
@@ -30,6 +31,7 @@ from src.ui_support import (  # noqa: E402
     default_run_settings,
     demo_smoke_view,
     discover_csv_files,
+    export_support_bundle,
     find_default_csvs,
     latest_log_summary,
     latest_report,
@@ -43,6 +45,7 @@ from src.ui_support import (  # noqa: E402
     run_backtest_summary,
     run_report_from_ui,
     save_selected_data_files,
+    setup_readiness_view,
     validate_json_text,
     write_editable_json,
 )
@@ -303,6 +306,7 @@ class TechStockTUI(App):
                     yield Button("Refresh data files", id="refresh_data_files")
                     yield Button("Save current run paths", id="save_data_files_from_tab")
                     yield Button("Run demo smoke", id="run_demo_smoke_files")
+                    yield Button("Export support bundle", id="export_support_bundle")
                 yield RichLog(id="data_files_log", wrap=True, highlight=True)
             with TabPane("Today's Report", id="today"):
                 yield Button("Refresh report", id="refresh_today")
@@ -356,6 +360,8 @@ class TechStockTUI(App):
             await self._run_demo_smoke()
         elif button_id == "refresh_data_files":
             self._load_data_files()
+        elif button_id == "export_support_bundle":
+            self._export_support_bundle()
         elif button_id == "refresh_dashboard":
             self._load_dashboard()
         elif button_id == "check_connectivity":
@@ -516,6 +522,22 @@ class TechStockTUI(App):
         except Exception:
             return
         log.clear()
+        setup = setup_readiness_view()
+        setup_table = Table(title=f"Setup Readiness — {setup.get('status')}")
+        setup_table.add_column("Check")
+        setup_table.add_column("Status")
+        setup_table.add_column("Detail")
+        setup_table.add_column("Action")
+        for row in setup.get("rows") or []:
+            status = row.get("status") or ""
+            style = "bold #ef4444" if status == "FAIL" else "#f59e0b" if status == "WARN" else "#22c55e"
+            setup_table.add_row(row.get("check", ""), Text(status, style=style), row.get("detail", ""), row.get("action", ""))
+        log.write(setup_table)
+        if setup.get("next_action"):
+            log.write(
+                Text(f"Next action: {setup.get('next_action')}", style="bold #f59e0b" if setup.get("status") != "READY" else "#22c55e")
+            )
+
         view = data_files_view()
         table = Table(title=f"Data Files / Workspace — defaults: {relative_to_root(view.get('settings_path'))}")
         table.add_column("Resource")
@@ -527,6 +549,32 @@ class TechStockTUI(App):
             style = "bold #ef4444" if status == "FAIL" else "#f59e0b" if status == "WARN" else "#22c55e"
             table.add_row(row.get("resource", ""), Text(status, style=style), row.get("path", ""), row.get("detail", ""))
         log.write(table)
+
+        for kind in ("holdings", "activities"):
+            candidates = Table(title=f"{kind.title()} CSV Candidates")
+            candidates.add_column("Pick")
+            candidates.add_column("Status")
+            candidates.add_column("File")
+            candidates.add_column("Age")
+            candidates.add_column("Rows")
+            candidates.add_column("Reason")
+            for row in csv_choice_view(kind):
+                status = row.get("status") or ""
+                style = "bold #ef4444" if status == "BLOCKED" else "#f59e0b" if status in {"REVIEW", "DEMO_ONLY"} else "#22c55e"
+                candidates.add_row(
+                    "YES" if row.get("recommended") else "",
+                    Text(status, style=style),
+                    row.get("filename", ""),
+                    str(row.get("age_hours") if row.get("age_hours") is not None else ""),
+                    str(row.get("row_count_hint") or ""),
+                    row.get("reason") or row.get("action") or "",
+                )
+            log.write(candidates)
+
+    def _export_support_bundle(self) -> None:
+        log = self.query_one("#data_files_log", RichLog)
+        result = export_support_bundle(include_demo_smoke=False)
+        log.write(result.get("summary") or result.get("error") or "Support bundle export finished.")
 
     def _csv_options(self, prefix: str, default: Path | None) -> list[tuple[str, str]]:
         options: list[tuple[str, str]] = []

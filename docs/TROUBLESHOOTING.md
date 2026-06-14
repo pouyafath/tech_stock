@@ -13,6 +13,26 @@ It checks the installed version, latest published release, update cache,
 workspace, API key discovery, CSV Health, monthly budget, release assets,
 checksums, bundled demo data, and UI view models.
 
+For a shorter first-run/setup view, use:
+
+```bash
+python src/main.py setup --json
+```
+
+It reports the workspace path, API-key discovery, the recommended Holdings and
+Activities CSV candidates, demo smoke availability, and the next action before a
+paid run.
+
+If you need to share diagnostics, create a redacted support bundle:
+
+```bash
+python src/main.py support-bundle
+```
+
+The zip is written to `exports/` by default. It includes diagnostics, doctor,
+setup readiness, and data-file metadata, but excludes raw Wealthsimple CSV
+contents, API keys, `.env`, `API_KEYS.txt`, caches, and generated reports.
+
 ## A Paid Run Is Blocked Before It Starts
 
 Desktop, Streamlit, and Textual run a shared pre-run checklist before calling
@@ -30,8 +50,10 @@ from the UI.
 
 ## The App Keeps Selecting The Wrong CSV
 
-Open **Data Files** in Desktop, Streamlit, or Textual and check the Holdings and
-Activities rows. Save the correct paths as defaults. The app writes them to:
+Open **Data Files** in Desktop, Streamlit, or Textual and check the Setup
+Readiness and CSV Candidates sections. The row marked **recommended** is the file
+the app would use automatically; confirm it before a paid run. Save the correct
+paths as defaults. The app writes only those paths to:
 
 ```text
 config/data_files.json
@@ -224,11 +246,19 @@ Also inspect:
 - `logs/update.log`
 - Desktop App **Diagnostics**
 - `python src/main.py doctor --json --demo-smoke`
+- `python src/main.py setup --json`
 
 If the issue is specific to report rendering, try Streamlit:
 
 ```bash
 python -m streamlit run ui/streamlit_app.py
+```
+
+To collect enough local state for debugging without exposing secrets or raw CSV
+contents, run:
+
+```bash
+python src/main.py support-bundle
 ```
 
 ## Streamlit Starts But No Browser Opens

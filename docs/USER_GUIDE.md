@@ -312,9 +312,9 @@ include:
 - **Buy Signals**: source-backed BUY/ADD and add-on-dip ideas with readiness
   filters, quote details, targets, catalysts, warnings, and risk controls.
 - **Run Report**: model, budget, CSV selection, preview, and report execution.
-- **Data Files**: current holdings/activities CSV defaults, API-key file,
-  reports folder, recommendation logs folder, uploads folder, and workspace
-  status.
+- **Data Files**: setup readiness, recommended CSV candidates, current
+  holdings/activities CSV defaults, API-key file, reports folder,
+  recommendation logs folder, uploads folder, and workspace status.
 - **Report Viewer**: styled markdown display, search, and latest report loading.
 - **History**: previous report browsing with input CSV names, warning counts,
   action counts, data-confidence labels, and rendering.
@@ -322,7 +322,7 @@ include:
   portfolio JSON.
 - **API Checks**: key management, discovery paths, and connectivity checks.
 - **Diagnostics**: preflight status, source degradation, recent errors, spend,
-  and support information.
+  copyable diagnostics, and redacted support-bundle zip export.
 - **Updates**: release checks, cache force-refresh, checksum status, update
   actions, and logs.
 
@@ -494,6 +494,26 @@ Also validate bundled demo data and UI view models without Anthropic spend:
 python src/main.py doctor --json --force-refresh --demo-smoke
 ```
 
+For first-run/setup status, use:
+
+```bash
+python src/main.py setup --json
+```
+
+This reports onboarding stage, workspace writability, API key status, paid-run
+blockers, recommended CSV candidates, demo availability, and the next setup
+action.
+
+To create a redacted support zip:
+
+```bash
+python src/main.py support-bundle
+```
+
+The zip is written under `exports/` by default and contains doctor/setup/data
+file summaries plus diagnostics logs. It excludes raw API keys, `.env`,
+`.env.zip`, and raw Wealthsimple CSV contents.
+
 The doctor payload includes:
 
 - Installed and latest published version.
@@ -512,7 +532,8 @@ you can verify the app is using the right export before spending on a report.
 
 The **Data Files** view is the faster place to check exactly which paths will be
 used. Use it before a paid run when you have multiple Wealthsimple exports in
-Downloads or the workspace upload folder.
+Downloads or the workspace upload folder. The recommended candidate row is the
+file the app would ask you to confirm.
 
 ## Updates
 
@@ -562,7 +583,8 @@ Sent externally during a paid run:
 - Ticker and market-data requests to enabled enrichment providers.
 
 API keys are redacted from diagnostics and excluded from sanitized workspace
-exports.
+exports. The support-bundle zip also excludes raw Wealthsimple CSV contents and
+stores only schema/freshness summaries.
 
 ## Next Reading
 

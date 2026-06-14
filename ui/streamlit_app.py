@@ -38,6 +38,7 @@ from src.ui_support import (  # noqa: E402
     apply_available_update,
     buy_signal_view,
     check_update_available,
+    csv_choice_view,
     current_app_version,
     data_files_view,
     decision_journal_view,
@@ -48,6 +49,7 @@ from src.ui_support import (  # noqa: E402
     demo_smoke_view,
     diagnostics_support_bundle,
     diagnostics_view,
+    export_support_bundle,
     find_default_csvs,
     latest_log_summary,
     latest_report,
@@ -65,6 +67,7 @@ from src.ui_support import (  # noqa: E402
     save_decision_from_ui,
     save_selected_data_files,
     save_uploaded_bytes,
+    setup_readiness_view,
     validate_json_text,
     write_editable_json,
 )
@@ -1189,9 +1192,19 @@ with tab_run:
 with tab_data_files:
     st.subheader("Data Files / Workspace")
     st.caption("The app uses these paths for CSV inputs, reports, logs, API keys, and uploads.")
+    setup = setup_readiness_view()
+    setup_status = setup.get("status") or "UNKNOWN"
+    status_method = st.success if setup_status == "READY" else st.error if setup_status == "BLOCKED" else st.warning
+    status_method(f"Setup status: {setup_status}. Next action: {setup.get('next_action') or 'Ready.'}")
+    setup_rows = setup.get("rows") or []
+    if setup_rows:
+        st.markdown("### Setup readiness")
+        st.dataframe(pd.DataFrame(setup_rows), hide_index=True, width="stretch")
+
     view = data_files_view()
     rows = view.get("rows") or []
     if rows:
+        st.markdown("### Active paths")
         st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
     else:
         _html(empty_state("No file status available", "Refresh the page to rebuild the Data Files view."))
@@ -1210,7 +1223,7 @@ with tab_data_files:
             value=str(selected.get("activities") or ""),
             key="data_files_activities_default",
         )
-    col_save, col_demo = st.columns(2)
+    col_save, col_demo, col_support = st.columns(3)
     with col_save:
         if st.button("Save defaults", type="primary", width="stretch", key="data_files_save_defaults"):
             path = save_selected_data_files(holdings_default, activities_default)
@@ -1225,14 +1238,22 @@ with tab_data_files:
                 )
             else:
                 st.error("; ".join(result.get("errors") or ["Demo smoke failed."]))
-
-    with st.expander("CSV candidates found"):
-        for kind, candidates in (view.get("csv_candidates") or {}).items():
-            st.markdown(f"**{kind.title()}**")
-            if candidates:
-                st.code("\n".join(candidates), language=None)
+    with col_support:
+        if st.button("Export support bundle", width="stretch", key="data_files_support_bundle"):
+            result = export_support_bundle(include_demo_smoke=False)
+            if result.get("ok"):
+                st.success(result.get("summary") or f"Exported to {result.get('output_path')}")
             else:
-                st.caption("No candidates found.")
+                st.error(result.get("summary") or result.get("error") or "Support bundle export failed.")
+
+    st.markdown("### CSV candidates to confirm")
+    for kind in ("holdings", "activities"):
+        candidates = csv_choice_view(kind)
+        st.markdown(f"**{kind.title()}**")
+        if candidates:
+            st.dataframe(pd.DataFrame(candidates), hide_index=True, width="stretch")
+        else:
+            st.caption("No candidates found.")
 
 
 # ─── History ───────────────────────────────────────────────────────────────
@@ -2150,6 +2171,12 @@ def _render_diagnostics() -> None:
 
     st.markdown("### Support bundle")
     st.caption("Last 500 events, fully redacted (API keys / tokens / emails are scrubbed). Paste this into a bug report — safe to share.")
+    if st.button("📦 Export full support bundle zip", width="stretch", key="diag_export_support_bundle"):
+        result = export_support_bundle(include_demo_smoke=False)
+        if result.get("ok"):
+            st.success(result.get("summary") or f"Exported to {result.get('output_path')}")
+        else:
+            st.error(result.get("summary") or result.get("error") or "Support bundle export failed.")
     bundle = diagnostics_support_bundle(limit=500)
     if bundle:
         st.code(bundle, language="json")

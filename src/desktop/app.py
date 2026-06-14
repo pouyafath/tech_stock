@@ -37,6 +37,7 @@ from src.ui_support import (
     apply_available_update,
     buy_signal_view,
     check_update_available,
+    csv_choice_view,
     current_app_version,
     data_files_view,
     default_run_settings,
@@ -44,6 +45,7 @@ from src.ui_support import (
     demo_smoke_view,
     diagnostics_support_bundle,
     diagnostics_view,
+    export_support_bundle,
     find_default_csvs,
     latest_log_summary,
     latest_report,
@@ -59,6 +61,7 @@ from src.ui_support import (
     run_report_from_ui,
     save_api_key,
     save_selected_data_files,
+    setup_readiness_view,
     validate_json_text,
     write_editable_json,
 )
@@ -2263,6 +2266,7 @@ class DesktopApp(tk.Tk):
         toolbar.pack(fill="x", padx=16, pady=16)
         ttk.Button(toolbar, text="Refresh", command=self.refresh_data_files_tab).pack(side="left")
         ttk.Button(toolbar, text="Save Current Run Paths", command=self.save_current_data_file_paths).pack(side="left", padx=8)
+        ttk.Button(toolbar, text="Export Support Bundle", command=self.export_support_bundle_from_desktop).pack(side="left", padx=8)
         ttk.Button(toolbar, text="Open Workspace", command=lambda: self._open_data_location("Workspace")).pack(side="left", padx=8)
         ttk.Button(toolbar, text="Open Reports", command=lambda: self._open_data_location("Reports folder")).pack(side="left", padx=8)
         ttk.Button(toolbar, text="Open Logs", command=lambda: self._open_data_location("Recommendation logs")).pack(side="left", padx=8)
@@ -2270,15 +2274,35 @@ class DesktopApp(tk.Tk):
         self.data_files_status = tk.StringVar(value="Open this tab to inspect workspace files.")
         ttk.Label(toolbar, textvariable=self.data_files_status, style="Muted.TLabel").pack(side="left", padx=12)
 
+        readiness = self._panel(self.data_files_tab, "Setup Readiness")
+        readiness.pack(fill="x", padx=16, pady=(0, 12))
+        self.setup_readiness_tree = self._make_tree(
+            readiness,
+            ["check", "status", "detail", "action"],
+            [170, 90, 600, 360],
+            height=8,
+        )
+        self.setup_readiness_tree.pack(fill="x")
+
         files = self._panel(self.data_files_tab, "Data Files / Workspace")
-        files.pack(fill="both", expand=True, padx=16, pady=(0, 16))
+        files.pack(fill="x", padx=16, pady=(0, 12))
         self.data_files_tree = self._make_tree(
             files,
             ["resource", "status", "path", "detail", "action"],
             [170, 90, 430, 330, 360],
-            height=10,
+            height=7,
         )
-        self.data_files_tree.pack(fill="both", expand=True)
+        self.data_files_tree.pack(fill="x")
+
+        candidates = self._panel(self.data_files_tab, "CSV Candidates To Confirm")
+        candidates.pack(fill="both", expand=True, padx=16, pady=(0, 16))
+        self.csv_candidate_tree = self._make_tree(
+            candidates,
+            ["kind", "recommended", "status", "filename", "age_hours", "rows", "path", "action"],
+            [90, 110, 100, 240, 90, 70, 430, 320],
+            height=8,
+        )
+        self.csv_candidate_tree.pack(fill="both", expand=True)
         self._data_file_locations: dict[str, Path] = {}
         self.refresh_data_files_tab()
 
@@ -2288,6 +2312,41 @@ class DesktopApp(tk.Tk):
         except Exception as exc:  # noqa: BLE001
             self.data_files_status.set(f"Failed to load data files: {exc}")
             return
+        try:
+            setup = setup_readiness_view()
+            readiness_rows = [
+                [
+                    row.get("check") or "",
+                    row.get("status") or "",
+                    row.get("detail") or "",
+                    row.get("action") or "",
+                ]
+                for row in setup.get("rows") or []
+            ]
+            self._replace_tree_rows(self.setup_readiness_tree, readiness_rows)
+        except Exception as exc:  # noqa: BLE001
+            self._replace_tree_rows(self.setup_readiness_tree, [["Setup", "FAIL", str(exc), "Open Diagnostics."]])
+
+        candidate_rows = []
+        try:
+            for kind in ("holdings", "activities"):
+                for row in csv_choice_view(kind):
+                    candidate_rows.append(
+                        [
+                            kind.title(),
+                            "YES" if row.get("recommended") else "",
+                            row.get("status") or "",
+                            row.get("filename") or "",
+                            str(row.get("age_hours") if row.get("age_hours") is not None else ""),
+                            str(row.get("row_count_hint") or ""),
+                            row.get("path") or "",
+                            row.get("action") or row.get("reason") or "",
+                        ]
+                    )
+        except Exception as exc:  # noqa: BLE001
+            candidate_rows = [["", "", "FAIL", "", "", "", "", str(exc)]]
+        self._replace_tree_rows(self.csv_candidate_tree, candidate_rows)
+
         rows = []
         self._data_file_locations = {}
         for row in view.get("rows") or []:
@@ -2305,7 +2364,12 @@ class DesktopApp(tk.Tk):
         self._replace_tree_rows(self.data_files_tree, rows)
         fail = sum(1 for row in view.get("rows") or [] if row.get("status") == "FAIL")
         warn = sum(1 for row in view.get("rows") or [] if row.get("status") == "WARN")
-        self.data_files_status.set(f"{fail} blocking issue(s), {warn} warning(s).")
+        setup_status = ""
+        try:
+            setup_status = f" Setup: {setup.get('status')}."
+        except Exception:
+            pass
+        self.data_files_status.set(f"{fail} blocking issue(s), {warn} warning(s).{setup_status}")
 
     def save_current_data_file_paths(self) -> None:
         try:
@@ -2327,6 +2391,20 @@ class DesktopApp(tk.Tk):
         if not path:
             return
         self._reveal_in_finder(path)
+
+    def export_support_bundle_from_desktop(self) -> None:
+        try:
+            payload = export_support_bundle(include_demo_smoke=False)
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("Support bundle failed", str(exc))
+            return
+        summary = payload.get("summary") or ""
+        self.data_files_status.set(summary)
+        output_path = payload.get("output_path")
+        if payload.get("ok") and output_path:
+            self._reveal_in_finder(Path(output_path))
+        else:
+            messagebox.showerror("Support bundle failed", summary or payload.get("error") or "Unknown error")
 
     # ── Schedule tab (v1.18) ────────────────────────────────────────────────
     def _build_schedule_tab(self) -> None:
@@ -2563,6 +2641,7 @@ class DesktopApp(tk.Tk):
         bundle_buttons = ttk.Frame(bundle_panel)
         bundle_buttons.pack(fill="x", pady=(0, 6))
         ttk.Button(bundle_buttons, text="Copy to clipboard", command=self._copy_diagnostics_bundle).pack(side="left")
+        ttk.Button(bundle_buttons, text="Export support zip", command=self.export_support_bundle_from_desktop).pack(side="left", padx=8)
         ttk.Button(bundle_buttons, text="Open log folder", command=self._open_diagnostics_log_folder).pack(side="left", padx=8)
         self.diagnostics_bundle_text = tk.Text(
             bundle_panel,

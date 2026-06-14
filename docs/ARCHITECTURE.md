@@ -91,6 +91,7 @@ write; Claude API call).
 | `src/csv_health.py` | Wealthsimple CSV schema inspection, swapped-file detection, and sample/demo guards |
 | `src/data_files.py` | Saved CSV defaults, Data Files / Workspace view model, and shared paid-run checklist |
 | `src/preflight.py` | Doctor command, update/API/CSV Health/budget/release checks, and no-spend demo smoke test |
+| `src/setup_readiness.py` | First-run/setup readiness view, CSV candidate confirmation metadata, and redacted support bundle export |
 | `src/workspace_export.py` | Sanitised zip export of the user's workspace |
 | `src/notifications.py` | Cross-platform desktop notifications (macOS osascript / Linux notify-send / Windows BurntToast) |
 | `src/scheduling.py` | Per-user launchd / Task Scheduler / cron installer |
@@ -102,7 +103,7 @@ write; Claude API call).
 | `src/app_gui.py` | Native launcher (PyInstaller entry) |
 | `src/ui_launcher.py` | Shell launcher used by `./run.sh` |
 | `src/ui_theme.py` | Shared palette + HTML helpers + Streamlit CSS bundle |
-| `src/ui_support.py` | UI-facing data aggregators (`learning_view`, `diagnostics_view`, `decision_scorecard_summary`, Data Files, pre-run checklist, history surfaces, etc.) |
+| `src/ui_support.py` | UI-facing data aggregators (`learning_view`, `diagnostics_view`, `decision_scorecard_summary`, setup readiness, Data Files, pre-run checklist, history surfaces, etc.) |
 | **Infra** | |
 | `src/updater.py` | GitHub Releases auto-update + checksum verification |
 | `src/changelog_utils.py` | CHANGELOG section parser (used by CI release workflow) |
@@ -238,7 +239,7 @@ state.
 │   ├── cost_log.jsonl          # Per-run Anthropic spend
 │   └── .cache/                 # Pickle cache for yfinance/news
 ├── reports/                    # Markdown reports + recommendation CSVs
-├── exports/                    # User-triggered workspace zips
+├── exports/                    # User-triggered workspace and redacted support zips
 ├── logs/diagnostics.jsonl      # Structured-log API degradations (v1.17)
 └── temporary_upload/           # User-dropped Wealthsimple CSVs
 ```
