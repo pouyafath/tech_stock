@@ -55,6 +55,7 @@ from src.ui_support import (  # noqa: E402
     latest_report,
     learning_view,
     list_reports,
+    paid_run_readiness_view,
     pre_run_checklist_view,
     preview_holdings_csv,
     read_editable_json,
@@ -68,6 +69,7 @@ from src.ui_support import (  # noqa: E402
     save_selected_data_files,
     save_uploaded_bytes,
     setup_readiness_view,
+    support_bundle_preview,
     validate_json_text,
     write_editable_json,
 )
@@ -1052,6 +1054,25 @@ def _render_run_tab() -> None:
         use_fallback_config=holdings_mode == "Fallback config",
         dry_run=is_dry_run,
     )
+    readiness = paid_run_readiness_view(
+        holdings_csv=checklist_holdings_path,
+        activities_csv=checklist_activities_path,
+        use_fallback_config=holdings_mode == "Fallback config",
+        dry_run=is_dry_run,
+        model_choice=model_choice,
+        budget_usd=float(budget_usd or 0),
+        budget_cad=float(budget_cad or 0),
+    )
+    st.markdown("### Ready to run")
+    readiness_status = readiness.get("status") or "UNKNOWN"
+    if readiness_status == "READY":
+        st.success(readiness.get("summary") or "Ready to run.")
+    elif readiness_status == "BLOCKED":
+        st.error(readiness.get("summary") or readiness.get("next_action") or "Fix blocking issues first.")
+    else:
+        st.warning(readiness.get("summary") or readiness.get("next_action") or "Review before running.")
+    if readiness.get("steps"):
+        st.dataframe(pd.DataFrame(readiness["steps"]), hide_index=True, width="stretch")
     st.markdown("### Pre-run checklist")
     if checklist.get("rows"):
         st.dataframe(pd.DataFrame(checklist["rows"]), hide_index=True, width="stretch")
@@ -1245,6 +1266,13 @@ with tab_data_files:
                 st.success(result.get("summary") or f"Exported to {result.get('output_path')}")
             else:
                 st.error(result.get("summary") or result.get("error") or "Support bundle export failed.")
+
+    with st.expander("Preview support bundle contents", expanded=False):
+        preview = support_bundle_preview(include_demo_smoke=False)
+        st.caption(preview.get("privacy_note") or "Redacted support bundle.")
+        st.dataframe(pd.DataFrame(preview.get("files") or []), hide_index=True, width="stretch")
+        st.markdown("**Excluded**")
+        st.write(", ".join(preview.get("excluded") or []))
 
     st.markdown("### CSV candidates to confirm")
     for kind in ("holdings", "activities"):
@@ -2171,6 +2199,12 @@ def _render_diagnostics() -> None:
 
     st.markdown("### Support bundle")
     st.caption("Last 500 events, fully redacted (API keys / tokens / emails are scrubbed). Paste this into a bug report — safe to share.")
+    with st.expander("Preview support zip contents", expanded=True):
+        preview = support_bundle_preview(include_demo_smoke=False)
+        st.caption(preview.get("privacy_note") or "Redacted support bundle.")
+        st.dataframe(pd.DataFrame(preview.get("files") or []), hide_index=True, width="stretch")
+        st.markdown("**Excluded from zip**")
+        st.write(", ".join(preview.get("excluded") or []))
     if st.button("📦 Export full support bundle zip", width="stretch", key="diag_export_support_bundle"):
         result = export_support_bundle(include_demo_smoke=False)
         if result.get("ok"):

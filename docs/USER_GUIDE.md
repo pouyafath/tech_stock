@@ -242,7 +242,9 @@ workspace.
 5. Confirm the Holdings CSV path.
 6. Confirm or skip the Activities CSV path.
 7. Preview holdings.
-8. Run the report.
+8. Review **Ready To Run**. `READY` can run, `REVIEW_FIRST` needs warning
+   review, and `BLOCKED` must be fixed first.
+9. Run the report.
 
 The Desktop App shows progress and generated output paths.
 
@@ -311,7 +313,8 @@ include:
   quality warnings, stops, drift, hedge ideas, and market context.
 - **Buy Signals**: source-backed BUY/ADD and add-on-dip ideas with readiness
   filters, quote details, targets, catalysts, warnings, and risk controls.
-- **Run Report**: model, budget, CSV selection, preview, and report execution.
+- **Run Report**: model, budget, CSV selection, preview, Ready To Run verdict,
+  and report execution.
 - **Data Files**: setup readiness, recommended CSV candidates, current
   holdings/activities CSV defaults, API-key file, reports folder,
   recommendation logs folder, uploads folder, and workspace status.
@@ -322,7 +325,8 @@ include:
   portfolio JSON.
 - **API Checks**: key management, discovery paths, and connectivity checks.
 - **Diagnostics**: preflight status, source degradation, recent errors, spend,
-  copyable diagnostics, and redacted support-bundle zip export.
+  copyable diagnostics, support-bundle contents preview, and redacted
+  support-bundle zip export.
 - **Updates**: release checks, cache force-refresh, checksum status, update
   actions, and logs.
 
@@ -360,14 +364,17 @@ minimal overhead.
 
 Read the report in this order:
 
-1. **Data Confidence**: summarizes whether the available data is suitable for
+1. **Actionability Check**: shows the top-level trade-ready/review/blocked
+   verdict, quote freshness, source coverage, catalyst coverage, warning count,
+   and the first reason to review.
+2. **Data Confidence**: summarizes whether the available data is suitable for
    action.
-2. **Report Quality Warnings**: lists deterministic issues and required review.
-3. **Trader Action Plan**: prioritizes actions and sizes.
-4. **Portfolio Health and Risk Dashboard**: shows exposure and concentration.
-5. **Recommendation details**: explains thesis, catalyst, risk controls,
+3. **Report Quality Warnings**: lists deterministic issues and required review.
+4. **Trader Action Plan**: prioritizes actions and sizes.
+5. **Portfolio Health and Risk Dashboard**: shows exposure and concentration.
+6. **Recommendation details**: explains thesis, catalyst, risk controls,
    expected range, and invalidation.
-6. **Sources and degradation**: shows what data was available or missing.
+7. **Sources and degradation**: shows what data was available or missing.
 
 Readiness states:
 
@@ -455,7 +462,14 @@ workspace upload folder and common OS folders such as Downloads.
 
 ### Pre-run checklist
 
-Before a paid report run, all UIs now show the same checklist:
+Before a paid report run, all UIs now show the same **Ready To Run** verdict
+and checklist:
+
+- `READY`: no blocking checks and no review warnings.
+- `REVIEW_FIRST`: the app can run, but warning rows should be reviewed first.
+- `BLOCKED`: a required input or safety check must be fixed before Claude spend.
+
+The underlying checklist verifies:
 
 - Anthropic API key configured.
 - Holdings CSV exists, is readable, is a holdings export, and is not sample data.
@@ -507,12 +521,15 @@ action.
 To create a redacted support zip:
 
 ```bash
+python src/main.py support-bundle --preview
 python src/main.py support-bundle
 ```
 
+Use `--preview` to list included files and exclusions without writing a zip.
 The zip is written under `exports/` by default and contains doctor/setup/data
 file summaries plus diagnostics logs. It excludes raw API keys, `.env`,
-`.env.zip`, and raw Wealthsimple CSV contents.
+`.env.zip`, raw Wealthsimple CSV contents, generated reports, and unrelated
+local files.
 
 The doctor payload includes:
 

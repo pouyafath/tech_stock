@@ -91,7 +91,7 @@ write; Claude API call).
 | `src/csv_health.py` | Wealthsimple CSV schema inspection, swapped-file detection, and sample/demo guards |
 | `src/data_files.py` | Saved CSV defaults, Data Files / Workspace view model, and shared paid-run checklist |
 | `src/preflight.py` | Doctor command, update/API/CSV Health/budget/release checks, and no-spend demo smoke test |
-| `src/setup_readiness.py` | First-run/setup readiness view, CSV candidate confirmation metadata, and redacted support bundle export |
+| `src/setup_readiness.py` | First-run/setup readiness view, paid-run readiness verdict, CSV candidate confirmation metadata, support-bundle preview, and redacted support bundle export |
 | `src/workspace_export.py` | Sanitised zip export of the user's workspace |
 | `src/notifications.py` | Cross-platform desktop notifications (macOS osascript / Linux notify-send / Windows BurntToast) |
 | `src/scheduling.py` | Per-user launchd / Task Scheduler / cron installer |
@@ -103,6 +103,8 @@ write; Claude API call).
 | `src/app_gui.py` | Native launcher (PyInstaller entry) |
 | `src/ui_launcher.py` | Shell launcher used by `./run.sh` |
 | `src/ui_theme.py` | Shared palette + HTML helpers + Streamlit CSS bundle |
+| **Release tooling** | |
+| `tools/package_smoke.py` | Source/package structure and version smoke checks for CI release builds |
 | `src/ui_support.py` | UI-facing data aggregators (`learning_view`, `diagnostics_view`, `decision_scorecard_summary`, setup readiness, Data Files, pre-run checklist, history surfaces, etc.) |
 | **Infra** | |
 | `src/updater.py` | GitHub Releases auto-update + checksum verification |

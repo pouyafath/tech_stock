@@ -105,3 +105,61 @@ def test_export_support_bundle_redacts_secret_text(monkeypatch, tmp_path):
         all_text = "\n".join(zf.read(name).decode("utf-8") for name in names)
     assert "sk-ant-test-secret" not in all_text
     assert "<redacted>" in all_text
+
+
+def test_paid_run_readiness_blocks_on_checklist(monkeypatch):
+    monkeypatch.setattr(
+        setup_readiness,
+        "build_pre_run_checklist",
+        lambda **_kwargs: {
+            "can_run": False,
+            "blocking_count": 1,
+            "warning_count": 0,
+            "next_action": "Add ANTHROPIC_API_KEY.",
+            "rows": [
+                {
+                    "check": "Anthropic API key",
+                    "status": "BLOCKED",
+                    "blocking": True,
+                    "detail": "missing",
+                    "action": "Add ANTHROPIC_API_KEY.",
+                }
+            ],
+        },
+    )
+
+    view = setup_readiness.paid_run_readiness_view(holdings_csv="holdings.csv")
+
+    assert view["status"] == "BLOCKED"
+    assert view["can_run"] is False
+    assert view["primary_action"] == "Add ANTHROPIC_API_KEY."
+    assert any(row["step"] == "Anthropic API key" and row["status"] == "BLOCKED" for row in view["steps"])
+
+
+def test_paid_run_readiness_requires_warning_confirmation(monkeypatch):
+    monkeypatch.setattr(
+        setup_readiness,
+        "build_pre_run_checklist",
+        lambda **_kwargs: {
+            "can_run": True,
+            "blocking_count": 0,
+            "warning_count": 1,
+            "next_action": "Ready to run.",
+            "rows": [{"check": "Optional data APIs", "status": "WARN", "detail": "missing", "action": "coverage reduced"}],
+        },
+    )
+
+    view = setup_readiness.paid_run_readiness_view(holdings_csv="holdings.csv")
+
+    assert view["status"] == "REVIEW_FIRST"
+    assert view["can_run"] is True
+    assert view["requires_warning_confirmation"] is True
+
+
+def test_support_bundle_preview_lists_included_and_excluded_files():
+    preview = setup_readiness.support_bundle_preview()
+
+    assert preview["safe_to_share"] is True
+    assert preview["file_count"] == 5
+    assert "support/doctor.json" in {row["path"] for row in preview["files"]}
+    assert "API_KEYS.txt" in preview["excluded"]

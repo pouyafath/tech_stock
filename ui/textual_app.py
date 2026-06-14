@@ -37,6 +37,7 @@ from src.ui_support import (  # noqa: E402
     latest_report,
     learning_view,
     list_reports,
+    paid_run_readiness_view,
     pre_run_checklist_view,
     read_editable_json,
     read_text_file,
@@ -46,6 +47,7 @@ from src.ui_support import (  # noqa: E402
     run_report_from_ui,
     save_selected_data_files,
     setup_readiness_view,
+    support_bundle_preview,
     validate_json_text,
     write_editable_json,
 )
@@ -474,6 +476,14 @@ class TechStockTUI(App):
 
     def _render_pre_run_checklist(self) -> dict:
         holdings, activities = self._current_run_paths()
+        readiness = paid_run_readiness_view(
+            holdings_csv=holdings,
+            activities_csv=activities,
+            use_fallback_config=not bool(holdings.strip()),
+            model_choice=self.query_one("#model", Select).value,
+            budget_usd=self._float_input("#budget_usd"),
+            budget_cad=self._float_input("#budget_cad"),
+        )
         checklist = pre_run_checklist_view(
             holdings_csv=holdings,
             activities_csv=activities,
@@ -481,6 +491,18 @@ class TechStockTUI(App):
         )
         console = self.query_one("#console", RichLog)
         console.clear()
+        readiness_table = Table(title=f"Ready To Run — {readiness.get('status')}")
+        readiness_table.add_column("Step")
+        readiness_table.add_column("Status")
+        readiness_table.add_column("Detail")
+        readiness_table.add_column("Action")
+        for row in readiness.get("steps") or []:
+            status = row.get("status") or ""
+            style = "bold #ef4444" if status == "BLOCKED" else "#f59e0b" if status == "WARN" else "#22c55e"
+            readiness_table.add_row(row.get("step", ""), Text(status, style=style), row.get("detail", ""), row.get("action", ""))
+        console.write(readiness_table)
+        if readiness.get("summary"):
+            console.write(Text(readiness.get("summary", ""), style="bold #f59e0b" if readiness.get("status") != "READY" else "#22c55e"))
         table = Table(title="Pre-run Checklist")
         table.add_column("Check")
         table.add_column("Status")
@@ -490,7 +512,7 @@ class TechStockTUI(App):
             style = "bold #ef4444" if row.get("blocking") else "#f59e0b" if row.get("status") == "WARN" else "#22c55e"
             table.add_row(row.get("check", ""), Text(row.get("status", ""), style=style), row.get("detail", ""), row.get("action", ""))
         console.write(table)
-        self.query_one("#status", Static).update("Ready." if checklist.get("can_run") else f"Blocked: {checklist.get('next_action')}")
+        self.query_one("#status", Static).update(readiness.get("next_action") or "Ready.")
         return checklist
 
     def _save_data_file_defaults(self) -> None:
@@ -570,6 +592,16 @@ class TechStockTUI(App):
                     row.get("reason") or row.get("action") or "",
                 )
             log.write(candidates)
+
+        preview = support_bundle_preview(include_demo_smoke=False)
+        bundle_table = Table(title="Support Bundle Preview")
+        bundle_table.add_column("File")
+        bundle_table.add_column("Privacy")
+        bundle_table.add_column("Description")
+        for row in preview.get("files") or []:
+            bundle_table.add_row(row.get("path", ""), row.get("privacy", ""), row.get("description", ""))
+        log.write(bundle_table)
+        log.write(Text("Excluded: " + ", ".join(preview.get("excluded") or []), style="#94a3b8"))
 
     def _export_support_bundle(self) -> None:
         log = self.query_one("#data_files_log", RichLog)

@@ -74,14 +74,17 @@ without API keys or Anthropic spend.
 When a run is blocked or the UI is behaving unexpectedly, export a support zip:
 
 ```bash
+.venv/bin/python -m src.main support-bundle --preview
 .venv/bin/python -m src.main support-bundle
 .venv/bin/python -m src.main support-bundle --json
 .venv/bin/python -m src.main support-bundle --output-dir ~/Desktop
 ```
 
-The bundle includes doctor output, setup readiness, CSV metadata, and recent
-diagnostics. It intentionally excludes raw CSV contents, generated reports, API
-keys, `.env`, `API_KEYS.txt`, caches, and temporary uploads.
+Use `--preview` first to list included files and exclusions without writing a
+zip. The bundle includes doctor output, setup readiness, CSV metadata, and
+recent diagnostics. It intentionally excludes raw CSV contents, generated
+reports, API keys, `.env`, `.env.zip`, `API_KEYS.txt`, caches, and temporary
+uploads.
 
 ## Run a single CLI report
 
@@ -235,6 +238,14 @@ The release CI uses this to populate the GitHub Release body.
 ./build_macos.sh        # → dist/tech_stock.dmg
 ./build_linux.sh        # → dist/tech_stock-x86_64.AppImage (or tarball)
 build_windows.bat       # → dist/tech_stock_setup.exe (Windows only)
+```
+
+Smoke-check package structure and version metadata without launching the GUI:
+
+```bash
+python tools/package_smoke.py --platform source --dist .
+python tools/package_smoke.py --platform macos --dist dist
+python tools/package_smoke.py --platform linux --dist dist
 ```
 
 Or just push a `v*.*.*` tag and let CI do it — see

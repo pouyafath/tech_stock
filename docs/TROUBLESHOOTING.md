@@ -26,12 +26,14 @@ paid run.
 If you need to share diagnostics, create a redacted support bundle:
 
 ```bash
+python src/main.py support-bundle --preview
 python src/main.py support-bundle
 ```
 
-The zip is written to `exports/` by default. It includes diagnostics, doctor,
-setup readiness, and data-file metadata, but excludes raw Wealthsimple CSV
-contents, API keys, `.env`, `API_KEYS.txt`, caches, and generated reports.
+Use `--preview` first if you want to inspect what will be included. The zip is
+written to `exports/` by default. It includes diagnostics, doctor, setup
+readiness, and data-file metadata, but excludes raw Wealthsimple CSV contents,
+API keys, `.env`, `.env.zip`, `API_KEYS.txt`, caches, and generated reports.
 
 ## A Paid Run Is Blocked Before It Starts
 
@@ -47,6 +49,13 @@ Claude. A blocked paid run means one of these checks failed:
 Fix the action shown in the checklist, then run again. Non-blocking warnings
 such as stale optional activities data or missing optional APIs can be accepted
 from the UI.
+
+Recent versions also show a **Ready To Run** verdict above the raw checklist:
+
+- `READY`: no blocking checks and no review warnings.
+- `REVIEW_FIRST`: the app can run, but one or more warnings should be reviewed
+  before spending on Claude.
+- `BLOCKED`: at least one required input or safety check must be fixed first.
 
 ## The App Keeps Selecting The Wrong CSV
 
@@ -258,6 +267,7 @@ To collect enough local state for debugging without exposing secrets or raw CSV
 contents, run:
 
 ```bash
+python src/main.py support-bundle --preview
 python src/main.py support-bundle
 ```
 

@@ -35,12 +35,14 @@
 - ✅ **Buy Signals View** — Source-backed BUY/ADD and add-on-dip snapshots with analyst consensus, targets, catalysts, quality warnings, and data-source notes
 - ✅ **Trade Readiness Badges** — Buy Signals are classified as Trade Ready / Review First / Blocked using deterministic quote, catalyst, quality-gate, and source checks
 - ✅ **Data Confidence** — Reports and dashboards show quote freshness, source coverage, catalyst coverage, warning counts, and readiness status before trade details
+- ✅ **Actionability Check** — Reports now summarize Trade Ready / Review First / Blocked status near the top before the audit sections
 - ✅ **Doctor / Preflight** — `python src/main.py doctor --json` checks version, update cache, API keys, CSV Health, budget status, release assets, and demo smoke readiness
 - ✅ **CSV Health** — Detects Wealthsimple holdings vs activities schemas, swapped files, stale exports, and sample/demo CSVs before paid runs
 - ✅ **Data Files / Workspace** — Every UI can show and save the exact CSV, API key, report, log, upload, and workspace paths the app will use
-- ✅ **Pre-run Checklist** — Paid runs stop before Claude spend if API keys, CSV schemas, sample files, or budget checks are blocking
+- ✅ **Ready To Run + Pre-run Checklist** — Paid runs show a READY / REVIEW_FIRST / BLOCKED verdict and stop before Claude spend if API keys, CSV schemas, sample files, or budget checks are blocking
 - ✅ **Setup Readiness** — `python src/main.py setup --json` and all UIs show first-run status, recommended CSVs, workspace readiness, and the next setup action
-- ✅ **Redacted Support Bundle** — `python src/main.py support-bundle` exports doctor/setup/data-file summaries and diagnostics logs without raw API keys or CSV contents
+- ✅ **Redacted Support Bundle** — `python src/main.py support-bundle --preview` shows included/excluded files, and `support-bundle` exports doctor/setup/data-file summaries and diagnostics logs without raw API keys or CSV contents
+- ✅ **Package Smoke Checks** — CI verifies source, macOS, Windows, and Linux package structure/version metadata before release artifacts are uploaded
 - ✅ **Verified Updates** — Release downloads are checked against published SHA256 checksums when available
 - ✅ **8 Time Horizons** — Intraday / next session / 1-3 trading days / 1-2 weeks / 1-3 months / 3-6 months / 6-12 months / 12-36 months
 - ✅ **6 Enrichment APIs** — Parallel data from Finnhub, Polygon, Twelve Data, FRED, CoinGecko (+ optional Alpha Vantage)
@@ -56,6 +58,20 @@
 - ✅ **Fast Parallel Fetching** — Concurrent API requests with caching and graceful degradation
 
 ---
+
+## ✨ What's New in v1.32.0 (June 14, 2026)
+
+**Packaged-app confidence and paid-run clarity release.**
+
+- **Ready To Run view** — Desktop, Streamlit, and Textual now show a compact
+  `READY` / `REVIEW_FIRST` / `BLOCKED` verdict before paid Claude runs.
+- **Support-bundle preview** — CLI and UIs list every included support file and
+  every excluded sensitive artifact before creating a zip.
+- **Actionability Check in reports** — generated reports now show
+  data-confidence verdict, quote freshness, source coverage, catalyst coverage,
+  warning count, and top review reason near the top.
+- **Package smoke checks** — CI and release builds validate source checkout,
+  macOS app bundle, Windows app folder, and Linux artifacts before upload.
 
 ## ✨ What's New in v1.31.0 (June 14, 2026)
 
@@ -545,6 +561,7 @@ python src/main.py morning --holdings ~/Holdings.csv --model opus
 | `python src/main.py doctor --json --force-refresh --simulate-current-version 1.27.2` | Verify whether an older installed version would see the latest published release |
 | `python src/main.py setup --json` | Show first-run/setup readiness, selected files, CSV candidates, and next action |
 | `python src/main.py support-bundle` | Export a redacted support zip under `exports/` |
+| `python src/main.py support-bundle --preview` | Preview support zip contents and exclusions without writing a file |
 
 **Windows PowerShell / Command Prompt:**
 
@@ -559,6 +576,7 @@ python src/main.py morning --holdings ~/Holdings.csv --model opus
 | `python src\main.py doctor --json --force-refresh --simulate-current-version 1.27.2` | Verify whether an older installed version would see the latest published release |
 | `python src\main.py setup --json` | Show first-run/setup readiness, selected files, CSV candidates, and next action |
 | `python src\main.py support-bundle` | Export a redacted support zip under `exports\` |
+| `python src\main.py support-bundle --preview` | Preview support zip contents and exclusions without writing a file |
 | `python -m streamlit run ui\streamlit_app.py` | Streamlit browser dashboard |
 | `python ui\textual_app.py` | Textual terminal dashboard |
 | `python src\desktop_app.py` | Embedded desktop dashboard |
@@ -578,13 +596,13 @@ The Desktop App is a native Tkinter dashboard that runs inside the application w
 Tabs:
 - **Dashboard** — Shows the next action, portfolio/risk metric cards, Data Confidence, priority action queue, quality gates, stop breaches, drift, hedge ideas, market context, watchlist signals, and Claude cost
 - **Buy Signals** — Shows source-backed BUY/ADD and add-on-dip snapshots with readiness badges, Data Confidence, filters, overview cards, consensus/targets, catalysts/risks, and source notes
-- **Run Report** — Select session/model/budgets, confirm Wealthsimple CSV paths, preview holdings, check setup, run no-spend demo smoke, and run the same report pipeline as CLI mode with live progress
+- **Run Report** — Select session/model/budgets, confirm Wealthsimple CSV paths, preview holdings, see the Ready To Run verdict, check setup, run no-spend demo smoke, and run the same report pipeline as CLI mode with live progress
 - **Report Viewer** — Opens the latest generated markdown report with styled headings, readable paragraph spacing, aligned table blocks, native word search, highlighted matches, Next/Previous controls, and search paths behind **Show Search Paths**
 - **History** — Browse previous markdown reports with input CSV names, action counts, warning counts, data-confidence labels, and the same styled markdown renderer
 - **Config Editor** — Edit `config/settings.json`, `config/watchlist.json`, or fallback `config/portfolio.json` with JSON validation
 - **Data Files** — Show setup readiness, recommended CSV candidates, saved holdings/activities defaults, API key file, reports folder, recommendation logs folder, uploads folder, and workspace path
 - **API Checks** — Check Anthropic, yfinance, Finnhub, Polygon, Twelve Data, FRED, CoinGecko, and Alpha Vantage connectivity; show every API-key file path and active storage mode; add/update/delete API keys from the app
-- **Diagnostics** — Shows Preflight/doctor status, source degradation health, recent errors, copyable diagnostics, and a redacted support-bundle zip export
+- **Diagnostics** — Shows Preflight/doctor status, source degradation health, recent errors, copyable diagnostics, support-bundle contents preview, and a redacted support-bundle zip export
 - **Updates** — Check GitHub Releases, force-refresh the update cache, download/apply newer versions, verify release checksums when present, and view update logs
 
 The embedded viewer is a native styled markdown reader. Use Streamlit if you specifically want browser-rendered markdown, side-by-side history comparison, and download buttons.
@@ -757,7 +775,7 @@ Push a version tag to trigger automatic builds:
 ```bash
 git tag v1.21.0 && git push --tags
 ```
-GitHub Actions runs the three-OS test gate first, then builds macOS `.dmg`, Windows installer/zip artifacts, Linux AppImage/tarball artifacts, and `SHA256SUMS.txt`. The workflow creates a **draft** GitHub Release. Download artifacts, smoke-open them, verify checksums, then publish the draft from the [Releases page](https://github.com/pouyafath/tech_stock/releases).
+GitHub Actions runs the three-OS test gate first, then builds macOS `.dmg`, Windows installer/zip artifacts, Linux AppImage/tarball artifacts, and `SHA256SUMS.txt`. Each platform build runs `python tools/package_smoke.py` before upload to confirm the executable, version metadata, and bundled UI/support modules are present. The workflow creates a **draft** GitHub Release. Download artifacts, smoke-open them, verify checksums, then publish the draft from the [Releases page](https://github.com/pouyafath/tech_stock/releases).
 
 Current macOS release artifacts are ad-hoc signed but not notarized. That means Apple Gatekeeper can block first launch until the user approves it in **System Settings → Privacy & Security → Open Anyway**. A warning-free macOS release requires an Apple Developer Program account, Developer ID signing, notarization, and stapling in the release workflow.
 
@@ -1279,15 +1297,17 @@ For issues or questions:
 
 ---
 
-**Last updated:** June 14, 2026 — v1.31.0 setup readiness, recommended CSV
-candidate confirmation, redacted support-bundle zip export, v1.30.0 Data Files
-workspace, pre-run checklists, saved CSV defaults, no-spend demo smoke buttons,
-richer history, v1.29.0 CSV Health diagnostics, swapped-file protection,
-sample-data paid-run blocking, v1.28.0 release-health diagnostics,
-updater simulation, v1.27.2 desktop consolidation, CI coverage stabilization,
-release-gate dependency auditing, Node 24 workflow readiness, macro-regime
-gates, concentration alerts, and v1 release-line cleanup.
-**Version:** 1.31.0
+**Last updated:** June 14, 2026 — v1.32.0 Ready To Run paid-run verdicts,
+support-bundle preview, report Actionability Check, package smoke checks,
+v1.31.0 setup readiness, recommended CSV candidate confirmation, redacted
+support-bundle zip export, v1.30.0 Data Files workspace, pre-run checklists,
+saved CSV defaults, no-spend demo smoke buttons, richer history, v1.29.0 CSV
+Health diagnostics, swapped-file protection, sample-data paid-run blocking,
+v1.28.0 release-health diagnostics, updater simulation, v1.27.2 desktop
+consolidation, CI coverage stabilization, release-gate dependency auditing,
+Node 24 workflow readiness, macro-regime gates, concentration alerts, and v1
+release-line cleanup.
+**Version:** 1.32.0
 **Status:** Production-ready v1 line — deterministic quality gates,
 trade-readiness classifier, Data Confidence, source-backed Buy Signals,
 doctor/preflight diagnostics, setup readiness, redacted support bundle export,

@@ -59,3 +59,5 @@ jobs:
           pip install pyinstaller
       - name: Validate PyInstaller is available
         run: pyinstaller --version
+      - name: Validate package-smoke source checks
+        run: python tools/package_smoke.py --platform source --dist .

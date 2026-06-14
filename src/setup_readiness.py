@@ -28,7 +28,7 @@ from src.data_files import (
     selected_data_files,
 )
 from src.onboarding import current_state, demo_snapshot, stage_guidance
-from src.preflight import build_preflight, doctor_text, run_demo_smoke_test
+from src.preflight import build_preflight, run_demo_smoke_test
 from src.version import APP_VERSION
 
 _SECRET_RE = re.compile(r"(sk-ant-[A-Za-z0-9_\-]+|[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,})")
@@ -45,6 +45,45 @@ class SupportBundleResult:
 
     def to_dict(self) -> dict[str, Any]:
         return _jsonable(asdict(self))
+
+
+SUPPORT_BUNDLE_FILES = [
+    {
+        "path": "support/doctor.json",
+        "description": "Doctor/preflight status: version, update cache, workspace, API-key discovery, CSV freshness, budget, release assets.",
+        "privacy": "Contains only API-key presence/status, never raw key values.",
+    },
+    {
+        "path": "support/setup_readiness.json",
+        "description": "First-run readiness, paid-run checklist, and CSV candidate metadata.",
+        "privacy": "Contains CSV filenames, paths, schema summaries, row-count hints, and freshness; no raw CSV contents.",
+    },
+    {
+        "path": "support/data_files.json",
+        "description": "Workspace folders, selected CSV defaults, report/log/upload paths, and API key search paths.",
+        "privacy": "Path metadata only.",
+    },
+    {
+        "path": "support/diagnostics.jsonl",
+        "description": "Recent structured diagnostic events from logs/diagnostics.jsonl.",
+        "privacy": "Secret-like tokens are redacted before writing.",
+    },
+    {
+        "path": "support/README.txt",
+        "description": "Plain-language privacy notes for the support bundle.",
+        "privacy": "No app data.",
+    },
+]
+
+SUPPORT_BUNDLE_EXCLUSIONS = [
+    "API_KEYS.txt",
+    ".env",
+    ".env.zip",
+    "raw Wealthsimple holdings/activity CSV contents",
+    "generated report markdown",
+    "generated recommendation JSON logs",
+    "browser cookies, OS keychain entries, and unrelated local files",
+]
 
 
 def csv_choice_rows(kind: str, *, limit: int = 12) -> list[dict[str, Any]]:
@@ -208,6 +247,72 @@ def setup_readiness_view(
     )
 
 
+def paid_run_readiness_view(
+    *,
+    holdings_csv: str | Path | None = None,
+    activities_csv: str | Path | None = None,
+    use_fallback_config: bool = False,
+    dry_run: bool = False,
+    model_choice: str | None = "sonnet",
+    budget_usd: float | None = None,
+    budget_cad: float | None = None,
+    timeout: float = 4.0,
+) -> dict[str, Any]:
+    """Convert the pre-run checklist into a compact run/no-run guide."""
+    checklist = build_pre_run_checklist(
+        holdings_csv=holdings_csv,
+        activities_csv=activities_csv,
+        use_fallback_config=use_fallback_config,
+        dry_run=dry_run,
+        timeout=timeout,
+    )
+    rows = list(checklist.get("rows") or [])
+    warning_rows = [row for row in rows if row.get("status") == "WARN"]
+    blocking_rows = [row for row in rows if row.get("blocking")]
+    if blocking_rows:
+        status = "BLOCKED"
+        primary_action = checklist.get("next_action") or "Fix blocking checklist items before running."
+        summary = f"{len(blocking_rows)} blocking issue(s) must be fixed before a paid run."
+    elif warning_rows:
+        status = "REVIEW_FIRST"
+        primary_action = "Review warning rows and run only if you accept the reduced coverage or stale-data risk."
+        summary = f"Ready with {len(warning_rows)} warning(s). Paid run is allowed, but review first."
+    else:
+        status = "READY"
+        primary_action = "Run report."
+        summary = "Ready for a paid Claude report run."
+
+    run_mode = "Dry run / demo smoke" if dry_run else "Paid Claude report"
+    spend_detail = "No Claude spend." if dry_run else "Uses Anthropic credits; current Sonnet baseline is about $0.22/run."
+    if not dry_run and (budget_usd or budget_cad):
+        spend_detail += f" User budget input: ${float(budget_usd or 0):,.0f} USD / ${float(budget_cad or 0):,.0f} CAD."
+    steps = [
+        {
+            "step": "Run mode",
+            "status": "SKIP" if dry_run else "OK",
+            "detail": f"{run_mode}; model={model_choice or 'default'}. {spend_detail}",
+            "action": "",
+        },
+        *_readiness_steps(rows),
+    ]
+    return _jsonable(
+        {
+            "app_version": APP_VERSION,
+            "generated_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
+            "status": status,
+            "can_run": bool(checklist.get("can_run")),
+            "requires_warning_confirmation": bool(checklist.get("can_run") and warning_rows and not dry_run),
+            "blocking_count": len(blocking_rows),
+            "warning_count": len(warning_rows),
+            "summary": summary,
+            "primary_action": primary_action,
+            "next_action": primary_action,
+            "checklist": checklist,
+            "steps": steps,
+        }
+    )
+
+
 def support_bundle_payload(*, include_demo_smoke: bool = False, force_update: bool = True) -> dict[str, Any]:
     """Return a redacted JSON payload suitable for support tickets."""
     from src.observability import support_bundle as diagnostics_jsonl
@@ -230,6 +335,24 @@ def support_bundle_payload(*, include_demo_smoke: bool = False, force_update: bo
         ],
     }
     return _redact(_jsonable(payload))
+
+
+def support_bundle_preview(*, include_demo_smoke: bool = False) -> dict[str, Any]:
+    """Describe support-bundle contents before writing a zip file."""
+    files = [dict(row) for row in SUPPORT_BUNDLE_FILES]
+    if include_demo_smoke:
+        files[1]["description"] += " Includes bundled demo-smoke results."
+    return _jsonable(
+        {
+            "app_version": APP_VERSION,
+            "generated_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
+            "file_count": len(files),
+            "files": files,
+            "excluded": SUPPORT_BUNDLE_EXCLUSIONS,
+            "safe_to_share": True,
+            "privacy_note": "The export is redacted and excludes raw API key files, raw CSV contents, generated reports, and unrelated local files.",
+        }
+    )
 
 
 def export_support_bundle(*, output_dir: str | Path | None = None, include_demo_smoke: bool = False) -> SupportBundleResult:
@@ -267,6 +390,22 @@ def support_bundle_summary_text(result: SupportBundleResult) -> str:
     return f"Exported support bundle ({result.file_count} files, {result.bytes_written / 1024:,.1f} KB): {result.output_path}"
 
 
+def support_bundle_preview_text(preview: dict[str, Any]) -> str:
+    lines = [
+        f"tech_stock support bundle preview v{preview.get('app_version')} — {preview.get('file_count', 0)} files",
+        preview.get("privacy_note") or "Redacted support bundle.",
+        "",
+        "Included:",
+    ]
+    for item in preview.get("files") or []:
+        lines.append(f"- {item.get('path')}: {item.get('description')} Privacy: {item.get('privacy')}")
+    lines.append("")
+    lines.append("Excluded:")
+    for item in preview.get("excluded") or []:
+        lines.append(f"- {item}")
+    return "\n".join(lines)
+
+
 def setup_readiness_text(view: dict[str, Any]) -> str:
     lines = [f"tech_stock setup readiness v{view.get('app_version')} — {view.get('status')}"]
     for row in view.get("rows") or []:
@@ -293,10 +432,30 @@ def cli_support_bundle(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     parser.add_argument("--output-dir", type=Path, help="Directory for the support zip. Defaults to <workspace>/exports.")
     parser.add_argument("--demo-smoke", action="store_true", help="Include no-spend demo smoke output in the support payload.")
+    parser.add_argument("--preview", action="store_true", help="Show the redacted bundle contents without writing a zip.")
     args = parser.parse_args(argv)
+    if args.preview:
+        preview = support_bundle_preview(include_demo_smoke=args.demo_smoke)
+        print(json.dumps(preview, indent=2, sort_keys=True) if args.json else support_bundle_preview_text(preview))
+        return 0
     result = export_support_bundle(output_dir=args.output_dir, include_demo_smoke=args.demo_smoke)
     print(json.dumps(result.to_dict(), indent=2, sort_keys=True) if args.json else support_bundle_summary_text(result))
     return 0 if result.ok else 1
+
+
+def _readiness_steps(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    steps: list[dict[str, Any]] = []
+    for row in rows:
+        status = "BLOCKED" if row.get("blocking") else row.get("status") or ""
+        steps.append(
+            {
+                "step": row.get("check") or "",
+                "status": status,
+                "detail": row.get("detail") or "",
+                "action": row.get("action") or "",
+            }
+        )
+    return steps
 
 
 def _checklist_rows(checklist: dict[str, Any]) -> list[dict[str, str]]:
@@ -450,9 +609,12 @@ def _redact_text(text: str) -> str:
 __all__ = [
     "SupportBundleResult",
     "csv_choice_rows",
+    "paid_run_readiness_view",
     "setup_readiness_view",
     "setup_readiness_text",
     "support_bundle_payload",
+    "support_bundle_preview",
+    "support_bundle_preview_text",
     "export_support_bundle",
     "support_bundle_summary_text",
     "cli_setup",

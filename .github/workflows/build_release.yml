@@ -55,6 +55,9 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: pytest -q
 
+      - name: Package smoke source check
+        run: python tools/package_smoke.py --platform source --dist .
+
       - name: Dependency vulnerability audit
         if: matrix.os == 'ubuntu-22.04'
         run: pip-audit --requirement requirements.txt
@@ -113,6 +116,9 @@ jobs:
 
       - name: Build with PyInstaller
         run: pyinstaller tech_stock.spec --noconfirm --clean
+
+      - name: Smoke-check macOS app bundle
+        run: python tools/package_smoke.py --platform macos --dist dist
 
       - name: Ad-hoc code-sign (notarisation hook lands in v1.21+)
         run: codesign --force --deep --sign - dist/tech_stock.app || true
@@ -178,6 +184,9 @@ jobs:
       - name: Build with PyInstaller
         run: pyinstaller tech_stock.spec --noconfirm --clean
 
+      - name: Smoke-check Windows app folder
+        run: python tools/package_smoke.py --platform windows --dist dist
+
       - name: Parse version from src/version.py
         id: version
         shell: pwsh
@@ -240,6 +249,9 @@ jobs:
 
       - name: Run build_linux.sh
         run: bash build_linux.sh
+
+      - name: Smoke-check Linux artifact
+        run: python tools/package_smoke.py --platform linux --dist dist
 
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@v4

@@ -4,6 +4,35 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.32.0] — 2026-06-14
+
+### Added
+- Added a shared paid-run readiness view used by Desktop, Streamlit, and
+  Textual. It converts the pre-run checklist into `READY`, `REVIEW_FIRST`, or
+  `BLOCKED`, shows the primary next action, and makes warning-confirmation
+  requirements explicit before Claude spend.
+- Added support-bundle previews in the UI and `python src/main.py
+  support-bundle --preview`, listing every file that will be included and every
+  sensitive artifact that is excluded before writing a zip.
+- Added a top-level **Actionability Check** section near the top of generated
+  reports with data-confidence verdict, quote freshness, source coverage,
+  catalyst coverage, warning count, buy-signal readiness, and the top reason to
+  review or block.
+- Added `tools/package_smoke.py` and CI/release workflow hooks to verify source
+  checkout health plus macOS, Windows, and Linux package structure/version
+  metadata before artifacts are uploaded.
+
+### Changed
+- Desktop Run Report now shows a clearer **Ready To Run** panel above the raw
+  pre-run checklist.
+- Desktop Diagnostics, Streamlit Diagnostics/Data Files, and Textual Data Files
+  now show support-bundle contents before export.
+- Build & Release now fails platform builds before upload if package smoke
+  checks detect missing executables, version metadata, or bundled UI/support
+  modules.
+
+---
+
 ## [1.31.0] — 2026-06-14
 
 ### Added

@@ -91,6 +91,26 @@ def test_run_report_from_ui_blocks_failed_preflight(monkeypatch):
     assert result.console == "blocked"
 
 
+def test_ui_support_paid_readiness_and_support_preview_wrappers(monkeypatch):
+    monkeypatch.setattr(
+        ui_support,
+        "build_paid_run_readiness_view",
+        lambda **kwargs: {"status": "READY", "holdings": str(kwargs["holdings_csv"])},
+    )
+    monkeypatch.setattr(
+        ui_support,
+        "build_support_bundle_preview",
+        lambda include_demo_smoke=False: {"file_count": 5, "include_demo_smoke": include_demo_smoke},
+    )
+
+    readiness = ui_support.paid_run_readiness_view(holdings_csv="~/holdings.csv")
+    preview = ui_support.support_bundle_preview(include_demo_smoke=True)
+
+    assert readiness["status"] == "READY"
+    assert readiness["holdings"].endswith("holdings.csv")
+    assert preview == {"file_count": 5, "include_demo_smoke": True}
+
+
 def test_list_reports_returns_newest_first(monkeypatch, tmp_path):
     older = tmp_path / "20260101_0900_morning.md"
     newer = tmp_path / "20260102_0900_morning.md"

@@ -62,7 +62,13 @@ from src.setup_readiness import (
     export_support_bundle as export_setup_support_bundle,
 )
 from src.setup_readiness import (
+    paid_run_readiness_view as build_paid_run_readiness_view,
+)
+from src.setup_readiness import (
     setup_readiness_view as build_setup_readiness_view,
+)
+from src.setup_readiness import (
+    support_bundle_preview as build_support_bundle_preview,
 )
 from src.setup_readiness import (
     support_bundle_summary_text,
@@ -690,6 +696,27 @@ def pre_run_checklist_view(
     )
 
 
+def paid_run_readiness_view(
+    *,
+    holdings_csv: str | Path | None = None,
+    activities_csv: str | Path | None = None,
+    use_fallback_config: bool = False,
+    dry_run: bool = False,
+    model_choice: str | None = "sonnet",
+    budget_usd: float | None = None,
+    budget_cad: float | None = None,
+) -> dict[str, Any]:
+    return build_paid_run_readiness_view(
+        holdings_csv=normalize_optional_path(holdings_csv),
+        activities_csv=normalize_optional_path(activities_csv),
+        use_fallback_config=use_fallback_config,
+        dry_run=dry_run,
+        model_choice=model_choice,
+        budget_usd=budget_usd,
+        budget_cad=budget_cad,
+    )
+
+
 def read_text_file(path: str | Path | None) -> str:
     resolved = normalize_optional_path(path)
     if not resolved or not resolved.exists():
@@ -790,6 +817,11 @@ def setup_readiness_view(*, include_demo_smoke: bool = False, force_update: bool
 def csv_choice_view(kind: str, *, limit: int = 12) -> list[dict[str, Any]]:
     """Shared Wealthsimple CSV candidate/confirmation rows."""
     return build_csv_choice_rows(kind, limit=limit)
+
+
+def support_bundle_preview(*, include_demo_smoke: bool = False) -> dict[str, Any]:
+    """Describe support-bundle contents before exporting a zip."""
+    return build_support_bundle_preview(include_demo_smoke=include_demo_smoke)
 
 
 def export_support_bundle(*, output_dir: str | Path | None = None, include_demo_smoke: bool = False) -> dict[str, Any]:

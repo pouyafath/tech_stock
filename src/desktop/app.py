@@ -51,6 +51,7 @@ from src.ui_support import (
     latest_report,
     learning_view,
     list_reports,
+    paid_run_readiness_view,
     pre_run_checklist_view,
     preview_holdings_csv,
     read_editable_json,
@@ -62,6 +63,7 @@ from src.ui_support import (
     save_api_key,
     save_selected_data_files,
     setup_readiness_view,
+    support_bundle_preview,
     validate_json_text,
     write_editable_json,
 )
@@ -1483,6 +1485,18 @@ class DesktopApp(tk.Tk):
         self.run_status = tk.StringVar(value=f"Ready — press {MOD_LABEL}N to get started.")
         ttk.Label(actions, textvariable=self.run_status, background=self.panel, foreground=self.muted).pack(side="left", padx=12)
 
+        readiness = self._panel(self.run_tab, "Ready To Run")
+        readiness.pack(fill="x", padx=16, pady=(0, 16))
+        self.run_readiness_summary = tk.StringVar(value="Click Check Setup to verify paid-run readiness.")
+        ttk.Label(readiness, textvariable=self.run_readiness_summary, style="Muted.TLabel").pack(anchor="w", pady=(0, 8))
+        self.run_readiness_tree = self._make_tree(
+            readiness,
+            ["step", "status", "detail", "action"],
+            [150, 90, 520, 440],
+            height=5,
+        )
+        self.run_readiness_tree.pack(fill="x")
+
         preflight = self._panel(self.run_tab, "Pre-run Checklist")
         preflight.pack(fill="x", padx=16, pady=(0, 16))
         self.run_preflight_tree = self._make_tree(
@@ -2643,6 +2657,13 @@ class DesktopApp(tk.Tk):
         ttk.Button(bundle_buttons, text="Copy to clipboard", command=self._copy_diagnostics_bundle).pack(side="left")
         ttk.Button(bundle_buttons, text="Export support zip", command=self.export_support_bundle_from_desktop).pack(side="left", padx=8)
         ttk.Button(bundle_buttons, text="Open log folder", command=self._open_diagnostics_log_folder).pack(side="left", padx=8)
+        self.diagnostics_support_preview_tree = self._make_tree(
+            bundle_panel,
+            ["item", "included", "detail"],
+            [240, 90, 820],
+            height=6,
+        )
+        self.diagnostics_support_preview_tree.pack(fill="x", pady=(0, 8))
         self.diagnostics_bundle_text = tk.Text(
             bundle_panel,
             height=8,
@@ -2735,6 +2756,14 @@ class DesktopApp(tk.Tk):
         self._replace_tree_rows(self.diagnostics_errors_tree, error_rows)
 
         # — Support bundle —
+        preview = support_bundle_preview(include_demo_smoke=False)
+        preview_rows = []
+        for item in preview.get("files") or []:
+            preview_rows.append([item.get("path") or "", "YES", item.get("description") or ""])
+        excluded = ", ".join(str(item) for item in preview.get("excluded") or [])
+        if excluded:
+            preview_rows.append(["Excluded", "NO", excluded])
+        self._replace_tree_rows(self.diagnostics_support_preview_tree, preview_rows)
         bundle = diagnostics_support_bundle(limit=200)
         self.diagnostics_bundle_text.configure(state="normal")
         self.diagnostics_bundle_text.delete("1.0", "end")
@@ -3409,6 +3438,34 @@ class DesktopApp(tk.Tk):
         )
 
     def refresh_run_preflight(self) -> dict[str, Any]:
+        try:
+            budget_usd = float(self.budget_usd_var.get() or 0)
+        except ValueError:
+            budget_usd = 0.0
+        try:
+            budget_cad = float(self.budget_cad_var.get() or 0)
+        except ValueError:
+            budget_cad = 0.0
+        readiness = paid_run_readiness_view(
+            holdings_csv=self.holdings_var.get().strip() or None,
+            activities_csv=self.activities_var.get().strip() or None,
+            use_fallback_config=not bool(self.holdings_var.get().strip()),
+            model_choice=self.model_var.get(),
+            budget_usd=budget_usd,
+            budget_cad=budget_cad,
+        )
+        readiness_rows = [
+            [
+                row.get("step") or "",
+                row.get("status") or "",
+                row.get("detail") or "",
+                row.get("action") or "",
+            ]
+            for row in readiness.get("steps") or []
+        ]
+        self._replace_tree_rows(self.run_readiness_tree, readiness_rows, tag_index=1)
+        self.run_readiness_summary.set(f"{readiness.get('status')}: {readiness.get('summary') or readiness.get('next_action')}")
+
         checklist = pre_run_checklist_view(
             holdings_csv=self.holdings_var.get().strip() or None,
             activities_csv=self.activities_var.get().strip() or None,
