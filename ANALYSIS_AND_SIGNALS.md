@@ -343,6 +343,8 @@ Before taking action:
 6. Check position and company exposure after the proposed trade.
 7. Review stop, take-profit, invalidation, and time horizon.
 8. Confirm the order type and executable market price in the brokerage app.
+9. Record the actual decision in Report Review or Decision Journal so future
+   scorecards can compare the model recommendation with your follow-through.
 
 ## Code References
 
@@ -358,6 +360,7 @@ Before taking action:
 | Portfolio analytics | `src/portfolio_analytics.py` |
 | Recommendation sizing | `src/recommendation_sizing.py` |
 | Report rendering | `src/report_generator.py` |
+| Report review and feedback view | `src/report_review.py` |
 | Backtesting | `src/backtester.py` |
 | Drift tracking | `src/drift_tracker.py` |
 | Decision journal | `src/decision_journal.py` |

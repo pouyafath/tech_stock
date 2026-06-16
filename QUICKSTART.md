@@ -147,8 +147,14 @@ Start with these sections:
 4. **Risk Controls**: entry zones, stop loss, take profit, and invalidation.
 5. **Catalyst and Sources**: why the move may be happening and where the
    supporting data came from.
+6. **Report Review**: a UI summary of quality gates, drift, source degradation,
+   recommendation readiness, and pending decision feedback.
 
 Do not trade from a stale, blocked, or unverified signal.
+
+After you decide what to do, use Report Review or Decision Journal to mark each
+actionable row as accepted, ignored, modified, delayed, watch, or executed. This
+keeps `data/decision_journal.json` useful for future scorecards.
 
 ## Useful First Commands
 
@@ -158,6 +164,8 @@ python src/main.py doctor --json
 
 # Include the no-cost demo smoke test
 python src/main.py doctor --json --force-refresh --demo-smoke
+
+# In the UI, run Diagnostics -> App Self-Test for the same no-spend health check
 
 # Check for updates
 python src/main.py check-update

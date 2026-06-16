@@ -34,6 +34,7 @@ from src.ui_support import (
     api_key_inventory,
     api_key_locations,
     app_data_locations,
+    app_self_test_view,
     apply_available_update,
     buy_signal_view,
     check_update_available,
@@ -59,8 +60,10 @@ from src.ui_support import (
     relative_to_root,
     report_history_view,
     report_locations,
+    report_review_view,
     run_report_from_ui,
     save_api_key,
+    save_decision_from_ui,
     save_selected_data_files,
     setup_readiness_view,
     support_bundle_preview,
@@ -1582,6 +1585,40 @@ class DesktopApp(tk.Tk):
         self.report_paths_text.pack(fill="x")
         self.refresh_report_paths_text()
 
+        review_panel = self._panel(self.report_tab, "Report Review")
+        review_panel.pack(fill="x", padx=16, pady=(0, 12))
+        self.report_review_status = tk.StringVar(value="Load a report to review quality gates and decision feedback.")
+        ttk.Label(review_panel, textvariable=self.report_review_status, style="Muted.TLabel").pack(anchor="w", pady=(0, 8))
+        self.report_review_tree = self._make_tree(
+            review_panel,
+            ["metric", "status", "value", "next_action"],
+            [190, 120, 160, 720],
+            height=6,
+        )
+        self.report_review_tree.pack(fill="x")
+        decision_bar = ttk.Frame(review_panel, style="Panel.TFrame")
+        decision_bar.pack(fill="x", pady=(8, 0))
+        ttk.Label(decision_bar, text="Decision", style="Muted.TLabel").pack(side="left")
+        self.report_review_decision_var = tk.StringVar(value="")
+        self.report_review_decision_box = ttk.Combobox(
+            decision_bar,
+            textvariable=self.report_review_decision_var,
+            values=[],
+            state="readonly",
+            width=48,
+        )
+        self.report_review_decision_box.pack(side="left", padx=8)
+        self.report_review_choice_var = tk.StringVar(value="accepted")
+        self.report_review_choice_box = ttk.Combobox(
+            decision_bar,
+            textvariable=self.report_review_choice_var,
+            values=["accepted", "ignored", "modified", "delayed", "watch", "executed"],
+            state="readonly",
+            width=12,
+        )
+        self.report_review_choice_box.pack(side="left", padx=(0, 8))
+        ttk.Button(decision_bar, text="Save Feedback", command=self._save_report_review_decision).pack(side="left")
+
         self.report_text = ScrolledText(
             self.report_tab,
             wrap="word",
@@ -2591,6 +2628,7 @@ class DesktopApp(tk.Tk):
         toolbar = ttk.Frame(self.diagnostics_tab)
         toolbar.pack(fill="x", padx=16, pady=(16, 8))
         ttk.Button(toolbar, text="Refresh", command=self.refresh_diagnostics_tab).pack(side="left")
+        ttk.Button(toolbar, text="Run App Self-Test", command=self.refresh_app_self_test).pack(side="left", padx=(8, 0))
         self.diagnostics_window_var = tk.StringVar(value="24")
         ttk.Label(toolbar, text="Window", style="Muted.TLabel").pack(side="left", padx=(14, 4))
         window_box = ttk.Combobox(
@@ -2616,6 +2654,30 @@ class DesktopApp(tk.Tk):
             height=7,
         )
         self.diagnostics_preflight_tree.pack(fill="x")
+
+        self_test_panel = self._panel(self.diagnostics_tab, "App Self-Test")
+        self_test_panel.pack(fill="x", padx=16, pady=(0, 12))
+        self.diagnostics_self_test_tree = self._make_tree(
+            self_test_panel,
+            ["check", "status", "detail", "action"],
+            [160, 90, 520, 420],
+            height=5,
+        )
+        self.diagnostics_self_test_tree.pack(fill="x", pady=(0, 8))
+        self.diagnostics_self_test_text = tk.Text(
+            self_test_panel,
+            height=5,
+            wrap="word",
+            bg=self.surface,
+            fg=self.text,
+            font=self.fonts["mono"],
+            insertbackground=self.text,
+            relief="flat",
+            padx=10,
+            pady=8,
+        )
+        self.diagnostics_self_test_text.pack(fill="x")
+        self.diagnostics_self_test_text.configure(state="disabled")
 
         csv_panel = self._panel(self.diagnostics_tab, "CSV Health")
         csv_panel.pack(fill="x", padx=16, pady=(0, 12))
@@ -2678,6 +2740,32 @@ class DesktopApp(tk.Tk):
         )
         self.diagnostics_bundle_text.pack(fill="x")
         self.diagnostics_bundle_text.configure(state="disabled")
+
+    def refresh_app_self_test(self) -> None:
+        """Run the shared no-spend app self-test and render it in Diagnostics."""
+        if not hasattr(self, "diagnostics_self_test_tree"):
+            return
+        try:
+            view = app_self_test_view()
+        except Exception as exc:  # noqa: BLE001
+            self._replace_tree_rows(
+                self.diagnostics_self_test_tree,
+                [["App self-test", "FAIL", str(exc), "Open Diagnostics or run doctor from the terminal."]],
+            )
+            self._set_readonly_text(self.diagnostics_self_test_text, f"App self-test failed: {exc}")
+            return
+        rows = [
+            [
+                row.get("check") or "",
+                row.get("status") or "",
+                row.get("detail") or "",
+                row.get("action") or "",
+            ]
+            for row in view.get("rows") or []
+        ]
+        self._replace_tree_rows(self.diagnostics_self_test_tree, rows, tag_index=1)
+        self._set_readonly_text(self.diagnostics_self_test_text, view.get("support_summary") or "")
+        self.diagnostics_status.set(f"App self-test: {view.get('status')} · {view.get('next_action') or ''}")
 
     def refresh_diagnostics_tab(self) -> None:
         """Fetch a fresh diagnostics_view and re-render every panel."""
@@ -4171,6 +4259,71 @@ class DesktopApp(tk.Tk):
                 tags = (str(row[tag_index]).upper(),)
             tree.insert("", "end", values=row, tags=tags)
 
+    def _refresh_report_review(self, path: Path | None) -> None:
+        if not hasattr(self, "report_review_tree"):
+            return
+        if not path:
+            self.report_review_status.set("No report selected.")
+            self._replace_tree_rows(self.report_review_tree, [])
+            self.report_review_decision_rows = []
+            self.report_review_decision_box.configure(values=[])
+            self.report_review_decision_var.set("")
+            return
+        try:
+            view = report_review_view(report_path=path)
+        except Exception as exc:  # noqa: BLE001
+            self.report_review_status.set(f"Report review failed: {exc}")
+            self._replace_tree_rows(self.report_review_tree, [])
+            self.report_review_decision_rows = []
+            self.report_review_decision_box.configure(values=[])
+            self.report_review_decision_var.set("")
+            return
+
+        self.report_review_status.set(
+            f"{view.get('status_label') or 'Unknown'} · "
+            f"{view.get('session_file') or Path(path).name} · "
+            f"{len(view.get('decision_rows') or [])} actionable row(s)"
+        )
+        rows = []
+        for metric in view.get("metric_rows") or []:
+            rows.append(
+                [
+                    metric.get("metric") or "",
+                    metric.get("status") or "",
+                    metric.get("value") or "",
+                    metric.get("next_action") or metric.get("detail") or "",
+                ]
+            )
+        self._replace_tree_rows(self.report_review_tree, rows)
+
+        self.report_review_decision_rows = view.get("decision_rows") or []
+        labels = [
+            f"{row.get('ticker')} {row.get('recommended_action')} · {row.get('user_decision')} · {row.get('id')}"
+            for row in self.report_review_decision_rows
+        ]
+        self.report_review_decision_box.configure(values=labels)
+        self.report_review_decision_var.set(labels[0] if labels else "")
+
+    def _save_report_review_decision(self) -> None:
+        selected = self.report_review_decision_var.get()
+        rows = getattr(self, "report_review_decision_rows", []) or []
+        labels = [f"{row.get('ticker')} {row.get('recommended_action')} · {row.get('user_decision')} · {row.get('id')}" for row in rows]
+        if not selected or selected not in labels:
+            self.status.set("Choose a recommendation row before saving feedback.")
+            return
+        row = rows[labels.index(selected)]
+        try:
+            save_decision_from_ui(
+                str(row.get("id")),
+                user_decision=self.report_review_choice_var.get() or "accepted",
+                reason="Recorded from Desktop Report Review.",
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.status.set(f"Could not save feedback: {exc}")
+            return
+        self.status.set(f"Saved feedback for {row.get('ticker')}.")
+        self._refresh_report_review(self.latest_report_path)
+
     def load_report(self, path: Path | None, *, select_tab: bool = False) -> None:
         self.refresh_report_paths_text()
         self.latest_report_path = path
@@ -4178,11 +4331,13 @@ class DesktopApp(tk.Tk):
         if not path or not text:
             self.report_path_label.configure(text="No report selected.")
             self._render_markdown(self.report_text, "## No report found yet\n\nRun a report or choose one from History.")
+            self._refresh_report_review(None)
             self._refresh_search_after_text_change("report")
             if select_tab:
                 self._jump_to_tab(self.reports_tab, sub=self.report_subtab)
             return
         self.report_path_label.configure(text=relative_to_root(path))
+        self._refresh_report_review(path)
         self._render_markdown(self.report_text, text)
         self._refresh_search_after_text_change("report")
         if select_tab:

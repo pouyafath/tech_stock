@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT))
 from src.ui_support import (  # noqa: E402
     EDITABLE_JSON_FILES,
     api_health_view,
+    app_self_test_view,
     apply_available_update,
     buy_signal_view,
     check_update_available,
@@ -43,6 +44,7 @@ from src.ui_support import (  # noqa: E402
     read_text_file,
     relative_to_root,
     report_history_view,
+    report_review_view,
     run_backtest_summary,
     run_report_from_ui,
     save_selected_data_files,
@@ -314,6 +316,9 @@ class TechStockTUI(App):
                 yield Button("Refresh report", id="refresh_today")
                 yield Static("", id="today_path")
                 yield Markdown("", id="today_markdown")
+            with TabPane("Report Review", id="report_review"):
+                yield Button("Refresh review", id="refresh_report_review")
+                yield RichLog(id="report_review_log", wrap=True, highlight=True)
             with TabPane("History", id="history"):
                 yield Button("Refresh history", id="refresh_history")
                 yield Select(history_options, value=history_options[0][1], allow_blank=False, id="history_select")
@@ -340,6 +345,7 @@ class TechStockTUI(App):
         self._load_dashboard()
         self._show_buy_signals_placeholder()
         self._load_today_report()
+        self._load_report_review()
         self._load_history_report()
         # Backtest is NOT loaded on mount — it fetches live price data from
         # yfinance for every past recommendation, which can take 20-30 s.
@@ -372,6 +378,9 @@ class TechStockTUI(App):
             self.run_worker(self._load_buy_signals_async(), exclusive=True)
         elif button_id == "refresh_today":
             self._load_today_report()
+            self._load_report_review()
+        elif button_id == "refresh_report_review":
+            self._load_report_review()
         elif button_id == "refresh_history":
             self._refresh_history_select()
             self._load_history_report()
@@ -559,6 +568,18 @@ class TechStockTUI(App):
             log.write(
                 Text(f"Next action: {setup.get('next_action')}", style="bold #f59e0b" if setup.get("status") != "READY" else "#22c55e")
             )
+
+        self_test = app_self_test_view()
+        self_test_table = Table(title=f"App Self-Test — {self_test.get('status')}")
+        self_test_table.add_column("Check")
+        self_test_table.add_column("Status")
+        self_test_table.add_column("Detail")
+        self_test_table.add_column("Action")
+        for row in self_test.get("rows") or []:
+            status = row.get("status") or ""
+            style = "bold #ef4444" if status == "FAIL" else "#f59e0b" if status == "WARN" else "#22c55e"
+            self_test_table.add_row(row.get("check", ""), Text(status, style=style), row.get("detail", ""), row.get("action", ""))
+        log.write(self_test_table)
 
         view = data_files_view()
         table = Table(title=f"Data Files / Workspace — defaults: {relative_to_root(view.get('settings_path'))}")
@@ -814,6 +835,41 @@ class TechStockTUI(App):
         path = preferred or latest_report()
         self.query_one("#today_path", Static).update(relative_to_root(path) if path else "No report found.")
         self._update_markdown("#today_markdown", read_text_file(path) if path else "")
+
+    def _load_report_review(self) -> None:
+        try:
+            log = self.query_one("#report_review_log", RichLog)
+        except Exception:
+            return
+        log.clear()
+        view = report_review_view()
+        if not view.get("ok"):
+            log.write(Text(view.get("error") or "No report review available.", style="bold #f59e0b"))
+            return
+        log.write(
+            Text(
+                f"Status: {view.get('status_label')} | Session: {view.get('session_file')} | Report: {relative_to_root(view.get('report_path'))}",
+                style="bold #22c55e",
+            )
+        )
+        self._write_rows_table(log, "Review Gates", view.get("metric_rows") or [], ["metric", "status", "value", "next_action"])
+        if view.get("top_reasons"):
+            log.write(Text("Top reasons:", style="bold #f59e0b"))
+            for reason in view.get("top_reasons") or []:
+                log.write(f"- {reason}")
+        self._write_rows_table(
+            log,
+            "Recommendation Readiness",
+            view.get("recommendation_rows") or [],
+            ["readiness", "ticker", "action", "size", "conviction", "warnings", "risk_controls", "decision"],
+        )
+        self._write_rows_table(log, "Changed Since Previous Report", view.get("change_rows") or [], ["ticker", "change", "before", "after"])
+        self._write_rows_table(
+            log,
+            "Decision Feedback Rows",
+            view.get("decision_rows") or [],
+            ["ticker", "recommended_action", "size", "conviction", "user_decision", "id"],
+        )
 
     def _load_history_report(self) -> None:
         value = self.query_one("#history_select", Select).value

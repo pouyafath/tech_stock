@@ -4,6 +4,33 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.33.0] — 2026-06-16
+
+### Added
+- Added a shared `src/report_review.py` view model that reviews a generated
+  recommendation JSON log, quality warnings, Data Confidence, source
+  degradation, drift versus the previous report, and matching decision-journal
+  rows without live API calls or Claude spend.
+- Added Report Review surfaces to Desktop, Streamlit, and Textual. Users can
+  inspect review gates, top reasons to verify, recommendation readiness, drift,
+  source degradation, and pending feedback from the same UI payload.
+- Added contextual decision feedback from the report view. Desktop and
+  Streamlit can now mark a recommendation as accepted, ignored, modified,
+  delayed, watched, or executed directly from the report review flow.
+- Added a no-spend app self-test payload surfaced in Desktop Diagnostics,
+  Streamlit Diagnostics, and Textual Data Files. It checks version metadata,
+  setup readiness, bundled demo smoke, report-review loading, and support-bundle
+  availability.
+
+### Changed
+- Report Viewer / Today's Report now pairs the rendered markdown with a compact
+  review summary so users do not need to manually cross-check the JSON log,
+  History, Diagnostics, and Decision Journal after every run.
+- Diagnostics now includes a copyable app self-test summary suitable for support
+  requests without exposing API keys or raw Wealthsimple CSV contents.
+
+---
+
 ## [1.32.0] — 2026-06-14
 
 ### Added

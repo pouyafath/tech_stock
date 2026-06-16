@@ -13,6 +13,9 @@ It checks the installed version, latest published release, update cache,
 workspace, API key discovery, CSV Health, monthly budget, release assets,
 checksums, bundled demo data, and UI view models.
 
+In Desktop or Streamlit, open **Diagnostics** and run **App Self-Test** for the
+same no-spend health check plus Report Review and support-bundle loading.
+
 For a shorter first-run/setup view, use:
 
 ```bash
@@ -217,6 +220,10 @@ Common causes:
 - Optional source degradation.
 
 Read **Data Confidence** and **Report Quality Warnings** before the action table.
+Then open **Report Review** to see the same gates, source degradation, drift, and
+pending decision-feedback rows in one UI panel. If Report Review cannot load,
+the matching markdown report and JSON log names probably do not share the same
+timestamp stem, or the JSON log is unreadable.
 
 ## macOS Blocks The App
 

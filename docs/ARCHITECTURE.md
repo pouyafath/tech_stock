@@ -66,6 +66,7 @@ write; Claude API call).
 | `src/report_quality.py` | The 7-layer quality gate (catalyst, stale-position, thesis decay, trailing stop, VIX regime, conviction sizing, drawdown) |
 | `src/data_confidence.py` | Shared quote/source/catalyst/readiness trust summary for reports and UIs |
 | `src/report_generator.py` | Markdown + CSV + JSON log output |
+| `src/report_review.py` | Shared report-review and feedback-loop view model for UIs |
 | `src/recommendation_sizing.py` | Deterministic share/fraction sizing for SELL/TRIM |
 | **API clients (all observability-logged)** | |
 | `src/finnhub_client.py` | Earnings calendar, analyst recommendations, news sentiment |
@@ -105,7 +106,7 @@ write; Claude API call).
 | `src/ui_theme.py` | Shared palette + HTML helpers + Streamlit CSS bundle |
 | **Release tooling** | |
 | `tools/package_smoke.py` | Source/package structure and version smoke checks for CI release builds |
-| `src/ui_support.py` | UI-facing data aggregators (`learning_view`, `diagnostics_view`, `decision_scorecard_summary`, setup readiness, Data Files, pre-run checklist, history surfaces, etc.) |
+| `src/ui_support.py` | UI-facing data aggregators (`learning_view`, `diagnostics_view`, `report_review_view`, `decision_scorecard_summary`, setup readiness, Data Files, pre-run checklist, history surfaces, etc.) |
 | **Infra** | |
 | `src/updater.py` | GitHub Releases auto-update + checksum verification |
 | `src/changelog_utils.py` | CHANGELOG section parser (used by CI release workflow) |
@@ -153,6 +154,9 @@ write; Claude API call).
     `data/recommendations_log/`, seed new entries into the decision
     journal, append the cost record to `data/cost_log.jsonl`, fire any
     matching notification channels.
+12. **Review** — `report_review.build_report_review` joins the matching
+    report, JSON log, Data Confidence, quality warnings, source degradation,
+    drift, and decision journal rows into one post-run UI payload.
 
 ## The 7-layer quality gate
 

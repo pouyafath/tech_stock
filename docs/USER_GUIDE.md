@@ -318,15 +318,16 @@ include:
 - **Data Files**: setup readiness, recommended CSV candidates, current
   holdings/activities CSV defaults, API-key file, reports folder,
   recommendation logs folder, uploads folder, and workspace status.
-- **Report Viewer**: styled markdown display, search, and latest report loading.
+- **Report Viewer**: styled markdown display, search, latest report loading,
+  Report Review gates, drift/source-degradation summary, and decision feedback.
 - **History**: previous report browsing with input CSV names, warning counts,
-  action counts, data-confidence labels, and rendering.
+  action counts, data-confidence labels, rendering, and per-report review.
 - **Config Editor**: validated editing for settings, watchlist, and fallback
   portfolio JSON.
 - **API Checks**: key management, discovery paths, and connectivity checks.
-- **Diagnostics**: preflight status, source degradation, recent errors, spend,
-  copyable diagnostics, support-bundle contents preview, and redacted
-  support-bundle zip export.
+- **Diagnostics**: preflight status, no-spend app self-test, source degradation,
+  recent errors, spend, copyable diagnostics, support-bundle contents preview,
+  and redacted support-bundle zip export.
 - **Updates**: release checks, cache force-refresh, checksum status, update
   actions, and logs.
 
@@ -385,6 +386,20 @@ Readiness states:
 | `BLOCKED` | A blocking data, catalyst, market-data, or position-cap issue exists. |
 
 No readiness state guarantees an executable or profitable trade.
+
+### Report Review
+
+Use **Report Review** immediately after reading the rendered markdown. It joins
+the matching JSON log, Data Confidence, deterministic quality warnings, source
+degradation, drift versus the previous report, and decision-journal rows.
+
+Desktop shows this panel above Report Viewer. Streamlit shows it in Today's
+Report and History. Textual has a dedicated **Report Review** tab.
+
+Use the feedback controls to mark actionable recommendations as `accepted`,
+`ignored`, `modified`, `delayed`, `watch`, or `executed`. The app writes those
+choices to `data/decision_journal.json`, which feeds the learning loop and
+future scorecards.
 
 ## Settings
 
@@ -546,6 +561,11 @@ The doctor payload includes:
 
 Desktop and Streamlit Diagnostics show the same CSV Health data in a table so
 you can verify the app is using the right export before spending on a report.
+
+Diagnostics also includes a no-spend **App Self-Test**. It checks version
+metadata, setup readiness, bundled demo smoke, Report Review loading, and
+support-bundle availability without calling Claude. Copy its summary when
+reporting an issue.
 
 The **Data Files** view is the faster place to check exactly which paths will be
 used. Use it before a paid run when you have multiple Wealthsimple exports in

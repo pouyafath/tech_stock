@@ -41,6 +41,27 @@ Anthropic spend:
 .venv/bin/python -m src.main doctor --json --demo-smoke
 ```
 
+In the Desktop App or Streamlit, open **Diagnostics** and run **App Self-Test**
+for a no-spend UI health check covering setup readiness, bundled demo smoke,
+Report Review loading, and support-bundle availability.
+
+## Review a report and record feedback
+
+After a report is generated, open **Report Viewer** in Desktop, **Today's
+Report** in Streamlit, or **Report Review** in Textual.
+
+Use the Report Review table to check:
+
+- Data Confidence and quality-gate status.
+- Quote/catalyst/source-degradation warnings.
+- Drift versus the previous report.
+- Recommendation readiness and missing feedback rows.
+
+Then record each actionable recommendation as accepted, ignored, modified,
+delayed, watch, or executed. Desktop and Streamlit write that feedback directly
+to `data/decision_journal.json`; Textual shows the decision row IDs for audit
+and follow-up.
+
 ## Confirm first-run setup state
 
 Use the shorter setup command when you only need the next action and the files

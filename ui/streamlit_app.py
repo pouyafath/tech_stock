@@ -35,6 +35,7 @@ from src.ui_support import (  # noqa: E402
     EDITABLE_JSON_FILES,
     api_health_view,
     api_key_inventory,
+    app_self_test_view,
     apply_available_update,
     buy_signal_view,
     check_update_available,
@@ -62,6 +63,7 @@ from src.ui_support import (  # noqa: E402
     read_text_file,
     relative_to_root,
     report_history_view,
+    report_review_view,
     run_backtest_summary,
     run_report_from_ui,
     save_api_key,
@@ -929,6 +931,73 @@ with tab_buy:
     _render_buy_signals()
 
 
+# ─── Report Review helper ─────────────────────────────────────────────────
+
+
+def _render_report_review_panel(report_path: Path | str | None, key_prefix: str) -> None:
+    view = report_review_view(report_path=report_path) if report_path else report_review_view()
+    st.markdown("### Report Review")
+    if not view.get("ok"):
+        st.warning(view.get("error") or "No matching recommendation JSON log found.")
+        return
+
+    status = view.get("status_label") or "Unknown"
+    confidence = view.get("data_confidence") or {}
+    col_status, col_warn, col_pending = st.columns(3)
+    col_status.metric("Review status", status)
+    col_warn.metric("Quality warnings", confidence.get("warning_count", 0))
+    pending = sum(1 for row in view.get("decision_rows") or [] if row.get("user_decision") == "pending")
+    col_pending.metric("Pending decisions", pending)
+
+    metric_rows = view.get("metric_rows") or []
+    if metric_rows:
+        st.dataframe(pd.DataFrame(metric_rows), hide_index=True, width="stretch")
+    reasons = view.get("top_reasons") or []
+    if reasons:
+        st.markdown("**Why this needs attention**")
+        for reason in reasons[:5]:
+            st.caption(f"- {reason}")
+
+    rec_rows = view.get("recommendation_rows") or []
+    if rec_rows:
+        with st.expander("Recommendation readiness", expanded=False):
+            st.dataframe(pd.DataFrame(rec_rows), hide_index=True, width="stretch")
+
+    change_rows = view.get("change_rows") or []
+    if change_rows:
+        with st.expander("Changed since previous report", expanded=False):
+            st.dataframe(pd.DataFrame(change_rows), hide_index=True, width="stretch")
+
+    decision_rows = view.get("decision_rows") or []
+    if decision_rows:
+        with st.expander("Record decision feedback", expanded=False):
+            labels = [
+                f"{row.get('ticker')} {row.get('recommended_action')} · current: {row.get('user_decision')} · {row.get('id')}"
+                for row in decision_rows
+            ]
+            selected = st.selectbox("Recommendation", labels, key=f"{key_prefix}_decision_row")
+            decision = st.selectbox(
+                "Your decision",
+                ["accepted", "ignored", "modified", "delayed", "watch", "executed"],
+                key=f"{key_prefix}_decision_value",
+            )
+            reason = st.text_input("Reason / note", key=f"{key_prefix}_decision_reason")
+            if st.button("Save decision feedback", key=f"{key_prefix}_save_decision"):
+                row = decision_rows[labels.index(selected)]
+                try:
+                    save_decision_from_ui(
+                        str(row.get("id")),
+                        user_decision=decision,
+                        reason=reason or "Recorded from report review.",
+                    )
+                    st.success("Decision feedback saved.")
+                except Exception as exc:  # noqa: BLE001
+                    st.error(f"Could not save decision feedback: {exc}")
+
+    with st.expander("Copyable support summary", expanded=False):
+        st.code(view.get("support_summary") or "", language="text")
+
+
 # ─── Today's Report ────────────────────────────────────────────────────────
 
 with tab_report:
@@ -955,6 +1024,8 @@ with tab_report:
             )
         with st.container(border=True):
             st.markdown(read_text_file(report_path))
+        with st.container(border=True):
+            _render_report_review_panel(report_path, "today")
 
 
 # ─── Run Report ────────────────────────────────────────────────────────────
@@ -1350,6 +1421,8 @@ with tab_history:
                         f"Data confidence: {selected_row.get('data_confidence') or 'unknown'}"
                     )
                     st.markdown(read_text_file(selected_report))
+                with st.container(border=True):
+                    _render_report_review_panel(selected_report, "history")
 
 
 # ─── Performance ──────────────────────────────────────────────────────────
@@ -2104,6 +2177,19 @@ def _render_diagnostics() -> None:
     if cache_key not in st.session_state:
         st.session_state[cache_key] = diagnostics_view(hours=int(window))
     view = st.session_state[cache_key]
+
+    st.markdown("### App Self-Test")
+    if st.button("Run no-spend self-test", width="stretch", key="diag_self_test"):
+        st.session_state["diag_self_test_cache"] = app_self_test_view()
+    self_test = st.session_state.get("diag_self_test_cache")
+    if self_test:
+        col_status, col_warn, col_fail = st.columns(3)
+        col_status.metric("Status", self_test.get("status"))
+        col_warn.metric("Warnings", self_test.get("warn_count", 0))
+        col_fail.metric("Failures", self_test.get("fail_count", 0))
+        st.dataframe(pd.DataFrame(self_test.get("rows") or []), hide_index=True, width="stretch")
+        with st.expander("Copyable self-test summary", expanded=False):
+            st.code(self_test.get("support_summary") or "", language="text")
 
     preflight = view.get("preflight") or {}
     rows = preflight.get("summary_rows") or []

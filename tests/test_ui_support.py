@@ -191,6 +191,56 @@ def test_report_history_view_includes_input_files_and_signal_counts(monkeypatch,
     assert row["warning_count"] == 1
 
 
+def test_report_review_view_matches_report_to_log_and_seeds_journal(monkeypatch, tmp_path):
+    report_dir = tmp_path / "reports"
+    log_dir = tmp_path / "recommendations_log"
+    data_dir = tmp_path / "data"
+    report_dir.mkdir()
+    log_dir.mkdir()
+    data_dir.mkdir()
+    report = report_dir / "20260616_0900_morning.md"
+    report.write_text("# Report", encoding="utf-8")
+    log = log_dir / "20260616_0900_morning.json"
+    log.write_text(
+        json.dumps(
+            {
+                "recommendations": [{"ticker": "AMD", "action": "TRIM", "conviction": 8}],
+                "quality_warnings": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ui_support, "REPORTS_DIR", report_dir)
+    monkeypatch.setattr(ui_support, "RECS_LOG_DIR", log_dir)
+    monkeypatch.setattr(ui_support, "DECISION_JOURNAL_PATH", data_dir / "decision_journal.json")
+
+    view = ui_support.report_review_view(report_path=report)
+
+    assert view["ok"] is True
+    assert view["log_path"] == log
+    assert view["decision_rows"][0]["ticker"] == "AMD"
+    assert (data_dir / "decision_journal.json").exists()
+
+
+def test_app_self_test_view_returns_rows(monkeypatch):
+    monkeypatch.setattr(ui_support, "setup_readiness_view", lambda **_kwargs: {"status": "READY", "next_action": ""})
+    monkeypatch.setattr(ui_support, "demo_smoke_view", lambda: {"ok": True, "message": "demo passed"})
+    monkeypatch.setattr(
+        ui_support, "report_review_view", lambda **_kwargs: {"ok": True, "status_label": "Trade Ready", "session_file": "x.json"}
+    )
+    monkeypatch.setattr(
+        ui_support,
+        "support_bundle_preview",
+        lambda **_kwargs: {"safe_to_share": True, "file_count": 3, "privacy_note": "redacted"},
+    )
+
+    view = ui_support.app_self_test_view()
+
+    assert view["status"] == "READY"
+    assert len(view["rows"]) == 5
+    assert "tech_stock app self-test" in view["support_summary"]
+
+
 def test_write_editable_json_validates_and_formats(monkeypatch, tmp_path):
     settings = tmp_path / "settings.json"
     monkeypatch.setitem(ui_support.EDITABLE_JSON_FILES, "Settings", settings)

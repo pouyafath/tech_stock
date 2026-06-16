@@ -33,6 +33,7 @@ from src.decision_journal import (
     journal_status,
     load_journal,
     record_decision,
+    seed_from_recommendation_log,
 )
 from src.decision_journal import (
     run_scorecard as run_decision_scorecard,
@@ -55,6 +56,7 @@ from src.news_fetcher import aggregate_sentiment, get_news_for_tickers
 from src.portfolio_loader import parse_holdings_csv
 from src.preflight import build_preflight, run_demo_smoke_test
 from src.report_pipeline import ReportPipeline
+from src.report_review import build_report_review
 from src.setup_readiness import (
     csv_choice_rows as build_csv_choice_rows,
 )
@@ -445,6 +447,54 @@ def report_history_view(limit: int = 100) -> dict[str, Any]:
     return {"rows": rows, "reports": reports}
 
 
+def _matching_log_for_report(report_path: Path | None) -> Path | None:
+    if not report_path:
+        return None
+    candidate = RECS_LOG_DIR / f"{report_path.stem}.json"
+    if candidate.exists():
+        return candidate
+    logs = {path.stem: path for path in list_logs(limit=500)}
+    return logs.get(report_path.stem)
+
+
+def _matching_report_for_log(log_path: Path | None) -> Path | None:
+    if not log_path:
+        return None
+    for report in list_reports(limit=500):
+        if report.stem == log_path.stem:
+            return report
+    return None
+
+
+def report_review_view(
+    *,
+    report_path: str | Path | None = None,
+    log_path: str | Path | None = None,
+    seed_journal: bool = True,
+) -> dict[str, Any]:
+    """Return a shared report-review payload for Desktop/Streamlit/Textual."""
+    report = normalize_optional_path(report_path) if report_path else None
+    log = normalize_optional_path(log_path) if log_path else None
+    if report and not log:
+        log = _matching_log_for_report(report)
+    if log and not report:
+        report = _matching_report_for_log(log)
+    if not log:
+        log, _payload = _load_latest_log_payload()
+        if not report:
+            report = _matching_report_for_log(log) or latest_report()
+    if not log:
+        return build_report_review(
+            report_path=report,
+            log_path=None,
+            journal_path=DECISION_JOURNAL_PATH,
+            payload={"error": "No recommendation JSON logs found."},
+        )
+    if seed_journal:
+        seed_from_recommendation_log(log, DECISION_JOURNAL_PATH)
+    return build_report_review(log_path=log, report_path=report, journal_path=DECISION_JOURNAL_PATH)
+
+
 def _session_from_name(filename: str) -> str:
     stem = Path(filename).stem
     parts = stem.split("_")
@@ -822,6 +872,84 @@ def csv_choice_view(kind: str, *, limit: int = 12) -> list[dict[str, Any]]:
 def support_bundle_preview(*, include_demo_smoke: bool = False) -> dict[str, Any]:
     """Describe support-bundle contents before exporting a zip."""
     return build_support_bundle_preview(include_demo_smoke=include_demo_smoke)
+
+
+def app_self_test_view() -> dict[str, Any]:
+    """Run a no-spend app self-test and return rows every UI can render."""
+    rows: list[dict[str, Any]] = []
+
+    def add(check: str, status: str, detail: str, action: str = "") -> None:
+        rows.append({"check": check, "status": status, "detail": detail, "action": action})
+
+    add("Version", "OK", f"Installed version {APP_VERSION}")
+
+    try:
+        setup = setup_readiness_view(include_demo_smoke=False, force_update=False)
+        status = setup.get("status") or "UNKNOWN"
+        add(
+            "Setup readiness",
+            "OK" if status == "READY" else "WARN",
+            f"{status}: {setup.get('next_action') or 'ready'}",
+            setup.get("next_action") or "",
+        )
+    except Exception as exc:  # noqa: BLE001
+        add("Setup readiness", "FAIL", str(exc), "Open Diagnostics and fix the first failing preflight row.")
+
+    try:
+        demo = demo_smoke_view()
+        add(
+            "Demo smoke",
+            "OK" if demo.get("ok") else "FAIL",
+            demo.get("message") or ("passed" if demo.get("ok") else demo.get("error") or "failed"),
+            "" if demo.get("ok") else "Check bundled sample data and markdown rendering.",
+        )
+    except Exception as exc:  # noqa: BLE001
+        add("Demo smoke", "FAIL", str(exc), "Reinstall or run from a complete source checkout.")
+
+    try:
+        review = report_review_view(seed_journal=False)
+        add(
+            "Report review",
+            "OK" if review.get("ok") else "WARN",
+            f"{review.get('status_label') or 'unknown'}: {review.get('session_file') or review.get('error') or 'latest report'}",
+            "Generate a report to enable review." if not review.get("ok") else "Open Report Review / History for details.",
+        )
+    except Exception as exc:  # noqa: BLE001
+        add("Report review", "FAIL", str(exc), "Regenerate the report or inspect the matching JSON log.")
+
+    try:
+        preview = support_bundle_preview(include_demo_smoke=False)
+        add(
+            "Support bundle",
+            "OK" if preview.get("safe_to_share", True) else "WARN",
+            f"{preview.get('file_count', 0)} file(s) available; {preview.get('privacy_note') or 'redacted'}",
+            "Export support zip only when you want to share diagnostics.",
+        )
+    except Exception as exc:  # noqa: BLE001
+        add("Support bundle", "FAIL", str(exc), "Check workspace permissions.")
+
+    fail_count = sum(1 for row in rows if row.get("status") == "FAIL")
+    warn_count = sum(1 for row in rows if row.get("status") == "WARN")
+    if fail_count:
+        status = "BLOCKED"
+        next_action = next((row.get("action") for row in rows if row.get("status") == "FAIL" and row.get("action")), "")
+    elif warn_count:
+        status = "REVIEW"
+        next_action = next((row.get("action") for row in rows if row.get("status") == "WARN" and row.get("action")), "")
+    else:
+        status = "READY"
+        next_action = "App self-test passed."
+
+    summary = ["tech_stock app self-test", f"Version: {APP_VERSION}", f"Status: {status}", f"Next action: {next_action}"]
+    summary.extend(f"- {row['check']}: {row['status']} - {row['detail']}" for row in rows)
+    return {
+        "status": status,
+        "rows": rows,
+        "fail_count": fail_count,
+        "warn_count": warn_count,
+        "next_action": next_action,
+        "support_summary": "\n".join(summary),
+    }
 
 
 def export_support_bundle(*, output_dir: str | Path | None = None, include_demo_smoke: bool = False) -> dict[str, Any]:

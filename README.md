@@ -36,7 +36,9 @@
 - ✅ **Trade Readiness Badges** — Buy Signals are classified as Trade Ready / Review First / Blocked using deterministic quote, catalyst, quality-gate, and source checks
 - ✅ **Data Confidence** — Reports and dashboards show quote freshness, source coverage, catalyst coverage, warning counts, and readiness status before trade details
 - ✅ **Actionability Check** — Reports now summarize Trade Ready / Review First / Blocked status near the top before the audit sections
+- ✅ **Report Review + Feedback** — Every UI can review the latest report's gates, drift, source degradation, readiness, and pending decision-journal rows
 - ✅ **Doctor / Preflight** — `python src/main.py doctor --json` checks version, update cache, API keys, CSV Health, budget status, release assets, and demo smoke readiness
+- ✅ **No-Spend App Self-Test** — Diagnostics can validate setup readiness, bundled demo smoke, report-review loading, and support-bundle availability without Claude spend
 - ✅ **CSV Health** — Detects Wealthsimple holdings vs activities schemas, swapped files, stale exports, and sample/demo CSVs before paid runs
 - ✅ **Data Files / Workspace** — Every UI can show and save the exact CSV, API key, report, log, upload, and workspace paths the app will use
 - ✅ **Ready To Run + Pre-run Checklist** — Paid runs show a READY / REVIEW_FIRST / BLOCKED verdict and stop before Claude spend if API keys, CSV schemas, sample files, or budget checks are blocking
@@ -58,6 +60,24 @@
 - ✅ **Fast Parallel Fetching** — Concurrent API requests with caching and graceful degradation
 
 ---
+
+## ✨ What's New in v1.33.0 (June 16, 2026)
+
+**Report review and feedback-loop release.**
+
+- **Report Review everywhere** — Desktop, Streamlit, and Textual now show the
+  latest report's review gates, Data Confidence, quality warnings, source
+  degradation, drift versus the previous report, and recommendation readiness
+  from one shared view model.
+- **Decision feedback from the report** — Desktop and Streamlit can record
+  accepted / ignored / modified / delayed / watch / executed feedback directly
+  beside the report, updating `data/decision_journal.json`.
+- **No-spend app self-test** — Diagnostics now checks version metadata, setup
+  readiness, bundled demo smoke, report-review loading, and support-bundle
+  availability without Claude spend.
+- **Copyable review summaries** — Report Review and Diagnostics include compact
+  support text that can be pasted into a bug report without exposing API keys or
+  raw Wealthsimple CSV contents.
 
 ## ✨ What's New in v1.32.0 (June 14, 2026)
 
@@ -347,7 +367,7 @@ Then open `dist/tech_stock.dmg`, drag `tech_stock.app` to Applications, and laun
 - Original CLI
 - Check Updates
 
-The **Desktop App** is fully embedded in the native application and does not need a browser. It includes Dashboard, Run Report, Report Viewer, History, Config Editor, API Checks, and Updates tabs.
+The **Desktop App** is fully embedded in the native application and does not need a browser. It includes Dashboard, Buy Signals, Run Report, Report Viewer with Report Review, History, Config Editor, API Checks, Diagnostics, Data Files, and Updates tabs.
 
 The **Streamlit Web UI** remains available for users who prefer a browser dashboard. It starts a local server and opens your default browser at a local URL such as `http://localhost:8501`. If your browser does not open automatically, the launcher shows the URL so you can paste it manually.
 
@@ -597,12 +617,12 @@ Tabs:
 - **Dashboard** — Shows the next action, portfolio/risk metric cards, Data Confidence, priority action queue, quality gates, stop breaches, drift, hedge ideas, market context, watchlist signals, and Claude cost
 - **Buy Signals** — Shows source-backed BUY/ADD and add-on-dip snapshots with readiness badges, Data Confidence, filters, overview cards, consensus/targets, catalysts/risks, and source notes
 - **Run Report** — Select session/model/budgets, confirm Wealthsimple CSV paths, preview holdings, see the Ready To Run verdict, check setup, run no-spend demo smoke, and run the same report pipeline as CLI mode with live progress
-- **Report Viewer** — Opens the latest generated markdown report with styled headings, readable paragraph spacing, aligned table blocks, native word search, highlighted matches, Next/Previous controls, and search paths behind **Show Search Paths**
+- **Report Viewer** — Opens the latest generated markdown report with styled headings, readable paragraph spacing, aligned table blocks, native word search, highlighted matches, Next/Previous controls, search paths behind **Show Search Paths**, and a Report Review panel for gates/drift/decision feedback
 - **History** — Browse previous markdown reports with input CSV names, action counts, warning counts, data-confidence labels, and the same styled markdown renderer
 - **Config Editor** — Edit `config/settings.json`, `config/watchlist.json`, or fallback `config/portfolio.json` with JSON validation
 - **Data Files** — Show setup readiness, recommended CSV candidates, saved holdings/activities defaults, API key file, reports folder, recommendation logs folder, uploads folder, and workspace path
 - **API Checks** — Check Anthropic, yfinance, Finnhub, Polygon, Twelve Data, FRED, CoinGecko, and Alpha Vantage connectivity; show every API-key file path and active storage mode; add/update/delete API keys from the app
-- **Diagnostics** — Shows Preflight/doctor status, source degradation health, recent errors, copyable diagnostics, support-bundle contents preview, and a redacted support-bundle zip export
+- **Diagnostics** — Shows Preflight/doctor status, no-spend app self-test, source degradation health, recent errors, copyable diagnostics, support-bundle contents preview, and a redacted support-bundle zip export
 - **Updates** — Check GitHub Releases, force-refresh the update cache, download/apply newer versions, verify release checksums when present, and view update logs
 
 The embedded viewer is a native styled markdown reader. Use Streamlit if you specifically want browser-rendered markdown, side-by-side history comparison, and download buttons.
@@ -660,11 +680,11 @@ Then open the local URL Streamlit prints, normally `http://localhost:8501`.
 
 Tabs:
 - **Dashboard** — Shows latest JSON-log metrics for risk, priority actions, quality warnings, hedge suggestions, drift, cost/tokens, and API connectivity
-- **Today's Report** — Renders the latest markdown report with `st.markdown`
+- **Today's Report** — Renders the latest markdown report with `st.markdown` and a Report Review panel for gates, drift, readiness, and decision feedback
 - **Run Report** — Select session/model/budgets, upload or point to Wealthsimple CSVs, preview holdings before spending Claude tokens, and trigger the same report pipeline as CLI mode with live progress
-- **History** — Browse previous markdown reports from `reports/`, filter/search by filename, and compare two reports side by side
+- **History** — Browse previous markdown reports from `reports/`, filter/search by filename, compare two reports side by side, and review/report feedback for older sessions
 - **Backtest** — View metrics, action/conviction/ticker buckets, bar charts, and recent realized examples
-- **Decision Journal** — Record whether you accepted, ignored, modified, delayed, watched, or executed each actionable recommendation; run the model-vs-user scorecard
+- **Decision Journal** — Record whether you accepted, ignored, modified, delayed, watched, or executed each actionable recommendation; run the model-vs-user scorecard. Report Review can also record this feedback in context.
 - **Portfolio Editor** — Edit `config/settings.json`, `config/watchlist.json`, or fallback `config/portfolio.json` with live JSON validation
 
 Defaults:
@@ -679,7 +699,7 @@ Defaults:
 python ui/textual_app.py
 ```
 
-The Textual app runs fully in the terminal and provides the same workflow tabs as the Streamlit dashboard. Long reports are shown in scrollable terminal panes, which is more reliable for very large markdown reports than terminal markdown rendering in the currently pinned Textual version.
+The Textual app runs fully in the terminal and provides the same workflow tabs as the Streamlit dashboard, including Report Review. Long reports are shown in scrollable terminal panes, which is more reliable for very large markdown reports than terminal markdown rendering in the currently pinned Textual version.
 
 Useful keyboard shortcuts:
 - `r` refreshes the active tab
@@ -688,7 +708,7 @@ Useful keyboard shortcuts:
 
 ### Decision Journal
 
-After every report, actionable BUY/ADD/TRIM/SELL recommendations are added to local `data/decision_journal.json` as pending rows. Use the Streamlit **Decision Journal** tab to record what you actually did.
+After every report, actionable BUY/ADD/TRIM/SELL recommendations are added to local `data/decision_journal.json` as pending rows. Use Report Review in Desktop/Streamlit or the Streamlit **Decision Journal** tab to record what you actually did.
 
 CLI helpers are also available:
 
@@ -1297,23 +1317,24 @@ For issues or questions:
 
 ---
 
-**Last updated:** June 14, 2026 — v1.32.0 Ready To Run paid-run verdicts,
-support-bundle preview, report Actionability Check, package smoke checks,
-v1.31.0 setup readiness, recommended CSV candidate confirmation, redacted
-support-bundle zip export, v1.30.0 Data Files workspace, pre-run checklists,
-saved CSV defaults, no-spend demo smoke buttons, richer history, v1.29.0 CSV
-Health diagnostics, swapped-file protection, sample-data paid-run blocking,
-v1.28.0 release-health diagnostics, updater simulation, v1.27.2 desktop
-consolidation, CI coverage stabilization, release-gate dependency auditing,
-Node 24 workflow readiness, macro-regime gates, concentration alerts, and v1
-release-line cleanup.
-**Version:** 1.32.0
+**Last updated:** June 16, 2026 — v1.33.0 Report Review, contextual decision
+feedback, no-spend app self-test, copyable review summaries, v1.32.0 Ready To
+Run paid-run verdicts, support-bundle preview, report Actionability Check,
+package smoke checks, v1.31.0 setup readiness, recommended CSV candidate
+confirmation, redacted support-bundle zip export, v1.30.0 Data Files workspace,
+pre-run checklists, saved CSV defaults, no-spend demo smoke buttons, richer
+history, v1.29.0 CSV Health diagnostics, swapped-file protection, sample-data
+paid-run blocking, v1.28.0 release-health diagnostics, updater simulation,
+v1.27.2 desktop consolidation, CI coverage stabilization, release-gate
+dependency auditing, Node 24 workflow readiness, macro-regime gates,
+concentration alerts, and v1 release-line cleanup.
+**Version:** 1.33.0
 **Status:** Production-ready v1 line — deterministic quality gates,
 trade-readiness classifier, Data Confidence, source-backed Buy Signals,
 doctor/preflight diagnostics, setup readiness, redacted support bundle export,
 in-app updater with SHA-256 verification, API key manager, four interface
 options (CLI, Streamlit, Textual, native desktop), paper-trading mode,
 decision-journal scorecard, macro-regime controls, and concentration alerts.
-655 tests pass locally.
+667 tests pass locally.
 
 See [CHANGELOG.md](CHANGELOG.md) for the per-release history.
