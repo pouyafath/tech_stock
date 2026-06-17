@@ -411,6 +411,31 @@ Some Linux distributions require FUSE compatibility packages. If the AppImage
 still fails, run from source using the instructions in
 [USER_GUIDE.md](USER_GUIDE.md).
 
+## Outcomes Tab Shows No Matured Results
+
+The Outcomes view scores fixed 1/5/20-day windows from saved recommendation
+logs. It can be empty even when reports exist.
+
+Common causes:
+
+- The latest recommendations are too recent; wait until at least one selected
+  window has passed.
+- Historical prices are unavailable from yfinance for a ticker/date pair.
+- The recommendation action was `HOLD`, `WATCH`, or `CASH`, which is not scored
+  as an actionable outcome.
+- There are no JSON files under `data/recommendations_log/`.
+
+What to check:
+
+```bash
+ls data/recommendations_log
+python src/main.py --version
+```
+
+Open **Outcomes** and refresh again. Pricing issues appear in the table as
+`missing_start_price` or `missing_end_price`. Those are source-data gaps, not
+Claude spend failures.
+
 ## Tests Fail In A Development Checkout
 
 Install development dependencies:

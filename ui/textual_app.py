@@ -38,6 +38,7 @@ from src.ui_support import (  # noqa: E402
     latest_report,
     learning_view,
     list_reports,
+    outcomes_view,
     paid_run_readiness_view,
     pre_run_checklist_view,
     read_editable_json,
@@ -209,7 +210,7 @@ class TechStockTUI(App):
         margin-top: 1;
     }
 
-    #dashboard_log, #connectivity_log, #buy_signals_log, #backtest_log, #update_log {
+    #dashboard_log, #connectivity_log, #buy_signals_log, #backtest_log, #outcomes_log, #update_log {
         height: 1fr;
         border: solid $primary;
         padding: 1;
@@ -327,6 +328,9 @@ class TechStockTUI(App):
             with TabPane("Backtest", id="backtest"):
                 yield Button("Refresh backtest", id="refresh_backtest")
                 yield RichLog(id="backtest_log", wrap=True, highlight=True)
+            with TabPane("Outcomes", id="outcomes"):
+                yield Button("Refresh outcomes", id="refresh_outcomes")
+                yield RichLog(id="outcomes_log", wrap=True, highlight=True)
             with TabPane("Portfolio Editor", id="editor"):
                 yield Select([(label, label) for label in EDITABLE_JSON_FILES], value="Settings", id="editor_file")
                 yield Button("Load JSON", id="load_json")
@@ -351,6 +355,7 @@ class TechStockTUI(App):
         # yfinance for every past recommendation, which can take 20-30 s.
         # User triggers it explicitly with the "Refresh backtest" button.
         self._show_backtest_placeholder()
+        self._show_outcomes_placeholder()
         self._load_editor_text()
         self._load_data_files()
         if os.environ.get("TECH_STOCK_SKIP_UPDATE_CHECK") != "1":
@@ -388,6 +393,8 @@ class TechStockTUI(App):
             self._load_history_report()
         elif button_id == "refresh_backtest":
             self.run_worker(self._load_backtest_async(), exclusive=True)
+        elif button_id == "refresh_outcomes":
+            self.run_worker(self._load_outcomes_async(), exclusive=True)
         elif button_id == "load_json":
             self._load_editor_text()
         elif button_id == "save_json":
@@ -422,6 +429,8 @@ class TechStockTUI(App):
             self._load_data_files()
         elif active == "backtest":
             self.run_worker(self._load_backtest_async(), exclusive=True)
+        elif active == "outcomes":
+            self.run_worker(self._load_outcomes_async(), exclusive=True)
         elif active == "editor":
             self._load_editor_text()
         elif active == "updates":
@@ -923,6 +932,78 @@ class TechStockTUI(App):
         log.write(Text("📈 Backtest", style="bold #22c55e"))
         log.write(Text("Press 'Refresh backtest' to evaluate past recommendations.", style="dim"))
         log.write(Text("This fetches live price data via yfinance and may take 20–30 seconds.", style="dim italic"))
+
+    async def _load_outcomes_async(self) -> None:
+        self._show_outcomes_placeholder("Scoring fixed-window outcomes...")
+        view = await asyncio.to_thread(outcomes_view)
+        log = self.query_one("#outcomes_log", RichLog)
+        log.clear()
+        summary = view.get("summary") or {}
+        overall = summary.get("overall") or {}
+        if not summary.get("scored_windows"):
+            log.write(Text("No matured recommendation outcomes yet.", style="bold #f59e0b"))
+            log.write(f"Pending windows: {summary.get('pending_windows', 0)} | pricing issues: {summary.get('error_count', 0)}")
+            self._write_rows_table(log, "Pricing Issues", view.get("errors") or [], ["ticker", "horizon_days", "error", "id"])
+            return
+
+        metrics = Table(title=f"Outcomes — {summary.get('scored_windows', 0)} scored windows")
+        metrics.add_column("Metric")
+        metrics.add_column("Value", justify="right")
+        metrics.add_row("Scored recommendations", str(summary.get("scored_recommendations", 0)))
+        metrics.add_row("Hit rate", f"{overall.get('hit_rate', 0):.0%}")
+        metrics.add_row("Avg action return", f"{overall.get('avg_action_return_pct', 0):+.2f}%")
+        alpha = overall.get("avg_alpha_vs_benchmark_pct")
+        metrics.add_row("Avg alpha", f"{alpha:+.2f}%" if alpha is not None else "N/A")
+        buy_hit = summary.get("buy_add_success_rate")
+        metrics.add_row("BUY/ADD success", f"{buy_hit:.0%}" if buy_hit is not None else "N/A")
+        metrics.add_row("Claude cost", f"${summary.get('estimated_claude_cost_usd', 0):.4f}")
+        log.write(metrics)
+        if view.get("prompt_summary"):
+            log.write(Text(view["prompt_summary"], style="dim"))
+
+        self._write_outcome_bucket_table(log, "By Action", summary.get("by_action") or {})
+        self._write_outcome_bucket_table(log, "By Horizon", summary.get("by_horizon") or {})
+        self._write_outcome_bucket_table(log, "By Source Bucket", summary.get("by_source_bucket") or {})
+        self._write_rows_table(
+            log,
+            "Best Recommendations",
+            summary.get("best_recommendations") or [],
+            ["ticker", "action", "horizon_days", "action_return_pct", "alpha_vs_benchmark_pct", "benchmark", "id"],
+        )
+        self._write_rows_table(
+            log,
+            "Worst Recommendations",
+            summary.get("worst_recommendations") or [],
+            ["ticker", "action", "horizon_days", "action_return_pct", "alpha_vs_benchmark_pct", "benchmark", "id"],
+        )
+
+    def _show_outcomes_placeholder(self, message: str | None = None) -> None:
+        log = self.query_one("#outcomes_log", RichLog)
+        log.clear()
+        log.write(Text("✅ Outcomes", style="bold #22c55e"))
+        log.write(Text(message or "Press 'Refresh outcomes' to score fixed 1/5/20-day recommendation outcomes.", style="dim"))
+        log.write(Text("Uses cached yfinance historical closes. No Claude call is made.", style="dim italic"))
+
+    def _write_outcome_bucket_table(self, log: RichLog, title: str, bucket: dict) -> None:
+        rows = []
+        for label, stats in bucket.items():
+            alpha = stats.get("avg_alpha_vs_benchmark_pct")
+            rows.append(
+                {
+                    "bucket": label,
+                    "n": stats.get("n", 0),
+                    "avg_action_return_pct": f"{stats.get('avg_action_return_pct', 0):+.2f}%",
+                    "avg_alpha_vs_benchmark_pct": f"{alpha:+.2f}%" if alpha is not None else "N/A",
+                    "hit_rate": f"{stats.get('hit_rate', 0):.0%}",
+                    "benchmark_win_rate": f"{stats.get('benchmark_win_rate', 0):.0%}",
+                }
+            )
+        self._write_rows_table(
+            log,
+            title,
+            rows,
+            ["bucket", "n", "avg_action_return_pct", "avg_alpha_vs_benchmark_pct", "hit_rate", "benchmark_win_rate"],
+        )
 
     async def _check_updates_async(self, *, startup: bool) -> None:
         log = self.query_one("#update_log", RichLog)

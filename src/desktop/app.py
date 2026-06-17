@@ -52,6 +52,7 @@ from src.ui_support import (
     latest_report,
     learning_view,
     list_reports,
+    outcomes_view,
     paid_run_readiness_view,
     pre_run_checklist_view,
     preview_holdings_csv,
@@ -785,6 +786,7 @@ class DesktopApp(tk.Tk):
         view_menu.add_command(label="Signals", command=lambda: self._jump_to_tab(self.buy_signals_tab))
         view_menu.add_command(label="Reports", command=lambda: self._jump_to_tab(self.reports_tab))
         view_menu.add_command(label="Performance", command=lambda: self._jump_to_tab(self.performance_tab))
+        view_menu.add_command(label="Outcomes", command=lambda: self._jump_to_tab(self.outcomes_tab))
         view_menu.add_command(label="Settings", accelerator=f"{MOD_LABEL},", command=self._jump_to_settings)
         view_menu.add_separator()
         view_menu.add_command(
@@ -856,6 +858,7 @@ class DesktopApp(tk.Tk):
         self.buy_signals_tab = ttk.Frame(self.tabs)
         self.reports_tab = ttk.Frame(self.tabs)
         self.performance_tab = ttk.Frame(self.tabs)
+        self.outcomes_tab = ttk.Frame(self.tabs)
         self.learning_tab = ttk.Frame(self.tabs)
         self.diagnostics_tab = ttk.Frame(self.tabs)
         self.settings_tab = ttk.Frame(self.tabs)
@@ -864,6 +867,7 @@ class DesktopApp(tk.Tk):
         self.tabs.add(self.buy_signals_tab, text=" Signals ")
         self.tabs.add(self.reports_tab, text=" Reports ")
         self.tabs.add(self.performance_tab, text=" Performance ")
+        self.tabs.add(self.outcomes_tab, text=" Outcomes ")
         self.tabs.add(self.learning_tab, text=" Learning ")
         self.tabs.add(self.diagnostics_tab, text=" Diagnostics ")
         self.tabs.add(self.settings_tab, text=" Settings ")
@@ -910,6 +914,7 @@ class DesktopApp(tk.Tk):
         self._build_report_tab()
         self._build_history_tab()
         self._build_performance_tab()
+        self._build_outcomes_tab()
         self._build_learning_tab()
         self._build_diagnostics_tab()
         self._build_preferences_tab()
@@ -983,6 +988,8 @@ class DesktopApp(tk.Tk):
             self.refresh_diagnostics_tab()
         elif tab_text == "Performance":
             self.refresh_performance_tab()
+        elif tab_text == "Outcomes":
+            self.refresh_outcomes_tab()
 
     def _on_settings_sub_changed(self, _event: object) -> None:
         sub = self._sub_tab_name(self.settings_sub)
@@ -1027,6 +1034,7 @@ class DesktopApp(tk.Tk):
             "Home": self.refresh_dashboard,
             "Signals": self.start_buy_signal_refresh,
             "Performance": self.refresh_performance_tab,
+            "Outcomes": self.refresh_outcomes_tab,
             "Learning": self.refresh_learning_tab,
             "Diagnostics": self.refresh_diagnostics_tab,
         }
@@ -2101,6 +2109,173 @@ class DesktopApp(tk.Tk):
 
         dist_rows = sorted((view.get("return_distribution") or {}).items(), key=lambda kv: _sort_key(kv[0]))
         self._replace_tree_rows(self.performance_dist_tree, [[bucket, str(count)] for bucket, count in dist_rows])
+
+    # ── Outcomes tab ────────────────────────────────────────────────────────
+    def _build_outcomes_tab(self) -> None:
+        toolbar = ttk.Frame(self.outcomes_tab)
+        toolbar.pack(fill="x", padx=16, pady=(16, 8))
+        ttk.Button(toolbar, text="Refresh", command=self.refresh_outcomes_tab).pack(side="left")
+        self.outcomes_status = tk.StringVar(value="Open this tab to score recommendation outcomes.")
+        ttk.Label(toolbar, textvariable=self.outcomes_status, style="Muted.TLabel").pack(side="left", padx=14)
+
+        metrics_panel = self._panel(self.outcomes_tab, "Outcome metrics")
+        metrics_panel.pack(fill="x", padx=16, pady=(0, 12))
+        self.outcomes_metric_vars: dict[str, tk.StringVar] = {}
+        grid = ttk.Frame(metrics_panel, style="Panel.TFrame")
+        grid.pack(fill="x")
+        labels = [
+            "Scored windows",
+            "Hit rate",
+            "Avg action",
+            "Avg alpha",
+            "BUY/ADD success",
+            "Saved drawdown",
+            "Claude cost",
+            "Cost/useful",
+        ]
+        for i, label in enumerate(labels):
+            var = tk.StringVar(value="—")
+            self.outcomes_metric_vars[label] = var
+            cell = tk.Frame(grid, bg=self.card, padx=16, pady=12, highlightthickness=1, highlightbackground=self.border)
+            cell.grid(row=i // 4, column=i % 4, sticky="ew", padx=4, pady=4)
+            grid.columnconfigure(i % 4, weight=1, uniform="outcome_metrics")
+            tk.Label(cell, text=label.upper(), bg=self.card, fg=self.subtle, font=self.fonts["small"]).pack(anchor="w")
+            tk.Label(cell, textvariable=var, bg=self.card, fg=self.text_strong, font=self.fonts["heading"]).pack(anchor="w", pady=(6, 0))
+
+        self.outcomes_summary_text = self._readonly_text(self.outcomes_tab, height=4)
+        self.outcomes_summary_text.pack(fill="x", padx=16, pady=(0, 12))
+
+        body = ttk.PanedWindow(self.outcomes_tab, orient="vertical")
+        body.pack(fill="both", expand=True, padx=16, pady=(0, 16))
+        top = ttk.Frame(body)
+        bottom = ttk.Frame(body)
+        body.add(top, weight=1)
+        body.add(bottom, weight=2)
+
+        action_panel = self._panel(top, "By action")
+        action_panel.pack(side="left", fill="both", expand=True, padx=(0, 6))
+        self.outcomes_action_tree = self._make_tree(
+            action_panel,
+            ["bucket", "n", "avg_action", "avg_alpha", "hit_rate", "benchmark_win"],
+            [100, 60, 120, 120, 100, 120],
+            height=7,
+        )
+
+        horizon_panel = self._panel(top, "By horizon")
+        horizon_panel.pack(side="left", fill="both", expand=True, padx=(6, 0))
+        self.outcomes_horizon_tree = self._make_tree(
+            horizon_panel,
+            ["bucket", "n", "avg_action", "avg_alpha", "hit_rate", "benchmark_win"],
+            [100, 60, 120, 120, 100, 120],
+            height=7,
+        )
+
+        best_panel = self._panel(bottom, "Best recommendations")
+        best_panel.pack(side="left", fill="both", expand=True, padx=(0, 6))
+        self.outcomes_best_tree = self._make_tree(
+            best_panel,
+            ["ticker", "action", "horizon", "return", "alpha", "benchmark", "id"],
+            [80, 80, 80, 90, 90, 90, 280],
+            height=9,
+        )
+
+        worst_panel = self._panel(bottom, "Worst recommendations")
+        worst_panel.pack(side="left", fill="both", expand=True, padx=(6, 0))
+        self.outcomes_worst_tree = self._make_tree(
+            worst_panel,
+            ["ticker", "action", "horizon", "return", "alpha", "benchmark", "id"],
+            [80, 80, 80, 90, 90, 90, 280],
+            height=9,
+        )
+
+    def refresh_outcomes_tab(self) -> None:
+        try:
+            view = outcomes_view()
+        except Exception as exc:  # noqa: BLE001
+            self.outcomes_status.set(f"Failed to score outcomes: {exc}")
+            return
+
+        summary = view.get("summary") or {}
+        overall = summary.get("overall") or {}
+        self.outcomes_status.set(
+            f"{summary.get('scored_windows', 0)} scored windows · "
+            f"{summary.get('pending_windows', 0)} pending · "
+            f"{summary.get('error_count', 0)} pricing issue(s)"
+        )
+
+        def _pct(value, *, ratio: bool = False) -> str:
+            if value is None:
+                return "—"
+            try:
+                amount = float(value)
+            except (TypeError, ValueError):
+                return "—"
+            return f"{amount:.0%}" if ratio else f"{amount:+.2f}%"
+
+        def _money(value) -> str:
+            try:
+                return f"${float(value):.4f}"
+            except (TypeError, ValueError):
+                return "—"
+
+        m = self.outcomes_metric_vars
+        m["Scored windows"].set(str(summary.get("scored_windows", 0)))
+        m["Hit rate"].set(_pct(overall.get("hit_rate"), ratio=True))
+        m["Avg action"].set(_pct(overall.get("avg_action_return_pct")))
+        m["Avg alpha"].set(_pct(overall.get("avg_alpha_vs_benchmark_pct")))
+        m["BUY/ADD success"].set(_pct(summary.get("buy_add_success_rate"), ratio=True))
+        m["Saved drawdown"].set(_pct(summary.get("trim_sell_saved_drawdown_avg_pct")))
+        m["Claude cost"].set(_money(summary.get("estimated_claude_cost_usd")))
+        m["Cost/useful"].set(_money(summary.get("cost_per_useful_window_usd")))
+
+        self._set_readonly_text(
+            self.outcomes_summary_text,
+            view.get("prompt_summary")
+            or summary.get("prompt_summary")
+            or "No matured fixed-window recommendation outcomes yet. Refresh after enough trading days pass.",
+        )
+
+        self._replace_tree_rows(self.outcomes_action_tree, self._outcome_bucket_rows(summary.get("by_action") or {}))
+        self._replace_tree_rows(self.outcomes_horizon_tree, self._outcome_bucket_rows(summary.get("by_horizon") or {}))
+        self._replace_tree_rows(self.outcomes_best_tree, self._outcome_example_rows(summary.get("best_recommendations") or []), tag_index=1)
+        self._replace_tree_rows(
+            self.outcomes_worst_tree,
+            self._outcome_example_rows(summary.get("worst_recommendations") or []),
+            tag_index=1,
+        )
+
+    def _outcome_bucket_rows(self, bucket: dict[str, Any]) -> list[list[Any]]:
+        rows = []
+        for label, stats in bucket.items():
+            alpha = stats.get("avg_alpha_vs_benchmark_pct")
+            rows.append(
+                [
+                    label,
+                    stats.get("n", 0),
+                    f"{stats.get('avg_action_return_pct', 0):+.2f}%",
+                    f"{alpha:+.2f}%" if alpha is not None else "—",
+                    f"{stats.get('hit_rate', 0):.0%}",
+                    f"{stats.get('benchmark_win_rate', 0):.0%}",
+                ]
+            )
+        return rows
+
+    def _outcome_example_rows(self, rows: list[dict[str, Any]]) -> list[list[Any]]:
+        out = []
+        for row in rows[:20]:
+            alpha = row.get("alpha_vs_benchmark_pct")
+            out.append(
+                [
+                    row.get("ticker"),
+                    row.get("action"),
+                    row.get("horizon_days"),
+                    f"{row.get('action_return_pct', 0):+.2f}%",
+                    f"{alpha:+.2f}%" if alpha is not None else "—",
+                    row.get("benchmark"),
+                    row.get("id"),
+                ]
+            )
+        return out
 
     def _draw_performance_sparkline(self, view: dict) -> None:
         canvas = self.performance_canvas

@@ -56,6 +56,7 @@ from src.ui_support import (  # noqa: E402
     latest_report,
     learning_view,
     list_reports,
+    outcomes_view,
     paid_run_readiness_view,
     pre_run_checklist_view,
     preview_holdings_csv,
@@ -540,6 +541,7 @@ _html(
     tab_history,
     tab_performance,
     tab_backtest,
+    tab_outcomes,
     tab_journal,
     tab_learning,
     tab_diagnostics,
@@ -555,6 +557,7 @@ _html(
         "📚 History",
         "💹 Performance",
         "📈 Backtest",
+        "✅ Outcomes",
         "📓 Journal",
         "🧠 Learning",
         "🩺 Diagnostics",
@@ -1678,6 +1681,128 @@ with tab_backtest:
                 st.caption("No realized examples yet.")
         with st.expander("🔬 Raw JSON"):
             st.json(backtest)
+
+
+# ─── Outcomes ──────────────────────────────────────────────────────────────
+
+
+def _format_outcome_metric(value, kind: str | None = None) -> str:
+    if kind == "pct_ratio":
+        try:
+            return f"{float(value):.0%}"
+        except (TypeError, ValueError):
+            return "—"
+    if kind == "pct":
+        return _format_pct(value, signed=True, digits=2)
+    if kind == "money":
+        return _format_currency(value)
+    return "—" if value is None else str(value)
+
+
+def _outcome_bucket_rows(bucket: dict, label: str) -> list[dict]:
+    rows = []
+    for key, stats in (bucket or {}).items():
+        rows.append(
+            {
+                label: key,
+                "n": stats.get("n", 0),
+                "avg_action_return_pct": stats.get("avg_action_return_pct"),
+                "avg_alpha_vs_benchmark_pct": stats.get("avg_alpha_vs_benchmark_pct"),
+                "hit_rate": stats.get("hit_rate"),
+                "benchmark_win_rate": stats.get("benchmark_win_rate"),
+            }
+        )
+    return rows
+
+
+def _render_outcomes() -> None:
+    st.caption("Fixed 1/5/20-day outcome tracking for every actionable recommendation. Uses cached yfinance historical closes.")
+    if st.button("🔄 Refresh outcomes", type="primary", key="outcomes_refresh"):
+        with st.spinner("Scoring recommendation outcomes..."):
+            st.session_state["outcomes_view"] = outcomes_view()
+        _toast("Outcomes refreshed", icon="✅")
+
+    view = st.session_state.get("outcomes_view")
+    if view is None:
+        _html(empty_state("No outcome data loaded", "Click Refresh outcomes to score matured recommendations."))
+        return
+    summary = view.get("summary") or {}
+    if not summary.get("scored_windows"):
+        _html(
+            empty_state(
+                "No matured outcomes yet",
+                f"{summary.get('pending_windows', 0)} pending window(s), {summary.get('error_count', 0)} pricing issue(s).",
+            )
+        )
+        if view.get("errors"):
+            with st.expander("Pricing issues"):
+                st.dataframe(pd.DataFrame(view["errors"]), hide_index=True, width="stretch")
+        return
+
+    cards = view.get("metric_cards") or []
+    cols = st.columns(4)
+    for index, card in enumerate(cards):
+        cols[index % 4].metric(card.get("label", ""), _format_outcome_metric(card.get("value"), card.get("kind")))
+
+    st.caption(view.get("prompt_summary") or summary.get("prompt_summary") or "")
+
+    sub_summary, sub_examples, sub_sources, sub_raw = st.tabs(["Summary", "Examples", "Source Buckets", "Raw"])
+    with sub_summary:
+        col_a, col_b = st.columns(2)
+        with col_a:
+            rows = _outcome_bucket_rows(summary.get("by_action") or {}, "action")
+            if rows:
+                st.markdown("### By Action")
+                st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        with col_b:
+            rows = _outcome_bucket_rows(summary.get("by_horizon") or {}, "horizon_days")
+            if rows:
+                st.markdown("### By Horizon")
+                st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        ticker_rows = _outcome_bucket_rows(summary.get("by_ticker") or {}, "ticker")
+        if ticker_rows:
+            st.markdown("### By Ticker")
+            st.dataframe(pd.DataFrame(ticker_rows), hide_index=True, width="stretch")
+
+    with sub_examples:
+        col_best, col_worst = st.columns(2)
+        with col_best:
+            st.markdown("### Best Recommendations")
+            best = summary.get("best_recommendations") or []
+            if best:
+                st.dataframe(pd.DataFrame(best), hide_index=True, width="stretch")
+            else:
+                _html(empty_state("No winners yet", "Matured outcomes will appear here."))
+        with col_worst:
+            st.markdown("### Worst Recommendations")
+            worst = summary.get("worst_recommendations") or []
+            if worst:
+                st.dataframe(pd.DataFrame(worst), hide_index=True, width="stretch")
+            else:
+                _html(empty_state("No losers yet", "Matured outcomes will appear here."))
+        alpha = summary.get("best_alpha") or []
+        if alpha:
+            st.markdown("### Best Alpha vs Benchmark")
+            st.dataframe(pd.DataFrame(alpha), hide_index=True, width="stretch")
+
+    with sub_sources:
+        source_rows = _outcome_bucket_rows(summary.get("by_source_bucket") or {}, "source_bucket")
+        if source_rows:
+            st.dataframe(pd.DataFrame(source_rows), hide_index=True, width="stretch")
+        else:
+            _html(empty_state("No source attribution yet", "Outcome rows need source tags from recommendation logs."))
+        st.caption(
+            f"Stop-loss hits: {summary.get('stop_loss_hits', 0)} · "
+            f"take-profit hits: {summary.get('take_profit_hits', 0)} · "
+            f"pending windows: {summary.get('pending_windows', 0)} · pricing errors: {summary.get('error_count', 0)}"
+        )
+
+    with sub_raw:
+        st.dataframe(pd.DataFrame(view.get("recent_rows") or []), hide_index=True, width="stretch")
+
+
+with tab_outcomes:
+    _render_outcomes()
 
 
 # ─── Journal ───────────────────────────────────────────────────────────────

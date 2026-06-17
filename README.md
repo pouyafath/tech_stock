@@ -37,6 +37,7 @@
 - ✅ **Data Confidence** — Reports and dashboards show quote freshness, source coverage, catalyst coverage, warning counts, and readiness status before trade details
 - ✅ **Actionability Check** — Reports now summarize Trade Ready / Review First / Blocked status near the top before the audit sections
 - ✅ **Report Review + Feedback** — Every UI can review the latest report's gates, drift, source degradation, readiness, and pending decision-journal rows
+- ✅ **Recommendation Outcomes** — Fixed 1/5/20-day outcome tracking with stable recommendation IDs, benchmark alpha, stop/take-profit checks, and cost-per-useful-outcome stats
 - ✅ **Doctor / Preflight** — `python src/main.py doctor --json` checks version, update cache, API keys, CSV Health, budget status, release assets, and demo smoke readiness
 - ✅ **No-Spend App Self-Test** — Diagnostics can validate setup readiness, bundled demo smoke, report-review loading, and support-bundle availability without Claude spend
 - ✅ **CSV Health** — Detects Wealthsimple holdings vs activities schemas, swapped files, stale exports, and sample/demo CSVs before paid runs
@@ -60,6 +61,22 @@
 - ✅ **Fast Parallel Fetching** — Concurrent API requests with caching and graceful degradation
 
 ---
+
+## ✨ What's New in v1.34.0 (June 17, 2026)
+
+**Recommendation outcome tracking release.**
+
+- **Outcomes tab everywhere** — Desktop, Streamlit, and Textual now show fixed
+  1/5/20-day results for every actionable recommendation from saved JSON logs.
+- **Stable recommendation IDs** — outcome rows use IDs like
+  `20260616_morning_NVDA_ADD_001`, making it easier to discuss, compare, and
+  debug individual calls.
+- **Benchmark-aware scoring** — BUY/ADD rows compare stock follow-through with
+  QQQ/SMH where relevant; TRIM/SELL rows measure saved drawdown and alpha
+  versus the relevant benchmark.
+- **Closed feedback loop** — future paid runs receive a compact outcome summary
+  through the existing calibration context, and generated reports show a
+  fixed-window Track Record block when mature outcomes exist.
 
 ## ✨ What's New in v1.33.0 (June 16, 2026)
 
@@ -684,6 +701,7 @@ Tabs:
 - **Run Report** — Select session/model/budgets, upload or point to Wealthsimple CSVs, preview holdings before spending Claude tokens, and trigger the same report pipeline as CLI mode with live progress
 - **History** — Browse previous markdown reports from `reports/`, filter/search by filename, compare two reports side by side, and review/report feedback for older sessions
 - **Backtest** — View metrics, action/conviction/ticker buckets, bar charts, and recent realized examples
+- **Outcomes** — Score every actionable recommendation over fixed 1/5/20-day windows with hit rate, alpha, best/worst calls, source buckets, stop/take-profit checks, and cost-per-useful-outcome stats
 - **Decision Journal** — Record whether you accepted, ignored, modified, delayed, watched, or executed each actionable recommendation; run the model-vs-user scorecard. Report Review can also record this feedback in context.
 - **Portfolio Editor** — Edit `config/settings.json`, `config/watchlist.json`, or fallback `config/portfolio.json` with live JSON validation
 
@@ -699,7 +717,7 @@ Defaults:
 python ui/textual_app.py
 ```
 
-The Textual app runs fully in the terminal and provides the same workflow tabs as the Streamlit dashboard, including Report Review. Long reports are shown in scrollable terminal panes, which is more reliable for very large markdown reports than terminal markdown rendering in the currently pinned Textual version.
+The Textual app runs fully in the terminal and provides the same workflow tabs as the Streamlit dashboard, including Report Review and Outcomes. Long reports are shown in scrollable terminal panes, which is more reliable for very large markdown reports than terminal markdown rendering in the currently pinned Textual version.
 
 Useful keyboard shortcuts:
 - `r` refreshes the active tab
@@ -1074,7 +1092,7 @@ After 4–6 weeks, analyze:
 
 The deep architecture map — module-by-module purpose, data flow, the 7-layer quality gate, the learning loop, storage layout, and the five design tenets — now lives in **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**.
 
-A one-paragraph summary: tech_stock reads your Wealthsimple holdings CSV, fans out to ~7 external data sources in parallel, runs a deterministic enrichment + drift + thesis-tracking pipeline, sends a single richly-contextualised user message to Claude (with prompt caching), runs a 7-layer quality gate, lets Claude review its own first pass with the warnings + drift surfaced, normalises the recommendation, sizes the trades deterministically, and writes a markdown report + CSV + JSON log. Past recommendations feed back via the backtester (Sharpe-dampened sizing multipliers + reliability diagram + walk-forward stability). User decisions feed back via the decision journal (per-horizon edge). The Learning tab visualises this loop.
+A one-paragraph summary: tech_stock reads your Wealthsimple holdings CSV, fans out to ~7 external data sources in parallel, runs a deterministic enrichment + drift + thesis-tracking pipeline, sends a single richly-contextualised user message to Claude (with prompt caching), runs a 7-layer quality gate, lets Claude review its own first pass with the warnings + drift surfaced, normalises the recommendation, sizes the trades deterministically, and writes a markdown report + CSV + JSON log. Past recommendations feed back via the backtester (Sharpe-dampened sizing multipliers + reliability diagram + walk-forward stability) and the Outcomes engine (fixed 1/5/20-day hit rate, alpha, and saved drawdown). User decisions feed back via the decision journal (per-horizon edge). The Learning and Outcomes tabs visualise this loop.
 
 ## 🤔 FAQ
 
@@ -1317,7 +1335,9 @@ For issues or questions:
 
 ---
 
-**Last updated:** June 16, 2026 — v1.33.0 Report Review, contextual decision
+**Last updated:** June 17, 2026 — v1.34.0 recommendation outcome tracking,
+stable recommendation IDs, fixed 1/5/20-day alpha scoring, Outcomes tab,
+fixed-window report Track Record, v1.33.0 Report Review, contextual decision
 feedback, no-spend app self-test, copyable review summaries, v1.32.0 Ready To
 Run paid-run verdicts, support-bundle preview, report Actionability Check,
 package smoke checks, v1.31.0 setup readiness, recommended CSV candidate
@@ -1328,7 +1348,7 @@ paid-run blocking, v1.28.0 release-health diagnostics, updater simulation,
 v1.27.2 desktop consolidation, CI coverage stabilization, release-gate
 dependency auditing, Node 24 workflow readiness, macro-regime gates,
 concentration alerts, and v1 release-line cleanup.
-**Version:** 1.33.0
+**Version:** 1.34.0
 **Status:** Production-ready v1 line — deterministic quality gates,
 trade-readiness classifier, Data Confidence, source-backed Buy Signals,
 doctor/preflight diagnostics, setup readiness, redacted support bundle export,

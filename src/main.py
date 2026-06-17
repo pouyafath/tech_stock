@@ -64,6 +64,7 @@ from src.portfolio_analytics import (
     detect_drawdown,
 )
 from src.portfolio_loader import compute_sector_exposure, parse_holdings_csv
+from src.recommendation_outcomes import ACTIONABLE_ACTIONS, build_outcomes_view, stable_recommendation_id
 from src.recommendation_sizing import apply_trade_sizes
 from src.report_generator import generate_markdown, save_report, watchlist_price_alerts
 from src.updater import apply_update, check_for_update, cli_update_check, update_status_text
@@ -551,10 +552,27 @@ def get_all_tickers(portfolio: dict, watchlist: dict) -> list:
 def save_recommendation_log(data: dict, session_type: str) -> Path:
     RECS_LOG_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-    path = RECS_LOG_DIR / f"{timestamp}_{session_type}.json"
+    filename = f"{timestamp}_{session_type}.json"
+    path = RECS_LOG_DIR / filename
+    _attach_recommendation_ids(data, filename)
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
     return path
+
+
+def _attach_recommendation_ids(data: dict, session_file: str) -> None:
+    """Attach stable recommendation ids to newly saved actionable rows."""
+    counts: dict[tuple[str, str], int] = {}
+    for rec in data.get("recommendations") or []:
+        if not isinstance(rec, dict):
+            continue
+        ticker = (rec.get("ticker") or "").upper()
+        action = (rec.get("action") or "HOLD").upper()
+        if not ticker or ticker == "CASH" or action not in ACTIONABLE_ACTIONS:
+            continue
+        key = (ticker, action)
+        counts[key] = counts.get(key, 0) + 1
+        rec.setdefault("recommendation_id", stable_recommendation_id(session_file, ticker, action, counts[key]))
 
 
 def save_recommendations_csv(
@@ -970,6 +988,17 @@ def _run_impl(
     # ── Backtest summary (fed back into prompt for self-calibration) ──────
     print(f"{C.DIM}[tech_stock] Running backtest on past recommendations...{C.RESET}")
     backtest_summary = run_backtest(RECS_LOG_DIR)
+    try:
+        outcome_view = build_outcomes_view(
+            RECS_LOG_DIR,
+            max_logs=int(settings.get("recommendation_outcome_max_logs", 250)),
+        )
+        backtest_summary["recommendation_outcomes"] = outcome_view.get("summary") or {}
+        outcome_summary = (outcome_view.get("summary") or {}).get("prompt_summary")
+        if outcome_summary:
+            print(f"{C.DIM}[tech_stock] Outcome tracking: {outcome_summary}{C.RESET}")
+    except Exception as exc:  # noqa: BLE001
+        backtest_summary["recommendation_outcomes"] = {"error": str(exc)}
     if backtest_summary.get("n_samples", 0) > 0:
         print(
             f"{C.DIM}[tech_stock] Track record: {backtest_summary['n_samples']} samples, "

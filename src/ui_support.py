@@ -55,6 +55,7 @@ from src.market_data import get_market_data
 from src.news_fetcher import aggregate_sentiment, get_news_for_tickers
 from src.portfolio_loader import parse_holdings_csv
 from src.preflight import build_preflight, run_demo_smoke_test
+from src.recommendation_outcomes import build_outcomes_view as build_recommendation_outcomes_view
 from src.report_pipeline import ReportPipeline
 from src.report_review import build_report_review
 from src.setup_readiness import (
@@ -776,6 +777,11 @@ def read_text_file(path: str | Path | None) -> str:
 
 def run_backtest_summary() -> dict[str, Any]:
     return run_backtest(RECS_LOG_DIR)
+
+
+def outcomes_view(*, max_logs: int = 250) -> dict[str, Any]:
+    """Shared recommendation outcome dashboard model."""
+    return build_recommendation_outcomes_view(RECS_LOG_DIR, max_logs=max_logs)
 
 
 def decision_journal_snapshot(limit: int = 200) -> dict[str, Any]:

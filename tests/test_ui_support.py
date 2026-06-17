@@ -222,6 +222,21 @@ def test_report_review_view_matches_report_to_log_and_seeds_journal(monkeypatch,
     assert (data_dir / "decision_journal.json").exists()
 
 
+def test_outcomes_view_uses_shared_recommendation_outcome_model(monkeypatch, tmp_path):
+    log_dir = tmp_path / "recommendations_log"
+    log_dir.mkdir()
+    monkeypatch.setattr(ui_support, "RECS_LOG_DIR", log_dir)
+    monkeypatch.setattr(
+        ui_support,
+        "build_recommendation_outcomes_view",
+        lambda path, max_logs=250: {"status": "READY", "path": path, "max_logs": max_logs},
+    )
+
+    view = ui_support.outcomes_view(max_logs=12)
+
+    assert view == {"status": "READY", "path": log_dir, "max_logs": 12}
+
+
 def test_app_self_test_view_returns_rows(monkeypatch):
     monkeypatch.setattr(ui_support, "setup_readiness_view", lambda **_kwargs: {"status": "READY", "next_action": ""})
     monkeypatch.setattr(ui_support, "demo_smoke_view", lambda: {"ok": True, "message": "demo passed"})

@@ -206,6 +206,24 @@ Restore on the other machine by unzipping into the project root.
 Prints per-action and per-conviction hit-rates. The same data drives
 the Learning tab's reliability diagram and walk-forward chart.
 
+## Score fixed-window recommendation outcomes
+
+Open **Outcomes** in the Desktop, Streamlit, or Textual UI and click refresh.
+The app scores every actionable recommendation over fixed 1/5/20-day windows
+using cached yfinance historical closes. No Claude call is made.
+
+Use this view when you want to answer:
+
+- Did BUY/ADD calls work after 1, 5, and 20 days?
+- Did TRIM/SELL calls avoid drawdowns?
+- Did the recommendation beat QQQ, SPY, or SMH?
+- Which source bucket performed best: verified catalyst, quality warning,
+  manual review, or thesis-only?
+
+Each row has a stable recommendation ID such as
+`20260616_morning_NVDA_ADD_001`, so you can connect a UI row back to the JSON
+log and report.
+
 ## Hook a notification into a custom event
 
 ```python

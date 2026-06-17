@@ -149,6 +149,8 @@ Start with these sections:
    supporting data came from.
 6. **Report Review**: a UI summary of quality gates, drift, source degradation,
    recommendation readiness, and pending decision feedback.
+7. **Outcomes**: after 1, 5, or 20 days have passed, refresh this tab to see
+   whether past recommendations worked versus QQQ, SPY, or SMH.
 
 Do not trade from a stale, blocked, or unverified signal.
 

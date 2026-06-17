@@ -118,6 +118,42 @@ def test_leveraged_etf_warning_uses_activity_lower_bound():
     assert warnings[0]["lower_bound_days"] is not None
 
 
+def test_track_record_renders_fixed_window_outcomes():
+    recommendation = {
+        "session_summary": "Track record check.",
+        "portfolio_health": {},
+        "recommendations": [],
+        "warnings": [],
+    }
+
+    markdown = generate_markdown(
+        "morning",
+        recommendation,
+        {},
+        portfolio={"holdings": []},
+        backtest_summary={
+            "n_samples": 2,
+            "overall": {"n": 2, "avg_return_pct": 1.2, "hit_rate": 0.5},
+            "recommendation_outcomes": {
+                "scored_windows": 4,
+                "scored_recommendations": 2,
+                "overall": {
+                    "avg_action_return_pct": 2.5,
+                    "hit_rate": 0.75,
+                    "avg_alpha_vs_benchmark_pct": 1.1,
+                },
+                "buy_add_success_rate": 0.8,
+                "trim_sell_saved_drawdown_count": 1,
+                "trim_sell_saved_drawdown_avg_pct": 3.4,
+            },
+        },
+    )
+
+    assert "Fixed-window outcomes" in markdown
+    assert "Avg alpha vs benchmark" in markdown
+    assert "BUY/ADD success rate" in markdown
+
+
 def test_leveraged_etf_warning_prefers_full_holding_days_map():
     holdings = [{"ticker": "SOXL", "quantity": 1, "unrealized_pnl_pct": 10}]
     warnings = leveraged_etf_warnings(

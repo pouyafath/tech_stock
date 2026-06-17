@@ -322,6 +322,9 @@ include:
   Report Review gates, drift/source-degradation summary, and decision feedback.
 - **History**: previous report browsing with input CSV names, warning counts,
   action counts, data-confidence labels, rendering, and per-report review.
+- **Outcomes**: fixed 1/5/20-day recommendation outcome scoring with stable
+  IDs, benchmark alpha, BUY/ADD success rate, TRIM/SELL saved drawdown, and
+  stop/take-profit trigger checks.
 - **Config Editor**: validated editing for settings, watchlist, and fallback
   portfolio JSON.
 - **API Checks**: key management, discovery paths, and connectivity checks.
@@ -340,7 +343,8 @@ python -m streamlit run ui/streamlit_app.py
 ```
 
 Streamlit is the best interface for the first-run wizard, CSV upload, browser
-markdown rendering, history comparison, chart-heavy views, and file downloads.
+markdown rendering, history comparison, chart-heavy views, outcome tables, and
+file downloads.
 
 ### Textual
 
@@ -355,6 +359,10 @@ Useful shortcuts:
 - `r`: refresh the active view.
 - `Ctrl+R`: run a report.
 - `Ctrl+S`: save valid JSON in the editor.
+
+Textual includes the same Outcomes view as the desktop and Streamlit apps. It
+is useful over SSH or when you want fixed-window scoring without opening a
+browser.
 
 ### CLI
 
@@ -376,6 +384,10 @@ Read the report in this order:
 6. **Recommendation details**: explains thesis, catalyst, risk controls,
    expected range, and invalidation.
 7. **Sources and degradation**: shows what data was available or missing.
+
+When the Track Record section includes **Fixed-window outcomes**, those rows
+come from historical recommendation logs and show whether prior calls worked
+after 1, 5, and 20 days versus the relevant benchmark.
 
 Readiness states:
 

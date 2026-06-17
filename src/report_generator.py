@@ -353,6 +353,31 @@ def _render_track_record_section(backtest_summary: dict) -> list[str]:
             lines.append(f"| {action} | {stats['n']} | {stats['avg_return_pct']:+.2f}% | {stats['hit_rate']:.0%} |")
         lines.append("")
 
+    fixed = backtest_summary.get("recommendation_outcomes") or {}
+    if fixed.get("scored_windows"):
+        fixed_overall = fixed.get("overall") or {}
+        lines += [
+            "**Fixed-window outcomes:**",
+            "",
+            "| Metric | Value |",
+            "|---|---:|",
+            f"| Scored windows | {fixed.get('scored_windows', 0)} |",
+            f"| Scored recommendations | {fixed.get('scored_recommendations', 0)} |",
+            f"| Avg action return | {fixed_overall.get('avg_action_return_pct', 0):+.2f}% |",
+            f"| Hit rate | {fixed_overall.get('hit_rate', 0):.0%} |",
+        ]
+        alpha = fixed_overall.get("avg_alpha_vs_benchmark_pct")
+        if alpha is not None:
+            lines.append(f"| Avg alpha vs benchmark | {alpha:+.2f}% |")
+        if fixed.get("buy_add_success_rate") is not None:
+            lines.append(f"| BUY/ADD success rate | {fixed.get('buy_add_success_rate', 0):.0%} |")
+        if fixed.get("trim_sell_saved_drawdown_count"):
+            lines.append(
+                f"| TRIM/SELL saved drawdown | {fixed.get('trim_sell_saved_drawdown_avg_pct', 0):+.2f}% "
+                f"avg across {fixed.get('trim_sell_saved_drawdown_count')} windows |"
+            )
+        lines.append("")
+
     by_conv = backtest_summary.get("avg_return_by_conviction", {})
     if by_conv:
         lines += [

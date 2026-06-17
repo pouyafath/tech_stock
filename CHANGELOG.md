@@ -4,6 +4,31 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.34.0] — 2026-06-17
+
+### Added
+- Added deterministic recommendation outcome tracking in
+  `src/recommendation_outcomes.py`. It assigns stable user-readable
+  recommendation IDs, scores fixed 1/5/20-day windows, compares each outcome
+  with SPY/QQQ/SMH benchmarks, and records close-to-close stop-loss /
+  take-profit triggers.
+- Added shared Outcomes views to Desktop, Streamlit, and Textual. The views
+  show hit rate, average action return, alpha versus benchmark, BUY/ADD success
+  rate, TRIM/SELL saved drawdown, best/worst recommendations, source buckets,
+  and estimated Claude cost per useful outcome.
+- Added fixed-window outcome summaries to the Track Record section in generated
+  reports when matured recommendation windows exist.
+
+### Changed
+- Future paid runs now feed the compact outcome summary into Claude through the
+  existing backtest calibration context, so recommendations can reflect actual
+  historical follow-through.
+- The Streamlit, Textual, and embedded Desktop UIs now separate portfolio
+  performance, backtesting, user decision scoring, and recommendation outcomes
+  into clearer surfaces.
+
+---
+
 ## [1.33.0] — 2026-06-16
 
 ### Added

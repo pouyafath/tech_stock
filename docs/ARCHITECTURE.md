@@ -67,6 +67,7 @@ write; Claude API call).
 | `src/data_confidence.py` | Shared quote/source/catalyst/readiness trust summary for reports and UIs |
 | `src/report_generator.py` | Markdown + CSV + JSON log output |
 | `src/report_review.py` | Shared report-review and feedback-loop view model for UIs |
+| `src/recommendation_outcomes.py` | Fixed 1/5/20-day recommendation outcome tracking, benchmark alpha, stop/take-profit checks, and stable recommendation IDs |
 | `src/recommendation_sizing.py` | Deterministic share/fraction sizing for SELL/TRIM |
 | **API clients (all observability-logged)** | |
 | `src/finnhub_client.py` | Earnings calendar, analyst recommendations, news sentiment |
@@ -79,6 +80,7 @@ write; Claude API call).
 | **Learning loop (v1.16)** | |
 | `src/backtester.py` | Past-recommendation evaluation, `reliability_diagram`, walk-forward windows (v1.18), conviction-stratified sizing multipliers |
 | `src/decision_journal.py` | User-decision recording + scorecard with per-horizon edge (v1.16) |
+| `src/recommendation_outcomes.py` | All-recommendation fixed-window outcomes used by the Outcomes tab and future prompt calibration |
 | `src/drift_tracker.py` | Action / conviction / thesis-text drift detection between sessions |
 | `src/thesis_tracker.py` | Thesis verdict evaluation (materialized / partial / not_yet / invalidated) |
 | `src/position_aging.py` | Position-age buckets (fresh / core / mature / aged / stale) |
@@ -97,7 +99,7 @@ write; Claude API call).
 | `src/notifications.py` | Cross-platform desktop notifications (macOS osascript / Linux notify-send / Windows BurntToast) |
 | `src/scheduling.py` | Per-user launchd / Task Scheduler / cron installer |
 | **UI** | |
-| `ui/streamlit_app.py` | Web dashboard for Dashboard, Buy Signals, reports, runs, history, performance, backtesting, journal, learning, diagnostics, scheduling, and editing |
+| `ui/streamlit_app.py` | Web dashboard for Dashboard, Buy Signals, reports, runs, history, performance, backtesting, outcomes, journal, learning, diagnostics, scheduling, and editing |
 | `src/desktop/` | Embedded Tkinter dashboard implementation with native menu bar |
 | `src/desktop_app.py` | Backward-compatible launcher/import wrapper for the desktop app |
 | `ui/textual_app.py` | Terminal UI |
@@ -223,10 +225,11 @@ the model sees in pass 2.
                   Back into the prompt
 ```
 
-The flow is closed: every report informs the next, both via the
-backtester (objective track-record) and the decision journal (user's
-actual edge per holding period). The Learning tab visualises this
-state.
+The flow is closed: every report informs the next via three independent
+feedback paths: the backtester (mature horizon track record), the
+Outcomes engine (fixed 1/5/20-day recommendation hit rate, alpha, and
+saved drawdown), and the decision journal (user's actual edge per
+holding period). The Learning and Outcomes tabs visualise this state.
 
 ## Storage layout
 
@@ -267,5 +270,6 @@ These show up in every commit message and PR review:
 5. **Tools, not toys.** Every UI surface should answer a real
    user question (`Diagnostics` answers "why is this slow?",
    `Performance` answers "how am I doing?", `Learning` answers "is my
-   conviction calibrated?"). Avoid features that look impressive but
+   conviction calibrated?", `Outcomes` answers "were the recommendations
+   actually useful?"). Avoid features that look impressive but
    don't change a decision.
