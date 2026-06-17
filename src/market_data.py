@@ -6,7 +6,7 @@ No API key required — all free.
 
 Resilience:
   - tenacity retries on transient yfinance failures (3 tries, 2-10s backoff)
-  - pickle cache in data/.cache/market_data/ (default TTL 1h)
+  - JSON cache in data/.cache/market_data/ (default TTL 1h)
   - outer try/except returns {"ticker": t, "error": str} so one bad ticker
     never kills the whole run.
 """
@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime, timedelta, timezone
 
 import pandas as pd
+import requests
 import yfinance as yf
 from tenacity import (
     retry,
@@ -268,7 +269,7 @@ def compute_indicators(hist: pd.DataFrame) -> dict:
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
-    retry=retry_if_exception_type((ConnectionError, TimeoutError, OSError)),
+    retry=retry_if_exception_type((ConnectionError, TimeoutError, OSError, requests.RequestException)),
     reraise=True,
 )
 def _fetch_ticker_raw(ticker: str, history_months: int, include_options: bool = False) -> dict:
@@ -532,7 +533,7 @@ def get_portfolio_prices(holdings: list) -> dict:
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
-    retry=retry_if_exception_type((ConnectionError, TimeoutError, OSError)),
+    retry=retry_if_exception_type((ConnectionError, TimeoutError, OSError, requests.RequestException)),
     reraise=True,
 )
 def _fetch_price_at(ticker: str, iso_date: str) -> float | None:
