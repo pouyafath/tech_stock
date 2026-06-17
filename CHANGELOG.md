@@ -4,6 +4,48 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.29.0] — 2026-06-17
+
+Audit-driven hardening pass: security, data integrity, and resilience fixes
+surfaced by a full read-only audit of the codebase.
+
+### Security
+- **Auto-updater no longer installs unverified binaries.** When a release asset
+  cannot be checksum-verified against `SHA256SUMS.txt` (file absent or no entry),
+  the updater now refuses to mount/extract/execute it and instead reveals the
+  download for manual verification. Previously the unverified result was ignored
+  and the binary was installed anyway.
+- **CSV formula injection neutralized.** Exported recommendation CSV cells that
+  begin with `=`, `+`, `-`, `@`, tab, or CR are prefixed so spreadsheets render
+  them as text instead of executing them.
+- **Cache moved from pickle to JSON.** A tampered cache file under the workspace
+  can no longer lead to code execution; legacy `.pkl` files are cleaned up.
+- **Zip-slip-safe extraction** for Windows update archives.
+
+### Data integrity & resilience
+- **Bitcoin weekly risk signal revived.** CoinGecko's `/simple/price` does not
+  support a 7-day change parameter, so the BTC risk-on/off signal was permanently
+  inert. Switched to `/coins/markets` (`price_change_percentage_7d_in_currency`).
+- **No more cache poisoning on transient failures.** Error/empty results from
+  market data, historical prices, FRED macro/FX, and Polygon are no longer cached
+  as "fresh" for the full TTL.
+- **yfinance retries actually fire** — added `requests.RequestException` to the
+  retry filter (the common HTTPError/connection-reset failures were never caught).
+- **Twelve Data rate-limit throttle is now thread-safe** (matches Alpha Vantage),
+  preventing rate-limit trips under the concurrent enrichment pool.
+- **Annualized metrics no longer explode** on dense/short histories — the
+  annualisation factor is bounded to the product's 1–2 runs/day cadence.
+- **Holdings CSV size bound** (10 MB) guards against OOM on malformed input.
+
+### Observability
+- Concentration-alert safety gate and FX-fallback path now log failures instead
+  of swallowing them; budget-enforcement errors print a visible warning.
+
+### Cleanup
+- Removed dead code (`thesis_tracker.remove_thesis`).
+
+---
+
 ## [1.28.0] — 2026-06-07
 
 ### Features
