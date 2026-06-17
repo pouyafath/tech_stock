@@ -90,26 +90,37 @@ def _request(endpoint: str, params: dict | None = None) -> dict | list | None:
 
 
 def _fetch_crypto_context() -> dict | None:
-    # Prices and changes
+    # Prices and changes. NOTE: the /simple/price endpoint does NOT support a
+    # 7-day change parameter (only 24h), so we use /coins/markets, which exposes
+    # price_change_percentage_7d_in_currency when requested. Using /simple/price
+    # silently left the 7-day risk signal permanently dead (always None).
     data = _request(
-        "/simple/price",
+        "/coins/markets",
         {
+            "vs_currency": "usd",
             "ids": "bitcoin,ethereum",
-            "vs_currencies": "usd",
-            "include_24hr_change": True,
-            "include_7d_change": True,
+            "price_change_percentage": "24h,7d",
         },
     )
-    if not data:
+    if not data or not isinstance(data, list):
         return None
 
-    btc = data.get("bitcoin", {})
-    eth = data.get("ethereum", {})
-    btc_price = btc.get("usd")
-    btc_24h = btc.get("usd_24h_change")
-    btc_7d = btc.get("usd_7d_change")
-    eth_price = eth.get("usd")
-    eth_24h = eth.get("usd_24h_change")
+    by_id = {row.get("id"): row for row in data if isinstance(row, dict)}
+    btc = by_id.get("bitcoin", {})
+    eth = by_id.get("ethereum", {})
+    btc_price = btc.get("current_price")
+    btc_24h = btc.get("price_change_percentage_24h")
+    btc_7d = btc.get("price_change_percentage_7d_in_currency")
+    eth_price = eth.get("current_price")
+    eth_24h = eth.get("price_change_percentage_24h")
+    if btc_7d is None:
+        log_event(
+            "coingecko",
+            "warning",
+            "btc_7d_missing",
+            "BTC 7-day change absent from /coins/markets response; weekly risk signal inactive this run.",
+            {},
+        )
 
     # Crypto fear & greed from alternative.me (free, no auth)
     fear_greed = None

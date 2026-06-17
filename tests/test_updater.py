@@ -157,6 +157,35 @@ def test_apply_update_reports_checksum_result(tmp_path, monkeypatch):
     assert opened == [["open", str(asset)]]
 
 
+def test_apply_update_refuses_install_when_checksum_unverified(tmp_path, monkeypatch):
+    """A None checksum result (no SHA256SUMS entry) must NOT auto-install the asset."""
+    asset = tmp_path / "tech_stock.dmg"
+    asset.write_bytes(b"asset")
+    opened = []
+    info = updater.UpdateInfo(
+        current_version="1.0.0",
+        latest_version="9.9.9",
+        available=True,
+        asset_name="tech_stock.dmg",
+        asset_url="https://example.test/tech_stock.dmg",
+        checksum_url=None,
+    )
+
+    monkeypatch.setattr(updater, "is_source_checkout", lambda: False)
+    monkeypatch.setattr(updater, "download_asset", lambda update_info: asset)
+    monkeypatch.setattr(updater, "verify_asset_checksum", lambda path, update_info: None)
+    monkeypatch.setattr(updater.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(updater.subprocess, "Popen", lambda args, **kwargs: opened.append(args))
+
+    result = updater.apply_update(info, restart=True)
+
+    assert result.ok is False
+    assert result.checksum_verified is None
+    assert result.error == "checksum not verified"
+    # Must only reveal the download (open -R), never mount/execute it.
+    assert opened == [["open", "-R", str(asset)]]
+
+
 # ── Update-check cache (throttling) ─────────────────────────────────────
 
 

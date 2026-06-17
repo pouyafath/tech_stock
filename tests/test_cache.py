@@ -70,11 +70,20 @@ def test_cached_hits_on_fresh_file(tmp_path, monkeypatch):
     assert calls["n"] == 1
 
 
-def test_clear_cache_removes_pkl_files(tmp_path, monkeypatch):
+def test_clear_cache_removes_cache_files(tmp_path, monkeypatch):
     monkeypatch.setattr(cache, "CACHE_DIR", tmp_path)
     cache.cached("ns3", "key1", 3600, lambda: "x")
-    assert list(tmp_path.rglob("*.pkl"))
+    assert list(tmp_path.rglob("*.json"))
     cache.clear_cache("ns3")
+    assert not list(tmp_path.rglob("*.json"))
+
+
+def test_clear_cache_removes_legacy_pkl_files(tmp_path, monkeypatch):
+    monkeypatch.setattr(cache, "CACHE_DIR", tmp_path)
+    legacy = tmp_path / "ns_legacy" / "abc.pkl"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_bytes(b"old")
+    cache.clear_cache("ns_legacy")
     assert not list(tmp_path.rglob("*.pkl"))
 
 
@@ -83,7 +92,7 @@ def test_clear_cache_all_namespaces(tmp_path, monkeypatch):
     cache.cached("nsA", "key1", 3600, lambda: "a")
     cache.cached("nsB", "key1", 3600, lambda: "b")
     cache.clear_cache()
-    assert not list(tmp_path.rglob("*.pkl"))
+    assert not list(tmp_path.rglob("*.json"))
 
 
 def test_cached_handles_corrupt_file(tmp_path, monkeypatch):

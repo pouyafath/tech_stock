@@ -437,6 +437,10 @@ def get_ticker_data(ticker: str, history_months: int = 10) -> dict:
             ttl_seconds=ttl,
             loader=lambda: _fetch_ticker_raw(ticker, history_months, include_options=include_options),
             enabled=cache_enabled,
+            # Never cache an error/empty result — a transient yfinance failure
+            # would otherwise be served as "fresh" for the full TTL (1h),
+            # poisoning every recommendation in that window.
+            should_cache=lambda v: isinstance(v, dict) and not v.get("error"),
         )
     except Exception as e:
         return {"ticker": ticker, "error": str(e)}
@@ -561,6 +565,8 @@ def price_at(ticker: str, iso_date: str) -> float | None:
             ttl_seconds=ttl,
             loader=lambda: _fetch_price_at(ticker, iso_date),
             enabled=cache_enabled,
+            # Don't cache a failed lookup (None) for 30 days.
+            should_cache=lambda v: v is not None,
         )
     except Exception:
         return None

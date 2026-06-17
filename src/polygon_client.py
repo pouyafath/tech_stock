@@ -173,6 +173,7 @@ def stock_snapshot(ticker: str) -> dict | None:
             ttl_seconds=ttl,
             loader=lambda: _fetch_stock_snapshot(ticker),
             enabled=settings.get("cache_enabled", True),
+            should_cache=lambda v: v is not None,
         )
     except Exception as exc:  # noqa: BLE001
         log_event("polygon", "error", "snapshot_failed", f"stock_snapshot({ticker}) failed: {exc}", {"ticker": ticker})

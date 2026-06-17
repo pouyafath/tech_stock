@@ -249,15 +249,6 @@ def append_review(
     _save(log_path, state)
 
 
-def remove_thesis(log_path: Path | str, key: str) -> None:
-    """Drop a thesis entry (called when position is closed)."""
-    log_path = Path(log_path)
-    state = _load(log_path)
-    if key in state:
-        del state[key]
-        _save(log_path, state)
-
-
 def format_for_prompt(
     due_for_review: list[dict],
     forced_exits: list[dict],
