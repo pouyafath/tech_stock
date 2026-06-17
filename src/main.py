@@ -1010,9 +1010,10 @@ def _run_impl(
             print(f"{C.YELLOW}[tech_stock] OVERRIDE — {budget.message}{C.RESET}")
     except SystemExit:
         raise
-    except Exception:
-        # Budget enforcement must not break the report path
-        pass
+    except Exception as exc:
+        # Budget enforcement must not break the report path, but a silently
+        # disabled spend cap is dangerous — surface it instead of swallowing.
+        print(f"{C.YELLOW}[tech_stock] ⚠️  budget check skipped (enforcement error): {exc}{C.RESET}", file=sys.stderr)
 
     print(f"{C.DIM}[tech_stock] Calling Claude ({display_model}) for recommendations...{C.RESET}")
 

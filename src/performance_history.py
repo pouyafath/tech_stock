@@ -331,11 +331,16 @@ def portfolio_performance_summary(
     mean_return = _safe_mean(session_returns)
     stdev = _safe_stdev(session_returns)
 
-    # Annualisation factor: most users run morning + afternoon, so 2/day ≈
-    # 504 sessions a year, but that conflates intra-day noise.  Use the
-    # actual span between first and last snapshot for a realistic figure.
-    span_days = max((timestamps[-1] - timestamps[0]).days, 1)
-    sessions_per_year = len(session_returns) * 365 / span_days if span_days else 252
+    # Annualisation factor. The product is designed for 1–2 runs per trading
+    # day, so we annualise on a trading-day basis (252/yr) scaled by the
+    # observed runs-per-day, clamped to [1, 2]. The previous formula
+    # (len(session_returns) * 365 / span_days) exploded for short spans — e.g.
+    # a handful of same-day snapshots floor span_days to 1 and inflate every
+    # annualised metric (return, volatility, Sortino, Calmar, alpha) by
+    # hundreds of times. Counting distinct calendar days keeps it bounded.
+    distinct_days = len({ts.date() for ts in timestamps})
+    runs_per_day = min(max(len(session_returns) / max(distinct_days, 1), 1.0), 2.0)
+    sessions_per_year = 252 * runs_per_day
     annualized_return_pct = mean_return * sessions_per_year
     annualized_volatility_pct = stdev * (sessions_per_year**0.5)
     sharpe = (annualized_return_pct / annualized_volatility_pct) if annualized_volatility_pct > 0 else 0.0
