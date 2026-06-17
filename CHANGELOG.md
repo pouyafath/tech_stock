@@ -41,6 +41,19 @@ surfaced by a full read-only audit of the codebase.
 - Concentration-alert safety gate and FX-fallback path now log failures instead
   of swallowing them; budget-enforcement errors print a visible warning.
 
+### CI & tooling
+- **Demo smoke test is now fail-able.** CI runs `run_demo_smoke_test()` (bundled
+  samples, view models, markdown render — no network) and fails the build if the
+  demo path breaks. The previous step piped through `grep ... || true` (could
+  never fail) and launched a blocking Streamlit server.
+
+### Privacy
+- **Workspace export scrubs secrets harder.** Variant-named key files
+  (`.env.local`, `API_KEYS.backup.txt`, `*secret*`, `*credential*`) are now
+  excluded by prefix/substring, and included text files are content-redacted via
+  the shared redactor so an API key pasted into e.g. `config/settings.json`
+  no longer ships in cleartext.
+
 ### Cleanup
 - Removed dead code (`thesis_tracker.remove_thesis`).
 

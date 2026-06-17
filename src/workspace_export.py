@@ -25,6 +25,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timezone
 from pathlib import Path
 
+from src.observability import _redact
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -108,7 +110,7 @@ def export_workspace(*, output_dir: Path | None = None) -> ExportResult:
                         excluded += 1
                         continue
                     arcname = path.relative_to(ROOT).as_posix()
-                    zf.write(path, arcname)
+                    _write_scrubbed(zf, path, arcname)
                     file_count += 1
             for filename in _INCLUDE_FILES:
                 src = ROOT / filename
@@ -117,7 +119,7 @@ def export_workspace(*, output_dir: Path | None = None) -> ExportResult:
                 if _looks_like_secret(src):
                     excluded += 1
                     continue
-                zf.write(src, src.relative_to(ROOT).as_posix())
+                _write_scrubbed(zf, src, src.relative_to(ROOT).as_posix())
                 file_count += 1
     except (OSError, zipfile.BadZipFile) as exc:
         return ExportResult(ok=False, bytes_written=0, file_count=0, excluded=excluded, output_path=None, error=str(exc))
@@ -138,13 +140,42 @@ def _is_excluded(path: Path) -> bool:
 
 
 def _looks_like_secret(path: Path) -> bool:
-    """Best-effort secret detector — names that look key-ish are skipped."""
+    """Best-effort secret detector — names that look key-ish are skipped.
+
+    Matches by prefix/substring rather than exact name so renamed/variant key
+    files (.env.local, .env.production, API_KEYS.backup.txt, my_secrets.json)
+    are also dropped, not just the canonical names.
+    """
     name = path.name.lower()
-    if name in {".env", "api_keys.txt", "secrets.json", "credentials.json"}:
+    if name.startswith(".env") or name.startswith("api_keys") or name.startswith("api-keys"):
+        return True
+    if any(token in name for token in ("secret", "credential", "password")):
         return True
     if name.endswith(".pem") or name.endswith(".key"):
         return True
     return False
+
+
+# Text file types we scrub line-by-line for pasted secrets before zipping.
+_TEXT_SUFFIXES: frozenset[str] = frozenset({".json", ".jsonl", ".txt", ".md", ".csv", ".yaml", ".yml", ".ini", ".cfg", ".log", ".env"})
+
+
+def _write_scrubbed(zf: zipfile.ZipFile, path: Path, arcname: str) -> None:
+    """Write a file into the zip, redacting key-shaped strings from text files.
+
+    A user may paste an API key into an otherwise-innocent config/notes file
+    (e.g. config/settings.json). Name-based exclusion can't catch that, so text
+    files are content-scrubbed via the shared redactor. Non-text/binary files
+    and any that can't be decoded are written verbatim.
+    """
+    if path.suffix.lower() in _TEXT_SUFFIXES:
+        try:
+            text = path.read_text(encoding="utf-8")
+            zf.writestr(arcname, _redact(text))
+            return
+        except (OSError, UnicodeDecodeError):
+            pass
+    zf.write(path, arcname)
 
 
 def export_summary_text(result: ExportResult) -> str:

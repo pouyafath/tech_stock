@@ -82,6 +82,34 @@ def test_export_includes_top_level_files(isolated_workspace):
     assert "data/cost_log.jsonl" in names
 
 
+def test_export_scrubs_pasted_key_from_settings(isolated_workspace):
+    """A key pasted into an otherwise-included config file must be redacted."""
+    from src.workspace_export import export_workspace
+
+    (isolated_workspace / "config" / "settings.json").write_text(
+        '{"anthropic_api_key": "sk-ant-abcdefghijklmnopqrstuvwxyz123456"}',
+        encoding="utf-8",
+    )
+    result = export_workspace(output_dir=isolated_workspace / "exports")
+    with zipfile.ZipFile(result.output_path) as zf:
+        content = zf.read("config/settings.json").decode("utf-8")
+    assert "sk-ant-abcdefghijklmnopqrstuvwxyz123456" not in content
+    assert "REDACTED" in content
+
+
+def test_export_excludes_variant_named_secret_files(isolated_workspace):
+    """Renamed/variant key files (.env.local, API_KEYS.backup.txt) are dropped."""
+    from src.workspace_export import export_workspace
+
+    (isolated_workspace / "config" / ".env.local").write_text("KEY=sk-x", encoding="utf-8")
+    (isolated_workspace / "config" / "API_KEYS.backup.txt").write_text("k", encoding="utf-8")
+    result = export_workspace(output_dir=isolated_workspace / "exports")
+    with zipfile.ZipFile(result.output_path) as zf:
+        names = set(zf.namelist())
+    assert "config/.env.local" not in names
+    assert "config/API_KEYS.backup.txt" not in names
+
+
 def test_export_summary_text_well_formed(isolated_workspace):
     from src.workspace_export import export_summary_text, export_workspace
 
