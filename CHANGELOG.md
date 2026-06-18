@@ -4,6 +4,35 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.30.0] — 2026-06-18
+
+Follow-up cleanup pass: single source of truth for per-run cost estimates,
+removal of an orphaned dead module, and a large jump in API-client test
+coverage.
+
+### Cleanup
+- **Removed orphaned `src/desktop/` package.** It had zero importers anywhere
+  in the codebase (the live Tkinter desktop app is `src/desktop_app.py`, used
+  by every entrypoint, the PyInstaller spec, and all desktop tests). Docs
+  previously described the relationship backwards; `docs/ARCHITECTURE.md` is
+  now corrected.
+- **Single source of truth for per-run cost estimates.** The `~$0.22`/`~$0.45`
+  figures shown in the model-selection menu and used for the pre-run budget
+  check were hardcoded in two separate places in `main.py` and could drift
+  from the real pricing table. Both now read from
+  `claude_analyst.typical_run_cost()`, derived from `MODEL_PRICING`.
+
+### Tests
+- **API-client error-path coverage** raised sharply across the six paid-data
+  clients: `alpha_vantage_client.py` (19%→82%), `coingecko_client.py`
+  (19%→94%), `finnhub_client.py` (18%→81%), `fred_client.py` (22%→86%),
+  `polygon_client.py` (15%→85%), `twelve_data_client.py` (22%→83%). New tests
+  cover missing-API-key paths, paid-tier/rate-limit/4xx-5xx status handling,
+  malformed/empty JSON responses, and `should_cache` predicates rejecting
+  error payloads. Project-wide coverage: 69%→74%.
+
+---
+
 ## [1.29.0] — 2026-06-17
 
 Audit-driven hardening pass: security, data integrity, and resilience fixes

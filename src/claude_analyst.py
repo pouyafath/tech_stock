@@ -36,6 +36,24 @@ MODEL_PRICING = {
     "claude-haiku-4-5": {"input": 1.00, "output": 5.00, "cache_write_5m": 1.25, "cache_write_1h": 2.00, "cache_read": 0.10},
 }
 
+# Approximate end-to-end USD cost of one full two-pass run, by model. Used for
+# budget pre-checks and menu hints so the figure lives in ONE place instead of
+# being copy-pasted as magic numbers across main.py. The authoritative per-run
+# cost is still computed from real token usage via estimate_cost(); this is only
+# the up-front estimate shown before a run.
+TYPICAL_RUN_COST_USD = {
+    "claude-sonnet-4-6": 0.22,
+    "claude-opus-4-7": 0.45,
+    "claude-haiku-4-5": 0.08,
+}
+_DEFAULT_RUN_COST_USD = 0.22
+
+
+def typical_run_cost(model: str) -> float:
+    """Approximate USD cost of one full run for ``model`` (budget pre-checks/menus)."""
+    return TYPICAL_RUN_COST_USD.get(model, _DEFAULT_RUN_COST_USD)
+
+
 # Which cache TTL the analyst actually uses (must match the cache_control TTL passed to
 # the Anthropic SDK below).  Bump to "5m" only if you also change the cache_control values.
 _CACHE_TTL = "1h"

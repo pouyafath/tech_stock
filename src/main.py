@@ -101,9 +101,18 @@ def ensure_workspace() -> None:
 
 ensure_workspace()
 
+
+def _model_cost_hint(model_id: str, tail: str) -> str:
+    """Build a menu hint like '~$0.22/run — two-pass, recommended' from the
+    single-source-of-truth per-run cost estimate in claude_analyst."""
+    from src.claude_analyst import typical_run_cost
+
+    return f"~${typical_run_cost(model_id):.2f}/run — {tail}"
+
+
 MODELS = {
-    "1": ("claude-sonnet-4-6", "Sonnet 4.6", "~$0.22/run — two-pass, recommended"),
-    "2": ("claude-opus-4-7", "Opus 4.7", "~$0.45/run — deeper analysis, slower"),
+    "1": ("claude-sonnet-4-6", "Sonnet 4.6", _model_cost_hint("claude-sonnet-4-6", "two-pass, recommended")),
+    "2": ("claude-opus-4-7", "Opus 4.7", _model_cost_hint("claude-opus-4-7", "deeper analysis, slower")),
 }
 
 
@@ -995,11 +1004,13 @@ def _run_impl(
     # v1.19: monthly budget cap.  Soft-warn at 80% of the configured
     # ``monthly_budget_usd``; hard-block at 100% unless the user explicitly
     # overrides via ``ALLOW_OVERAGE=1`` (or sets monthly_budget_usd=0).
-    # ~$0.22 is the typical Sonnet cost; Opus is ~$0.45.
+    # Per-run cost estimate comes from claude_analyst.typical_run_cost so the
+    # figure stays in sync with the model menu and the real pricing table.
     try:
+        from src.claude_analyst import typical_run_cost
         from src.cost_tracker import check_budget, is_overage_allowed
 
-        expected = 0.45 if "opus" in display_model else 0.22
+        expected = typical_run_cost(display_model)
         budget = check_budget(expected_cost_usd=expected)
         if budget.soft_warn:
             print(f"{C.YELLOW}[tech_stock] ⚠️  {budget.message}{C.RESET}")

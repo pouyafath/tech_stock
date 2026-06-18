@@ -44,7 +44,7 @@ the [User Guide](USER_GUIDE.md).
    ┌───────────────────┼───────────────────┐
    ▼                   ▼                   ▼
 Streamlit          Desktop (Tk)      Textual TUI
-ui/streamlit_app   src/desktop/*     ui/textual_app
+ui/streamlit_app   src/desktop_app.py ui/textual_app
 ```
 
 Each box maps to one module under `src/`. Every transformation is a
@@ -94,8 +94,7 @@ write; Claude API call).
 | `src/scheduling.py` | Per-user launchd / Task Scheduler / cron installer |
 | **UI** | |
 | `ui/streamlit_app.py` | Web dashboard for Dashboard, Buy Signals, reports, runs, history, performance, backtesting, journal, learning, diagnostics, scheduling, and editing |
-| `src/desktop/` | Embedded Tkinter dashboard implementation with native menu bar |
-| `src/desktop_app.py` | Backward-compatible launcher/import wrapper for the desktop app |
+| `src/desktop_app.py` | Embedded Tkinter dashboard implementation with native menu bar |
 | `ui/textual_app.py` | Terminal UI |
 | `src/app_gui.py` | Native launcher (PyInstaller entry) |
 | `src/ui_launcher.py` | Shell launcher used by `./run.sh` |
