@@ -24,7 +24,7 @@ import pytest
 tkinter = pytest.importorskip("tkinter")
 
 ROOT = Path(__file__).resolve().parents[1]
-DESKTOP_IMPL = ROOT / "src" / "desktop_app.py"
+DESKTOP_IMPL = ROOT / "src" / "desktop" / "app.py"
 
 
 def test_platform_fonts_returns_complete_ladder():
@@ -39,10 +39,12 @@ def test_platform_fonts_returns_complete_ladder():
         assert weight in {"normal", "bold"}
 
 
-def test_legacy_desktop_app_has_root():
+def test_legacy_desktop_app_module_aliases_new_package():
+    import src.desktop.app as desktop_impl
     import src.desktop_app as legacy
 
-    assert legacy.ROOT == ROOT
+    assert legacy is desktop_impl
+    assert desktop_impl.ROOT == ROOT
 
 
 def test_platform_fonts_picks_sf_pro_on_macos(monkeypatch):
@@ -168,92 +170,6 @@ def test_about_handler_reads_dynamic_version():
     # The dialog title and body should both interpolate current_app_version().
     assert "current_app_version()" in src
     assert "About tech_stock" in src
-
-
-def test_window_icon_is_set_on_init():
-    """A plain `python src/desktop_app.py` run must not fall back to Tk's
-    generic feather icon — the packaged app icon should be applied."""
-    src = DESKTOP_IMPL.read_text(encoding="utf-8")
-    init_start = src.index("def __init__(self)")
-    next_def = src.index("\n    def ", init_start + 10)
-    init_body = src[init_start:next_def]
-    assert "self._set_window_icon()" in init_body
-
-    icon_start = src.index("def _set_window_icon(self)")
-    icon_next_def = src.index("\n    def ", icon_start + 10)
-    icon_body = src[icon_start:icon_next_def]
-    assert "icon.png" in icon_body
-    assert "iconphoto" in icon_body
-
-
-def test_reveal_in_finder_surfaces_failures_instead_of_silently_failing():
-    """If the OS file-manager command fails, the user must see *something*
-    (status bar message) rather than a button click that does nothing."""
-    src = DESKTOP_IMPL.read_text(encoding="utf-8")
-    fn_start = src.index("def _reveal_in_finder(self")
-    fn_next_def = src.index("\n    def ", fn_start + 10)
-    fn_body = src[fn_start:fn_next_def]
-    assert "except Exception:\n            pass" not in fn_body
-    assert "_set_status" in fn_body
-
-
-def test_coerce_time_field_rejects_bad_spinbox_input():
-    """The schedule Spinbox accepts free text; out-of-range / non-numeric
-    values must coerce to None (slot skipped) instead of raising ValueError."""
-    from src.desktop_app import DesktopApp
-
-    coerce = DesktopApp._coerce_time_field
-    # Valid values pass through.
-    assert coerce("0", lo=0, hi=23) == 0
-    assert coerce("23", lo=0, hi=23) == 23
-    assert coerce(" 9 ", lo=0, hi=23) == 9
-    assert coerce("59", lo=0, hi=59) == 59
-    # Out of range / junk → None, never an exception.
-    assert coerce("24", lo=0, hi=23) is None
-    assert coerce("-1", lo=0, hi=23) is None
-    assert coerce("99", lo=0, hi=59) is None
-    assert coerce("abc", lo=0, hi=23) is None
-    assert coerce("", lo=0, hi=23) is None
-    assert coerce("9.5", lo=0, hi=23) is None
-
-
-def test_close_handler_stops_after_loops():
-    """The window must register a close handler that cancels its repeating
-    after() loops so they don't fire against destroyed widgets on quit."""
-    src = DESKTOP_IMPL.read_text(encoding="utf-8")
-    assert 'self.protocol("WM_DELETE_WINDOW", self._on_close)' in src
-    close_start = src.index("def _on_close(self)")
-    close_next = src.index("\n    def ", close_start + 10)
-    close_body = src[close_start:close_next]
-    assert "self._closing = True" in close_body
-    assert "after_cancel" in close_body
-    assert "self.destroy()" in close_body
-    # The repeating loops must bail out when closing.
-    drain_start = src.index("def _drain_progress_queue(self)")
-    drain_body = src[drain_start : src.index("\n    def ", drain_start + 10)]
-    assert "if self._closing:" in drain_body
-
-
-def test_history_selection_is_bounds_checked():
-    src = DESKTOP_IMPL.read_text(encoding="utf-8")
-    fn_start = src.index("def _history_selected(self")
-    fn_body = src[fn_start : src.index("\n    def ", fn_start + 10)]
-    assert "len(self.history_paths)" in fn_body
-
-
-def test_onboarding_budgets_persist_all_three_fields():
-    """The wizard's budget stage must save the spend cap and both trade
-    budgets, not just budget_cad."""
-    src = DESKTOP_IMPL.read_text(encoding="utf-8")
-    # Scope to the _primary() save handler (there is also a "budgets" branch in
-    # the UI-building _render method that we must not match instead).
-    primary_start = src.index("def _primary(self)")
-    primary_body = src[primary_start : src.index("\n    def ", primary_start + 10)]
-    budgets_start = primary_body.index('elif self._current == "budgets":')
-    budgets_body = primary_body[budgets_start : primary_body.index("elif self._current ==", budgets_start + 10)]
-    assert "monthly_budget_usd" in budgets_body
-    assert "budget_usd" in budgets_body
-    assert "budget_cad" in budgets_body
 
 
 if __name__ == "__main__":

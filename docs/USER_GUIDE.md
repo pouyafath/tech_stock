@@ -215,6 +215,13 @@ Do not choose an activities export in the Holdings field. These are different
 schemas. Newer versions of tech_stock detect a swapped file and show an
 actionable correction message.
 
+When both selected files are reversed, tech_stock corrects the pair before the
+report run. When only one wrong file is selected, the run stops early and tells
+you which field needs the file.
+
+Sample files such as `holdings-report-sample.csv` are demo-only. Paid runs block
+sample holdings unless demo mode is active.
+
 ### File discovery
 
 Interactive flows search common locations for recent files and ask the user to
@@ -235,7 +242,9 @@ workspace.
 5. Confirm the Holdings CSV path.
 6. Confirm or skip the Activities CSV path.
 7. Preview holdings.
-8. Run the report.
+8. Review **Ready To Run**. `READY` can run, `REVIEW_FIRST` needs warning
+   review, and `BLOCKED` must be fixed first.
+9. Run the report.
 
 The Desktop App shows progress and generated output paths.
 
@@ -304,14 +313,24 @@ include:
   quality warnings, stops, drift, hedge ideas, and market context.
 - **Buy Signals**: source-backed BUY/ADD and add-on-dip ideas with readiness
   filters, quote details, targets, catalysts, warnings, and risk controls.
-- **Run Report**: model, budget, CSV selection, preview, and report execution.
-- **Report Viewer**: styled markdown display, search, and latest report loading.
-- **History**: previous report browsing and rendering.
+- **Run Report**: model, budget, CSV selection, preview, Ready To Run verdict,
+  and report execution.
+- **Data Files**: setup readiness, recommended CSV candidates, current
+  holdings/activities CSV defaults, API-key file, reports folder,
+  recommendation logs folder, uploads folder, and workspace status.
+- **Report Viewer**: styled markdown display, search, latest report loading,
+  Report Review gates, drift/source-degradation summary, and decision feedback.
+- **History**: previous report browsing with input CSV names, warning counts,
+  action counts, data-confidence labels, rendering, and per-report review.
+- **Outcomes**: fixed 1/5/20-day recommendation outcome scoring with stable
+  IDs, benchmark alpha, BUY/ADD success rate, TRIM/SELL saved drawdown, and
+  stop/take-profit trigger checks.
 - **Config Editor**: validated editing for settings, watchlist, and fallback
   portfolio JSON.
 - **API Checks**: key management, discovery paths, and connectivity checks.
-- **Diagnostics**: preflight status, source degradation, recent errors, spend,
-  and support information.
+- **Diagnostics**: preflight status, no-spend app self-test, source degradation,
+  recent errors, spend, copyable diagnostics, support-bundle contents preview,
+  and redacted support-bundle zip export.
 - **Updates**: release checks, cache force-refresh, checksum status, update
   actions, and logs.
 
@@ -324,7 +343,8 @@ python -m streamlit run ui/streamlit_app.py
 ```
 
 Streamlit is the best interface for the first-run wizard, CSV upload, browser
-markdown rendering, history comparison, chart-heavy views, and file downloads.
+markdown rendering, history comparison, chart-heavy views, outcome tables, and
+file downloads.
 
 ### Textual
 
@@ -340,6 +360,10 @@ Useful shortcuts:
 - `Ctrl+R`: run a report.
 - `Ctrl+S`: save valid JSON in the editor.
 
+Textual includes the same Outcomes view as the desktop and Streamlit apps. It
+is useful over SSH or when you want fixed-window scoring without opening a
+browser.
+
 ### CLI
 
 The CLI is the best choice for scheduled runs, automation, remote terminals, and
@@ -349,14 +373,21 @@ minimal overhead.
 
 Read the report in this order:
 
-1. **Data Confidence**: summarizes whether the available data is suitable for
+1. **Actionability Check**: shows the top-level trade-ready/review/blocked
+   verdict, quote freshness, source coverage, catalyst coverage, warning count,
+   and the first reason to review.
+2. **Data Confidence**: summarizes whether the available data is suitable for
    action.
-2. **Report Quality Warnings**: lists deterministic issues and required review.
-3. **Trader Action Plan**: prioritizes actions and sizes.
-4. **Portfolio Health and Risk Dashboard**: shows exposure and concentration.
-5. **Recommendation details**: explains thesis, catalyst, risk controls,
+3. **Report Quality Warnings**: lists deterministic issues and required review.
+4. **Trader Action Plan**: prioritizes actions and sizes.
+5. **Portfolio Health and Risk Dashboard**: shows exposure and concentration.
+6. **Recommendation details**: explains thesis, catalyst, risk controls,
    expected range, and invalidation.
-6. **Sources and degradation**: shows what data was available or missing.
+7. **Sources and degradation**: shows what data was available or missing.
+
+When the Track Record section includes **Fixed-window outcomes**, those rows
+come from historical recommendation logs and show whether prior calls worked
+after 1, 5, and 20 days versus the relevant benchmark.
 
 Readiness states:
 
@@ -367,6 +398,20 @@ Readiness states:
 | `BLOCKED` | A blocking data, catalyst, market-data, or position-cap issue exists. |
 
 No readiness state guarantees an executable or profitable trade.
+
+### Report Review
+
+Use **Report Review** immediately after reading the rendered markdown. It joins
+the matching JSON log, Data Confidence, deterministic quality warnings, source
+degradation, drift versus the previous report, and decision-journal rows.
+
+Desktop shows this panel above Report Viewer. Streamlit shows it in Today's
+Report and History. Textual has a dedicated **Report Review** tab.
+
+Use the feedback controls to mark actionable recommendations as `accepted`,
+`ignored`, `modified`, `delayed`, `watch`, or `executed`. The app writes those
+choices to `data/decision_journal.json`, which feeds the learning loop and
+future scorecards.
 
 ## Settings
 
@@ -429,6 +474,40 @@ Each successful report run normally creates:
 - Cost record: `data/cost_log.jsonl`
 - Decision-journal additions: `data/decision_journal.json`
 
+### Saved data-file defaults
+
+Desktop, Streamlit, and Textual can save your selected Holdings and Activities
+CSV paths to:
+
+```text
+config/data_files.json
+```
+
+This file stores paths only. It does not copy or upload your Wealthsimple CSVs.
+The app uses saved paths first, then falls back to auto-discovery in the
+workspace upload folder and common OS folders such as Downloads.
+
+### Pre-run checklist
+
+Before a paid report run, all UIs now show the same **Ready To Run** verdict
+and checklist:
+
+- `READY`: no blocking checks and no review warnings.
+- `REVIEW_FIRST`: the app can run, but warning rows should be reviewed first.
+- `BLOCKED`: a required input or safety check must be fixed before Claude spend.
+
+The underlying checklist verifies:
+
+- Anthropic API key configured.
+- Holdings CSV exists, is readable, is a holdings export, and is not sample data.
+- Activities CSV is either valid or intentionally absent.
+- Monthly budget is not hard-blocked.
+- Optional API coverage is visible as a warning, not a hard failure.
+- Update status is visible.
+
+Blocking issues stop the paid run before Claude is called. Non-blocking warnings
+can be reviewed and accepted from the UI.
+
 ## Diagnostics
 
 Run the preflight doctor before a paid run or when troubleshooting:
@@ -443,22 +522,67 @@ Force a live GitHub release lookup:
 python src/main.py doctor --json --force-refresh
 ```
 
+Verify whether an older installed app would see the newest published release
+without applying an update:
+
+```bash
+python src/main.py doctor --json --force-refresh --simulate-current-version 1.27.2
+```
+
 Also validate bundled demo data and UI view models without Anthropic spend:
 
 ```bash
 python src/main.py doctor --json --force-refresh --demo-smoke
 ```
 
+For first-run/setup status, use:
+
+```bash
+python src/main.py setup --json
+```
+
+This reports onboarding stage, workspace writability, API key status, paid-run
+blockers, recommended CSV candidates, demo availability, and the next setup
+action.
+
+To create a redacted support zip:
+
+```bash
+python src/main.py support-bundle --preview
+python src/main.py support-bundle
+```
+
+Use `--preview` to list included files and exclusions without writing a zip.
+The zip is written under `exports/` by default and contains doctor/setup/data
+file summaries plus diagnostics logs. It excludes raw API keys, `.env`,
+`.env.zip`, raw Wealthsimple CSV contents, generated reports, and unrelated
+local files.
+
 The doctor payload includes:
 
 - Installed and latest published version.
+- Optional simulated installed version for release-health checks.
 - Update cache age and source.
 - Release asset and checksum availability.
 - Workspace paths and writability.
 - API key discovery and configured-source status.
-- Holdings and activities CSV freshness.
+- CSV Health: holdings/activities schema kind, freshness, swapped-file status,
+  sample/demo detection, and action text.
 - Monthly Anthropic budget status.
 - Optional demo smoke-test results.
+
+Desktop and Streamlit Diagnostics show the same CSV Health data in a table so
+you can verify the app is using the right export before spending on a report.
+
+Diagnostics also includes a no-spend **App Self-Test**. It checks version
+metadata, setup readiness, bundled demo smoke, Report Review loading, and
+support-bundle availability without calling Claude. Copy its summary when
+reporting an issue.
+
+The **Data Files** view is the faster place to check exactly which paths will be
+used. Use it before a paid run when you have multiple Wealthsimple exports in
+Downloads or the workspace upload folder. The recommended candidate row is the
+file the app would ask you to confirm.
 
 ## Updates
 
@@ -508,7 +632,8 @@ Sent externally during a paid run:
 - Ticker and market-data requests to enabled enrichment providers.
 
 API keys are redacted from diagnostics and excluded from sanitized workspace
-exports.
+exports. The support-bundle zip also excludes raw Wealthsimple CSV contents and
+stores only schema/freshness summaries.
 
 ## Next Reading
 

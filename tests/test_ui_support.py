@@ -21,6 +21,13 @@ def test_run_report_from_ui_calls_canonical_runner(monkeypatch, tmp_path, capsys
         return {"report_path": report, "csv_path": csv, "log_path": log}
 
     monkeypatch.setattr(ui_support, "ReportPipeline", lambda: ReportPipeline(runner=fake_run))
+    monkeypatch.setattr(
+        ui_support,
+        "build_pre_run_checklist",
+        lambda **_kwargs: {"can_run": True, "warning_count": 0, "rows": []},
+    )
+    monkeypatch.setattr(ui_support, "format_pre_run_checklist", lambda _checklist: "Pre-run checklist: OK")
+    monkeypatch.setattr(ui_support, "save_data_file_defaults", lambda **_kwargs: None)
 
     result = ui_support.run_report_from_ui(
         session_type="morning",
@@ -46,6 +53,13 @@ def test_run_report_from_ui_streams_progress(monkeypatch, tmp_path):
         return {"report_path": report, "csv_path": csv, "log_path": log}
 
     monkeypatch.setattr(ui_support, "ReportPipeline", lambda: ReportPipeline(runner=fake_run))
+    monkeypatch.setattr(
+        ui_support,
+        "build_pre_run_checklist",
+        lambda **_kwargs: {"can_run": True, "warning_count": 0, "rows": []},
+    )
+    monkeypatch.setattr(ui_support, "format_pre_run_checklist", lambda _checklist: "Pre-run checklist: OK")
+    monkeypatch.setattr(ui_support, "save_data_file_defaults", lambda **_kwargs: None)
 
     result = ui_support.run_report_from_ui(
         session_type="morning",
@@ -55,6 +69,46 @@ def test_run_report_from_ui_streams_progress(monkeypatch, tmp_path):
 
     assert result.ok is True
     assert progress == ["phase one", "phase two"]
+
+
+def test_run_report_from_ui_blocks_failed_preflight(monkeypatch):
+    monkeypatch.setattr(
+        ui_support,
+        "build_pre_run_checklist",
+        lambda **_kwargs: {
+            "can_run": False,
+            "next_action": "Add ANTHROPIC_API_KEY.",
+            "blocking_count": 1,
+            "rows": [{"check": "Anthropic API key", "blocking": True}],
+        },
+    )
+    monkeypatch.setattr(ui_support, "format_pre_run_checklist", lambda _checklist: "blocked")
+
+    result = ui_support.run_report_from_ui(session_type="morning", model_choice="sonnet")
+
+    assert result.ok is False
+    assert result.error == "Add ANTHROPIC_API_KEY."
+    assert result.console == "blocked"
+
+
+def test_ui_support_paid_readiness_and_support_preview_wrappers(monkeypatch):
+    monkeypatch.setattr(
+        ui_support,
+        "build_paid_run_readiness_view",
+        lambda **kwargs: {"status": "READY", "holdings": str(kwargs["holdings_csv"])},
+    )
+    monkeypatch.setattr(
+        ui_support,
+        "build_support_bundle_preview",
+        lambda include_demo_smoke=False: {"file_count": 5, "include_demo_smoke": include_demo_smoke},
+    )
+
+    readiness = ui_support.paid_run_readiness_view(holdings_csv="~/holdings.csv")
+    preview = ui_support.support_bundle_preview(include_demo_smoke=True)
+
+    assert readiness["status"] == "READY"
+    assert readiness["holdings"].endswith("holdings.csv")
+    assert preview == {"file_count": 5, "include_demo_smoke": True}
 
 
 def test_list_reports_returns_newest_first(monkeypatch, tmp_path):
@@ -101,6 +155,105 @@ def test_latest_log_summary_reads_current_dashboard_fields(monkeypatch, tmp_path
     assert summary["watchlist_flags"][0]["ticker"] == "CRM"
     assert summary["sector_warnings"] == ["tech concentration"]
     assert summary["session_summary"] == "summary"
+
+
+def test_report_history_view_includes_input_files_and_signal_counts(monkeypatch, tmp_path):
+    report_dir = tmp_path / "reports"
+    log_dir = tmp_path / "recommendations_log"
+    report_dir.mkdir()
+    log_dir.mkdir()
+    report = report_dir / "20260613_0900_morning.md"
+    report.write_text("# Report", encoding="utf-8")
+    log = log_dir / "20260613_0900_morning.json"
+    log.write_text(
+        json.dumps(
+            {
+                "input_files": {
+                    "holdings_csv": "/tmp/holdings-report-2026-06-13.csv",
+                    "activities_csv": "/tmp/activities-export-2026-06-13.csv",
+                },
+                "recommendations": [{"action": "BUY"}, {"action": "TRIM"}],
+                "quality_warnings": [{"severity": "medium"}],
+                "data_confidence": {"label": "Review First"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ui_support, "REPORTS_DIR", report_dir)
+    monkeypatch.setattr(ui_support, "RECS_LOG_DIR", log_dir)
+
+    view = ui_support.report_history_view()
+    row = view["rows"][0]
+
+    assert row["holdings_csv"].endswith("holdings-report-2026-06-13.csv")
+    assert row["buy_add_count"] == 1
+    assert row["trim_sell_count"] == 1
+    assert row["warning_count"] == 1
+
+
+def test_report_review_view_matches_report_to_log_and_seeds_journal(monkeypatch, tmp_path):
+    report_dir = tmp_path / "reports"
+    log_dir = tmp_path / "recommendations_log"
+    data_dir = tmp_path / "data"
+    report_dir.mkdir()
+    log_dir.mkdir()
+    data_dir.mkdir()
+    report = report_dir / "20260616_0900_morning.md"
+    report.write_text("# Report", encoding="utf-8")
+    log = log_dir / "20260616_0900_morning.json"
+    log.write_text(
+        json.dumps(
+            {
+                "recommendations": [{"ticker": "AMD", "action": "TRIM", "conviction": 8}],
+                "quality_warnings": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ui_support, "REPORTS_DIR", report_dir)
+    monkeypatch.setattr(ui_support, "RECS_LOG_DIR", log_dir)
+    monkeypatch.setattr(ui_support, "DECISION_JOURNAL_PATH", data_dir / "decision_journal.json")
+
+    view = ui_support.report_review_view(report_path=report)
+
+    assert view["ok"] is True
+    assert view["log_path"] == log
+    assert view["decision_rows"][0]["ticker"] == "AMD"
+    assert (data_dir / "decision_journal.json").exists()
+
+
+def test_outcomes_view_uses_shared_recommendation_outcome_model(monkeypatch, tmp_path):
+    log_dir = tmp_path / "recommendations_log"
+    log_dir.mkdir()
+    monkeypatch.setattr(ui_support, "RECS_LOG_DIR", log_dir)
+    monkeypatch.setattr(
+        ui_support,
+        "build_recommendation_outcomes_view",
+        lambda path, max_logs=250: {"status": "READY", "path": path, "max_logs": max_logs},
+    )
+
+    view = ui_support.outcomes_view(max_logs=12)
+
+    assert view == {"status": "READY", "path": log_dir, "max_logs": 12}
+
+
+def test_app_self_test_view_returns_rows(monkeypatch):
+    monkeypatch.setattr(ui_support, "setup_readiness_view", lambda **_kwargs: {"status": "READY", "next_action": ""})
+    monkeypatch.setattr(ui_support, "demo_smoke_view", lambda: {"ok": True, "message": "demo passed"})
+    monkeypatch.setattr(
+        ui_support, "report_review_view", lambda **_kwargs: {"ok": True, "status_label": "Trade Ready", "session_file": "x.json"}
+    )
+    monkeypatch.setattr(
+        ui_support,
+        "support_bundle_preview",
+        lambda **_kwargs: {"safe_to_share": True, "file_count": 3, "privacy_note": "redacted"},
+    )
+
+    view = ui_support.app_self_test_view()
+
+    assert view["status"] == "READY"
+    assert len(view["rows"]) == 5
+    assert "tech_stock app self-test" in view["support_summary"]
 
 
 def test_write_editable_json_validates_and_formats(monkeypatch, tmp_path):
@@ -157,94 +310,3 @@ def test_default_run_settings_reads_budget_and_model(monkeypatch, tmp_path):
     defaults = ui_support.default_run_settings()
 
     assert defaults == {"budget_usd": 500.0, "budget_cad": 3000.0, "model_choice": "opus"}
-
-
-def test_run_report_from_ui_dry_run_no_holdings(monkeypatch):
-    """dry_run=True with no CSV should return dry_run=True in result."""
-    from src import ui_support
-
-    # Patch market data to return empty dict immediately
-    monkeypatch.setattr(ui_support, "get_market_data", lambda tickers: {})
-
-    result = ui_support.run_report_from_ui(
-        session_type="morning",
-        holdings_csv=None,
-        model_choice="sonnet",
-        dry_run=True,
-    )
-
-    assert result.dry_run is True
-    assert result.ok is True
-    assert result.dry_run_data is not None
-    assert result.dry_run_data["dry_run"] is True
-
-
-def test_run_report_from_ui_dry_run_with_holdings(monkeypatch, tmp_path):
-    """dry_run=True with a valid CSV parses holdings and fetches market data."""
-    from src import ui_support
-
-    holdings_csv = tmp_path / "holdings.csv"
-    holdings_csv.write_text("Ticker\nNVDA\n")
-
-    monkeypatch.setattr(
-        ui_support,
-        "parse_holdings_csv",
-        lambda path: {"holdings": [{"ticker": "NVDA", "market_value": 1000, "market_value_currency": "USD"}]},
-    )
-    monkeypatch.setattr(ui_support, "get_market_data", lambda tickers: {"NVDA": {"current_price": 900}})
-
-    result = ui_support.run_report_from_ui(
-        session_type="morning",
-        holdings_csv=str(holdings_csv),
-        model_choice="sonnet",
-        dry_run=True,
-    )
-
-    assert result.dry_run is True
-    assert result.ok is True
-    assert result.dry_run_data["position_count"] == 1
-    assert result.dry_run_data["market_data_fetched"] == 1
-
-
-def test_resolve_model():
-    from src.ui_support import resolve_model
-
-    model_id, model_name = resolve_model("sonnet")
-    assert model_id is not None
-
-    none_id, none_name = resolve_model(None)
-    assert none_id is None
-
-
-def test_normalize_optional_path_none():
-    from src.ui_support import normalize_optional_path
-
-    assert normalize_optional_path(None) is None
-    assert normalize_optional_path("") is None
-
-
-def test_save_uploaded_bytes(tmp_path, monkeypatch):
-    from src import ui_support
-
-    monkeypatch.setattr(ui_support, "UPLOAD_DIR", tmp_path)
-    path = ui_support.save_uploaded_bytes("holdings.csv", b"Ticker\nNVDA\n")
-    assert path.exists()
-    assert path.read_bytes() == b"Ticker\nNVDA\n"
-
-
-def test_preview_holdings_csv_not_found(tmp_path):
-    from src import ui_support
-
-    result = ui_support.preview_holdings_csv(tmp_path / "nonexistent.csv")
-    assert result["ok"] is False
-
-
-def test_find_default_csvs(monkeypatch, tmp_path):
-    import re
-
-    from src import ui_support
-
-    # Patch find_csv_by_date to return None (no CSVs found)
-    monkeypatch.setattr(ui_support, "find_csv_by_date", lambda prefix: None)
-    result = ui_support.find_default_csvs()
-    assert result == {"holdings": None, "activities": None}

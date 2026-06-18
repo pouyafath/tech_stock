@@ -97,6 +97,28 @@ def test_ensure_workspace_is_idempotent(monkeypatch, tmp_path):
     assert (tmp_path / "reports").exists()
 
 
+# ── recommendation outcome IDs (v1.34) ────────────────────────────────────
+
+
+def test_attach_recommendation_ids_adds_stable_ids_to_actionable_rows():
+    payload = {
+        "recommendations": [
+            {"ticker": "NVDA", "action": "ADD"},
+            {"ticker": "NVDA", "action": "ADD"},
+            {"ticker": "MSFT", "action": "HOLD"},
+            {"ticker": "CASH", "action": "SELL"},
+        ]
+    }
+
+    main_module._attach_recommendation_ids(payload, "20260616_0900_morning.json")
+
+    recs = payload["recommendations"]
+    assert recs[0]["recommendation_id"] == "20260616_morning_NVDA_ADD_001"
+    assert recs[1]["recommendation_id"] == "20260616_morning_NVDA_ADD_002"
+    assert "recommendation_id" not in recs[2]
+    assert "recommendation_id" not in recs[3]
+
+
 # ── validate_environment ───────────────────────────────────────────────────
 
 

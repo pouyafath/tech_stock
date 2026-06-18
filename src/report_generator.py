@@ -353,6 +353,31 @@ def _render_track_record_section(backtest_summary: dict) -> list[str]:
             lines.append(f"| {action} | {stats['n']} | {stats['avg_return_pct']:+.2f}% | {stats['hit_rate']:.0%} |")
         lines.append("")
 
+    fixed = backtest_summary.get("recommendation_outcomes") or {}
+    if fixed.get("scored_windows"):
+        fixed_overall = fixed.get("overall") or {}
+        lines += [
+            "**Fixed-window outcomes:**",
+            "",
+            "| Metric | Value |",
+            "|---|---:|",
+            f"| Scored windows | {fixed.get('scored_windows', 0)} |",
+            f"| Scored recommendations | {fixed.get('scored_recommendations', 0)} |",
+            f"| Avg action return | {fixed_overall.get('avg_action_return_pct', 0):+.2f}% |",
+            f"| Hit rate | {fixed_overall.get('hit_rate', 0):.0%} |",
+        ]
+        alpha = fixed_overall.get("avg_alpha_vs_benchmark_pct")
+        if alpha is not None:
+            lines.append(f"| Avg alpha vs benchmark | {alpha:+.2f}% |")
+        if fixed.get("buy_add_success_rate") is not None:
+            lines.append(f"| BUY/ADD success rate | {fixed.get('buy_add_success_rate', 0):.0%} |")
+        if fixed.get("trim_sell_saved_drawdown_count"):
+            lines.append(
+                f"| TRIM/SELL saved drawdown | {fixed.get('trim_sell_saved_drawdown_avg_pct', 0):+.2f}% "
+                f"avg across {fixed.get('trim_sell_saved_drawdown_count')} windows |"
+            )
+        lines.append("")
+
     by_conv = backtest_summary.get("avg_return_by_conviction", {})
     if by_conv:
         lines += [
@@ -532,6 +557,63 @@ def _render_data_confidence_section(recommendation: dict, market_data: dict, enr
         lines += ["", "**Why it matters:**"]
         for reason in reasons[:5]:
             lines.append(f"- {reason}")
+    lines += ["", "---", ""]
+    return lines
+
+
+def _render_actionability_check_section(recommendation: dict, market_data: dict, enriched: dict) -> list[str]:
+    confidence = recommendation.get("data_confidence") or build_data_confidence(
+        recommendations=recommendation.get("recommendations") or [],
+        market_data=market_data or {},
+        quality_warnings=recommendation.get("quality_warnings") or [],
+        enriched=enriched or {},
+    )
+    source_coverage = confidence.get("source_coverage") or {}
+    catalyst_coverage = confidence.get("catalyst_coverage") or {}
+    readiness = confidence.get("readiness_counts") or {}
+    status_label = {
+        "trade_ready": "TRADE READY",
+        "review_first": "REVIEW FIRST",
+        "blocked": "BLOCKED",
+    }.get(str(confidence.get("status") or "").lower(), str(confidence.get("label") or "REVIEW").upper())
+    top_reason = next(iter(confidence.get("reasons") or []), "No deterministic data-confidence blockers detected.")
+    rows = [
+        ("Verdict", status_label),
+        ("Data confidence", confidence.get("label") or "N/A"),
+        ("Quote freshness", confidence.get("quote_freshness") or "N/A"),
+        (
+            "Quotes timestamped",
+            f"{confidence.get('timestamped_quotes', 0)}/{confidence.get('quote_total', 0)}",
+        ),
+        (
+            "Source coverage",
+            f"{source_coverage.get('active_count', 0)} active; {source_coverage.get('degradation_count', 0)} degradation record(s)",
+        ),
+        (
+            "Catalyst coverage",
+            f"{catalyst_coverage.get('verified_count', 0)}/{catalyst_coverage.get('relevant_count', 0)} verified; "
+            f"{catalyst_coverage.get('manual_review_required', 0)} manual review",
+        ),
+        ("Quality warnings", confidence.get("warning_count", 0)),
+    ]
+    if readiness:
+        rows.append(
+            (
+                "Buy-signal readiness",
+                f"{readiness.get('TRADE_READY', 0)} ready / {readiness.get('REVIEW_FIRST', 0)} review / {readiness.get('BLOCKED', 0)} blocked",
+            )
+        )
+    rows.append(("Next check", top_reason))
+    lines = [
+        "## Actionability Check",
+        "",
+        f"_{confidence.get('summary') or 'Deterministic actionability summary.'}_",
+        "",
+        "| Signal | Value |",
+        "|---|---:|",
+    ]
+    for label, value in rows:
+        lines.append(f"| {label} | {_table_cell(value)} |")
     lines += ["", "---", ""]
     return lines
 
@@ -1073,6 +1155,7 @@ def generate_markdown(
             f"| Cash Deployment | {ph.get('cash_deployment', 'N/A')} |",
         ]
     lines += ["", "---", ""]
+    lines += _render_actionability_check_section(recommendation, market_data or {}, enriched or {})
 
     quality_warnings = recommendation.get("quality_warnings") or []
     drift_rows = drift or recommendation.get("drift_vs_previous") or []

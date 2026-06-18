@@ -41,6 +41,11 @@ def test_workflow_supports_workflow_dispatch(data):
     assert "workflow_dispatch" in triggers
 
 
+def test_workflow_opts_into_node24_actions_runtime(data):
+    env = data.get("env") or {}
+    assert env.get("FORCE_JAVASCRIPT_ACTIONS_TO_NODE24") == "true"
+
+
 # ── Jobs ──────────────────────────────────────────────────────────────────
 
 
@@ -63,6 +68,14 @@ def test_test_gate_runs_pytest_and_ruff(data):
     assert any("Pytest" in name or "pytest" in name for name in step_names)
     assert any("Ruff lint" in name for name in step_names)
     assert any("Ruff format" in name for name in step_names)
+
+
+def test_test_gate_runs_dependency_audit_on_ubuntu(data):
+    steps = data["jobs"]["test-gate"]["steps"]
+    audit_steps = [step for step in steps if step.get("name") == "Dependency vulnerability audit"]
+    assert audit_steps, "release test gate should run pip-audit before packaging"
+    assert audit_steps[0].get("if") == "matrix.os == 'ubuntu-22.04'"
+    assert "pip-audit --requirement requirements.txt" in audit_steps[0].get("run", "")
 
 
 def test_build_jobs_depend_on_test_gate(data):

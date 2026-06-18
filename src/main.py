@@ -42,6 +42,7 @@ from src.activity_loader import holding_days_by_ticker, parse_activities_csv
 from src.backtester import run_backtest
 from src.claude_analyst import call_claude
 from src.constants import DEDUP_PAIRS, SKIP_MARKET_DATA
+from src.csv_health import validate_csv_pair
 from src.decision_journal import (
     journal_status,
     load_journal,
@@ -63,6 +64,7 @@ from src.portfolio_analytics import (
     detect_drawdown,
 )
 from src.portfolio_loader import compute_sector_exposure, parse_holdings_csv
+from src.recommendation_outcomes import ACTIONABLE_ACTIONS, build_outcomes_view, stable_recommendation_id
 from src.recommendation_sizing import apply_trade_sizes
 from src.report_generator import generate_markdown, save_report, watchlist_price_alerts
 from src.updater import apply_update, check_for_update, cli_update_check, update_status_text
@@ -559,10 +561,27 @@ def get_all_tickers(portfolio: dict, watchlist: dict) -> list:
 def save_recommendation_log(data: dict, session_type: str) -> Path:
     RECS_LOG_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-    path = RECS_LOG_DIR / f"{timestamp}_{session_type}.json"
+    filename = f"{timestamp}_{session_type}.json"
+    path = RECS_LOG_DIR / filename
+    _attach_recommendation_ids(data, filename)
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
     return path
+
+
+def _attach_recommendation_ids(data: dict, session_file: str) -> None:
+    """Attach stable recommendation ids to newly saved actionable rows."""
+    counts: dict[tuple[str, str], int] = {}
+    for rec in data.get("recommendations") or []:
+        if not isinstance(rec, dict):
+            continue
+        ticker = (rec.get("ticker") or "").upper()
+        action = (rec.get("action") or "HOLD").upper()
+        if not ticker or ticker == "CASH" or action not in ACTIONABLE_ACTIONS:
+            continue
+        key = (ticker, action)
+        counts[key] = counts.get(key, 0) + 1
+        rec.setdefault("recommendation_id", stable_recommendation_id(session_file, ticker, action, counts[key]))
 
 
 def save_recommendations_csv(
@@ -836,6 +855,17 @@ def _run_impl(
     watchlist = load_json(CONFIG_DIR / "watchlist.json")
     settings = load_json(CONFIG_DIR / "settings.json")
 
+    if holdings_csv or activities_csv:
+        csv_validation = validate_csv_pair(
+            holdings_csv,
+            activities_csv,
+            allow_sample=os.environ.get("TECH_STOCK_DEMO_MODE") == "1",
+        )
+        holdings_csv = csv_validation.get("holdings_csv")
+        activities_csv = csv_validation.get("activities_csv")
+        for warning in csv_validation.get("warnings") or []:
+            print(f"{C.YELLOW}[tech_stock] {warning}{C.RESET}")
+
     # Load portfolio
     if holdings_csv:
         print(f"{C.DIM}[tech_stock] Loading holdings from CSV: {holdings_csv.name}{C.RESET}")
@@ -975,6 +1005,17 @@ def _run_impl(
     # ── Backtest summary (fed back into prompt for self-calibration) ──────
     print(f"{C.DIM}[tech_stock] Running backtest on past recommendations...{C.RESET}")
     backtest_summary = run_backtest(RECS_LOG_DIR)
+    try:
+        outcome_view = build_outcomes_view(
+            RECS_LOG_DIR,
+            max_logs=int(settings.get("recommendation_outcome_max_logs", 250)),
+        )
+        backtest_summary["recommendation_outcomes"] = outcome_view.get("summary") or {}
+        outcome_summary = (outcome_view.get("summary") or {}).get("prompt_summary")
+        if outcome_summary:
+            print(f"{C.DIM}[tech_stock] Outcome tracking: {outcome_summary}{C.RESET}")
+    except Exception as exc:  # noqa: BLE001
+        backtest_summary["recommendation_outcomes"] = {"error": str(exc)}
     if backtest_summary.get("n_samples", 0) > 0:
         print(
             f"{C.DIM}[tech_stock] Track record: {backtest_summary['n_samples']} samples, "
@@ -1114,6 +1155,12 @@ def _run_impl(
         )
     except Exception:
         pass
+
+    recommendation["input_files"] = {
+        "holdings_csv": str(holdings_csv.resolve()) if holdings_csv else "",
+        "activities_csv": str(activities_csv.resolve()) if activities_csv else "",
+        "portfolio_source": "wealthsimple_csv" if holdings_csv else "config/portfolio.json",
+    }
 
     log_path = save_recommendation_log(recommendation, session_type)
     if settings.get("enable_decision_journal", True):
@@ -1288,6 +1335,16 @@ def main():
 
         raise SystemExit(cli_doctor(sys.argv[2:]))
 
+    if len(sys.argv) > 1 and sys.argv[1] == "setup":
+        from src.setup_readiness import cli_setup
+
+        raise SystemExit(cli_setup(sys.argv[2:]))
+
+    if len(sys.argv) > 1 and sys.argv[1] == "support-bundle":
+        from src.setup_readiness import cli_support_bundle
+
+        raise SystemExit(cli_support_bundle(sys.argv[2:]))
+
     if len(sys.argv) > 1 and sys.argv[1] in {"update", "check-update"}:
         raise SystemExit(cli_update_check(apply=sys.argv[1] == "update"))
 
@@ -1301,6 +1358,8 @@ CLI examples:
   python src/main.py morning --holdings ~/Downloads/holdings-report-2026-04-23.csv
   python src/main.py morning --holdings ~/Downloads/holdings-report.csv --activities ~/Downloads/activities-export.csv
   python src/main.py doctor --json
+  python src/main.py setup --json
+  python src/main.py support-bundle
   python src/main.py check-update
   python src/main.py update
         """,

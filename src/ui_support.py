@@ -19,10 +19,21 @@ from pathlib import Path
 from typing import Any
 
 from src.backtester import run_backtest
+from src.data_files import (
+    build_pre_run_checklist,
+    discover_csv_candidates,
+    format_pre_run_checklist,
+    save_data_file_defaults,
+    selected_data_files,
+)
+from src.data_files import (
+    data_files_view as build_data_files_view,
+)
 from src.decision_journal import (
     journal_status,
     load_journal,
     record_decision,
+    seed_from_recommendation_log,
 )
 from src.decision_journal import (
     run_scorecard as run_decision_scorecard,
@@ -37,7 +48,6 @@ from src.main import (
     UPLOAD_DIR,
     _load_api_keys_from_file,
     api_key_search_paths,
-    find_csv_by_date,
     report_search_paths,
     runtime_locations,
 )
@@ -45,7 +55,27 @@ from src.market_data import get_market_data
 from src.news_fetcher import aggregate_sentiment, get_news_for_tickers
 from src.portfolio_loader import parse_holdings_csv
 from src.preflight import build_preflight, run_demo_smoke_test
+from src.recommendation_outcomes import build_outcomes_view as build_recommendation_outcomes_view
 from src.report_pipeline import ReportPipeline
+from src.report_review import build_report_review
+from src.setup_readiness import (
+    csv_choice_rows as build_csv_choice_rows,
+)
+from src.setup_readiness import (
+    export_support_bundle as export_setup_support_bundle,
+)
+from src.setup_readiness import (
+    paid_run_readiness_view as build_paid_run_readiness_view,
+)
+from src.setup_readiness import (
+    setup_readiness_view as build_setup_readiness_view,
+)
+from src.setup_readiness import (
+    support_bundle_preview as build_support_bundle_preview,
+)
+from src.setup_readiness import (
+    support_bundle_summary_text,
+)
 from src.updater import UpdateInfo, UpdateResult, apply_update, check_for_update
 from src.version import APP_VERSION
 from src.view_models import (
@@ -177,10 +207,7 @@ def normalize_optional_path(path_value: str | Path | None) -> Path | None:
 
 
 def find_default_csvs() -> dict[str, Path | None]:
-    return {
-        "holdings": find_csv_by_date("holdings-report"),
-        "activities": find_csv_by_date("activities-export"),
-    }
+    return selected_data_files()
 
 
 def default_run_settings() -> dict[str, Any]:
@@ -209,16 +236,8 @@ def save_uploaded_bytes(name: str, data: bytes) -> Path:
 
 
 def discover_csv_files(pattern_prefix: str, limit: int = 20) -> list[Path]:
-    candidates: list[Path] = []
-    patterns = [f"{pattern_prefix}-*.csv", f"{pattern_prefix}*.csv"]
-    search_dirs = [UPLOAD_DIR, Path.home() / "Downloads"]
-    for directory in search_dirs:
-        if not directory.exists():
-            continue
-        for pattern in patterns:
-            candidates.extend(directory.glob(pattern))
-    unique = sorted({p.resolve() for p in candidates if p.exists()}, key=lambda p: p.stat().st_mtime, reverse=True)
-    return unique[:limit]
+    kind = "holdings" if pattern_prefix.startswith("holdings") else "activities"
+    return discover_csv_candidates(kind, limit=limit)
 
 
 def preview_holdings_csv(path: str | Path | None, limit: int = 25) -> dict[str, Any]:
@@ -261,12 +280,30 @@ def run_report_from_ui(
     dry_run: bool = False,
 ) -> UiRunResult:
     model_id, model_name = resolve_model(model_choice)
+    holdings_path = normalize_optional_path(holdings_csv)
+    activities_path = normalize_optional_path(activities_csv)
+    use_fallback_config = holdings_path is None
+
+    checklist = build_pre_run_checklist(
+        holdings_csv=holdings_path,
+        activities_csv=activities_path,
+        use_fallback_config=use_fallback_config,
+        dry_run=dry_run,
+    )
+    checklist_text = format_pre_run_checklist(checklist)
+    if not checklist.get("can_run"):
+        return UiRunResult(
+            ok=False,
+            console=checklist_text,
+            error=checklist.get("next_action") or "Pre-run checklist has blocking issues.",
+            dry_run=dry_run,
+            dry_run_data={"pre_run_checklist": checklist} if dry_run else None,
+        )
 
     if dry_run:
         try:
-            resolved_holdings = normalize_optional_path(holdings_csv)
-            if resolved_holdings is not None:
-                portfolio = parse_holdings_csv(resolved_holdings)
+            if holdings_path is not None:
+                portfolio = parse_holdings_csv(holdings_path)
             else:
                 portfolio = {"holdings": []}
             holdings = portfolio.get("holdings") or []
@@ -280,7 +317,7 @@ def run_report_from_ui(
             )
             return UiRunResult(
                 ok=True,
-                console="Dry run complete — Claude API not called.",
+                console=f"{checklist_text}\n\nDry run complete — Claude API not called.",
                 error=None,
                 report_path=None,
                 csv_path=None,
@@ -293,6 +330,7 @@ def run_report_from_ui(
                     "total_value_usd": round(total_value_usd, 2),
                     "position_count": len(holdings),
                     "market_data_fetched": len(market_data),
+                    "pre_run_checklist": checklist,
                     "error": None,
                 },
             )
@@ -302,17 +340,20 @@ def run_report_from_ui(
                 console="",
                 error=str(exc),
                 dry_run=True,
-                dry_run_data={"dry_run": True, "portfolio_loaded": False, "error": str(exc)},
+                dry_run_data={"dry_run": True, "portfolio_loaded": False, "pre_run_checklist": checklist, "error": str(exc)},
             )
 
     console = io.StringIO()
+    console.write(checklist_text + "\n\n")
     stream = TeeProgressIO(console, on_progress)
     try:
+        if holdings_path or activities_path:
+            save_data_file_defaults(holdings=holdings_path, activities=activities_path)
         with contextlib.redirect_stdout(stream), contextlib.redirect_stderr(stream):
             artifacts = ReportPipeline().run(
                 session_type=session_type,
-                holdings_csv=normalize_optional_path(holdings_csv),
-                activities_csv=normalize_optional_path(activities_csv),
+                holdings_csv=holdings_path,
+                activities_csv=activities_path,
                 budget_usd=budget_usd,
                 budget_cad=budget_cad,
                 model_id=model_id,
@@ -364,6 +405,103 @@ def list_reports(limit: int = 25) -> list[Path]:
             reports.append(path)
     reports = sorted(reports, key=lambda p: (p.stat().st_mtime, p.name), reverse=True)
     return reports[:limit]
+
+
+def report_history_view(limit: int = 100) -> dict[str, Any]:
+    """Return report history rows enriched with matching JSON-log metadata."""
+    reports = list_reports(limit=limit)
+    logs = {path.stem: path for path in list_logs(limit=max(limit * 2, 50))}
+    rows: list[dict[str, Any]] = []
+    for report in reports:
+        log_path = logs.get(report.stem)
+        payload: dict[str, Any] = {}
+        if log_path:
+            try:
+                payload = json.loads(log_path.read_text(encoding="utf-8"))
+            except Exception as exc:  # noqa: BLE001
+                payload = {"error": str(exc)}
+        recs = payload.get("recommendations") or []
+        warnings = payload.get("quality_warnings") or []
+        readiness_values = [((rec.get("trade_readiness") or rec.get("readiness") or "") if isinstance(rec, dict) else "") for rec in recs]
+        input_files = payload.get("input_files") or {}
+        rows.append(
+            {
+                "report_path": report,
+                "report": relative_to_root(report),
+                "filename": report.name,
+                "session": _session_from_name(report.name),
+                "modified": datetime.fromtimestamp(report.stat().st_mtime).isoformat(timespec="seconds"),
+                "log_path": log_path,
+                "holdings_csv": input_files.get("holdings_csv") or "",
+                "activities_csv": input_files.get("activities_csv") or "",
+                "recommendation_count": len(recs),
+                "buy_add_count": sum(1 for rec in recs if (rec.get("action") or "").upper() in {"BUY", "ADD"}),
+                "trim_sell_count": sum(1 for rec in recs if (rec.get("action") or "").upper() in {"TRIM", "SELL"}),
+                "warning_count": len(warnings),
+                "trade_ready_count": readiness_values.count("TRADE_READY"),
+                "review_first_count": readiness_values.count("REVIEW_FIRST"),
+                "blocked_count": readiness_values.count("BLOCKED"),
+                "data_confidence": (payload.get("data_confidence") or {}).get("label") or "",
+                "error": payload.get("error") or "",
+            }
+        )
+    return {"rows": rows, "reports": reports}
+
+
+def _matching_log_for_report(report_path: Path | None) -> Path | None:
+    if not report_path:
+        return None
+    candidate = RECS_LOG_DIR / f"{report_path.stem}.json"
+    if candidate.exists():
+        return candidate
+    logs = {path.stem: path for path in list_logs(limit=500)}
+    return logs.get(report_path.stem)
+
+
+def _matching_report_for_log(log_path: Path | None) -> Path | None:
+    if not log_path:
+        return None
+    for report in list_reports(limit=500):
+        if report.stem == log_path.stem:
+            return report
+    return None
+
+
+def report_review_view(
+    *,
+    report_path: str | Path | None = None,
+    log_path: str | Path | None = None,
+    seed_journal: bool = True,
+) -> dict[str, Any]:
+    """Return a shared report-review payload for Desktop/Streamlit/Textual."""
+    report = normalize_optional_path(report_path) if report_path else None
+    log = normalize_optional_path(log_path) if log_path else None
+    if report and not log:
+        log = _matching_log_for_report(report)
+    if log and not report:
+        report = _matching_report_for_log(log)
+    if not log:
+        log, _payload = _load_latest_log_payload()
+        if not report:
+            report = _matching_report_for_log(log) or latest_report()
+    if not log:
+        return build_report_review(
+            report_path=report,
+            log_path=None,
+            journal_path=DECISION_JOURNAL_PATH,
+            payload={"error": "No recommendation JSON logs found."},
+        )
+    if seed_journal:
+        seed_from_recommendation_log(log, DECISION_JOURNAL_PATH)
+    return build_report_review(log_path=log, report_path=report, journal_path=DECISION_JOURNAL_PATH)
+
+
+def _session_from_name(filename: str) -> str:
+    stem = Path(filename).stem
+    parts = stem.split("_")
+    if parts and parts[-1] in {"morning", "afternoon"}:
+        return parts[-1]
+    return ""
 
 
 def latest_report() -> Path | None:
@@ -584,6 +722,52 @@ def demo_smoke_view() -> dict[str, Any]:
     return run_demo_smoke_test()
 
 
+def data_files_view() -> dict[str, Any]:
+    """Shared Data Files / Workspace screen model."""
+    return build_data_files_view()
+
+
+def save_selected_data_files(holdings: str | Path | None, activities: str | Path | None) -> Path:
+    """Persist UI-selected holdings/activities defaults."""
+    return save_data_file_defaults(holdings=holdings, activities=activities, clear_missing=True)
+
+
+def pre_run_checklist_view(
+    *,
+    holdings_csv: str | Path | None,
+    activities_csv: str | Path | None = None,
+    use_fallback_config: bool = False,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    return build_pre_run_checklist(
+        holdings_csv=normalize_optional_path(holdings_csv),
+        activities_csv=normalize_optional_path(activities_csv),
+        use_fallback_config=use_fallback_config,
+        dry_run=dry_run,
+    )
+
+
+def paid_run_readiness_view(
+    *,
+    holdings_csv: str | Path | None = None,
+    activities_csv: str | Path | None = None,
+    use_fallback_config: bool = False,
+    dry_run: bool = False,
+    model_choice: str | None = "sonnet",
+    budget_usd: float | None = None,
+    budget_cad: float | None = None,
+) -> dict[str, Any]:
+    return build_paid_run_readiness_view(
+        holdings_csv=normalize_optional_path(holdings_csv),
+        activities_csv=normalize_optional_path(activities_csv),
+        use_fallback_config=use_fallback_config,
+        dry_run=dry_run,
+        model_choice=model_choice,
+        budget_usd=budget_usd,
+        budget_cad=budget_cad,
+    )
+
+
 def read_text_file(path: str | Path | None) -> str:
     resolved = normalize_optional_path(path)
     if not resolved or not resolved.exists():
@@ -593,6 +777,11 @@ def read_text_file(path: str | Path | None) -> str:
 
 def run_backtest_summary() -> dict[str, Any]:
     return run_backtest(RECS_LOG_DIR)
+
+
+def outcomes_view(*, max_logs: int = 250) -> dict[str, Any]:
+    """Shared recommendation outcome dashboard model."""
+    return build_recommendation_outcomes_view(RECS_LOG_DIR, max_logs=max_logs)
 
 
 def decision_journal_snapshot(limit: int = 200) -> dict[str, Any]:
@@ -654,6 +843,7 @@ def diagnostics_view(*, hours: int = 24) -> dict[str, Any]:
             bucket["health"] = "down"
     try:
         summary["preflight"] = build_preflight(force_update=False, live_api_checks=False, include_demo_smoke=False, timeout=4.0)
+        summary["csv_health"] = summary["preflight"].get("csv_freshness") or {}
     except Exception as exc:  # noqa: BLE001
         summary["preflight"] = {
             "summary_rows": [
@@ -664,6 +854,7 @@ def diagnostics_view(*, hours: int = 24) -> dict[str, Any]:
                 }
             ]
         }
+        summary["csv_health"] = {}
     return summary
 
 
@@ -672,6 +863,107 @@ def diagnostics_support_bundle(*, limit: int = 500) -> str:
     from src.observability import support_bundle
 
     return support_bundle(limit=limit)
+
+
+def setup_readiness_view(*, include_demo_smoke: bool = False, force_update: bool = False) -> dict[str, Any]:
+    """Shared first-run/setup readiness model."""
+    return build_setup_readiness_view(include_demo_smoke=include_demo_smoke, force_update=force_update)
+
+
+def csv_choice_view(kind: str, *, limit: int = 12) -> list[dict[str, Any]]:
+    """Shared Wealthsimple CSV candidate/confirmation rows."""
+    return build_csv_choice_rows(kind, limit=limit)
+
+
+def support_bundle_preview(*, include_demo_smoke: bool = False) -> dict[str, Any]:
+    """Describe support-bundle contents before exporting a zip."""
+    return build_support_bundle_preview(include_demo_smoke=include_demo_smoke)
+
+
+def app_self_test_view() -> dict[str, Any]:
+    """Run a no-spend app self-test and return rows every UI can render."""
+    rows: list[dict[str, Any]] = []
+
+    def add(check: str, status: str, detail: str, action: str = "") -> None:
+        rows.append({"check": check, "status": status, "detail": detail, "action": action})
+
+    add("Version", "OK", f"Installed version {APP_VERSION}")
+
+    try:
+        setup = setup_readiness_view(include_demo_smoke=False, force_update=False)
+        status = setup.get("status") or "UNKNOWN"
+        add(
+            "Setup readiness",
+            "OK" if status == "READY" else "WARN",
+            f"{status}: {setup.get('next_action') or 'ready'}",
+            setup.get("next_action") or "",
+        )
+    except Exception as exc:  # noqa: BLE001
+        add("Setup readiness", "FAIL", str(exc), "Open Diagnostics and fix the first failing preflight row.")
+
+    try:
+        demo = demo_smoke_view()
+        add(
+            "Demo smoke",
+            "OK" if demo.get("ok") else "FAIL",
+            demo.get("message") or ("passed" if demo.get("ok") else demo.get("error") or "failed"),
+            "" if demo.get("ok") else "Check bundled sample data and markdown rendering.",
+        )
+    except Exception as exc:  # noqa: BLE001
+        add("Demo smoke", "FAIL", str(exc), "Reinstall or run from a complete source checkout.")
+
+    try:
+        review = report_review_view(seed_journal=False)
+        add(
+            "Report review",
+            "OK" if review.get("ok") else "WARN",
+            f"{review.get('status_label') or 'unknown'}: {review.get('session_file') or review.get('error') or 'latest report'}",
+            "Generate a report to enable review." if not review.get("ok") else "Open Report Review / History for details.",
+        )
+    except Exception as exc:  # noqa: BLE001
+        add("Report review", "FAIL", str(exc), "Regenerate the report or inspect the matching JSON log.")
+
+    try:
+        preview = support_bundle_preview(include_demo_smoke=False)
+        add(
+            "Support bundle",
+            "OK" if preview.get("safe_to_share", True) else "WARN",
+            f"{preview.get('file_count', 0)} file(s) available; {preview.get('privacy_note') or 'redacted'}",
+            "Export support zip only when you want to share diagnostics.",
+        )
+    except Exception as exc:  # noqa: BLE001
+        add("Support bundle", "FAIL", str(exc), "Check workspace permissions.")
+
+    fail_count = sum(1 for row in rows if row.get("status") == "FAIL")
+    warn_count = sum(1 for row in rows if row.get("status") == "WARN")
+    if fail_count:
+        status = "BLOCKED"
+        next_action = next((row.get("action") for row in rows if row.get("status") == "FAIL" and row.get("action")), "")
+    elif warn_count:
+        status = "REVIEW"
+        next_action = next((row.get("action") for row in rows if row.get("status") == "WARN" and row.get("action")), "")
+    else:
+        status = "READY"
+        next_action = "App self-test passed."
+
+    summary = ["tech_stock app self-test", f"Version: {APP_VERSION}", f"Status: {status}", f"Next action: {next_action}"]
+    summary.extend(f"- {row['check']}: {row['status']} - {row['detail']}" for row in rows)
+    return {
+        "status": status,
+        "rows": rows,
+        "fail_count": fail_count,
+        "warn_count": warn_count,
+        "next_action": next_action,
+        "support_summary": "\n".join(summary),
+    }
+
+
+def export_support_bundle(*, output_dir: str | Path | None = None, include_demo_smoke: bool = False) -> dict[str, Any]:
+    """Export a redacted setup/support zip and return a UI-friendly summary."""
+    result = export_setup_support_bundle(output_dir=output_dir, include_demo_smoke=include_demo_smoke)
+    payload = result.to_dict()
+    payload["summary"] = support_bundle_summary_text(result)
+    return payload
 
 
 def degradation_health(source: str, *, minutes: int = 60) -> str | None:

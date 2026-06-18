@@ -4,167 +4,254 @@ All notable changes to this project are documented here.
 
 ---
 
-## [1.30.2] — 2026-06-18
+## [1.35.0] — 2026-06-18
 
-Desktop app robustness pass (audit-driven). Fixes crashes, misleading
-"saved" messages, and teardown noise; the slow-handler threading items
-from the audit are tracked as follow-ups.
-
-### Desktop app — correctness
-- **Schedule picker no longer crashes on bad input.** A non-numeric or
-  out-of-range hour/minute typed into the schedule Spinbox raised an
-  unhandled `ValueError` on Install/Preview; such slots are now skipped
-  cleanly via a validated `_coerce_time_field` helper.
-- **Preferences won't claim "saved" while dropping your input.** Invalid
-  numeric fields (budget, max position %, min return %) used to be silently
-  discarded while the status still said "Preferences saved." The save now
-  refuses and names the offending fields.
-- **Onboarding wizard saves all three budgets.** The budget stage collected
-  a Claude spend cap, a USD trade budget, and a CAD trade budget but only
-  persisted the CAD one — silently dropping the spend cap. All three are
-  now written (`monthly_budget_usd`, `budget_usd`, `budget_cad`).
-- **Report history selection is bounds-checked** so a selection that
-  survives a list refresh can't `IndexError`.
-
-### Desktop app — lifecycle & feedback
-- **Clean shutdown.** A `WM_DELETE_WINDOW` handler now cancels the repeating
-  `after()` loops (progress drain, elapsed timer) before the window is
-  destroyed, preventing `TclError` tracebacks on quit. macOS Quit, the File
-  menu, and Ctrl+Q all route through it.
-- **Saving an API key confirms it.** The key manager now shows a success
-  status line instead of updating silently.
-- **"Open log folder" gives feedback** when there is no log folder yet
-  instead of doing nothing.
-
-### Config safety
-- **Advanced Editor backs up before overwriting.** `write_editable_json`
-  now writes a single-level `.bak` of the previous contents before
-  clobbering `settings.json` / `watchlist.json` / `portfolio.json`, so a
-  bad manual edit is recoverable.
-
-### Known follow-ups (not in this release)
-- Several refresh handlers (Performance vs-SPY, Diagnostics preflight,
-  Learning, Schedule install, notifications, CSV preview) still run their
-  I/O on the UI thread and can briefly freeze the window; these should move
-  to the existing background-thread + progress-queue pattern.
-
----
-
-## [1.30.1] — 2026-06-18
-
-Desktop app polish pass.
-
-### Desktop app
-- **Window/taskbar icon.** Running `python src/desktop_app.py` (or `--desktop`)
-  directly from source now shows the packaged `assets/icon.png` in the title
-  bar/taskbar/dock instead of Tk's generic feather icon — previously only
-  PyInstaller builds got a real icon.
-- **"Reveal in file manager" no longer fails silently.** If `open`/`explorer`/
-  `xdg-open` can't be launched (e.g. no file manager available), the status
-  bar now shows the file's path instead of the button appearing to do
-  nothing.
-
----
-
-## [1.30.0] — 2026-06-18
-
-Follow-up cleanup pass: single source of truth for per-run cost estimates,
-removal of an orphaned dead module, and a large jump in API-client test
-coverage.
-
-### Cleanup
-- **Removed orphaned `src/desktop/` package.** It had zero importers anywhere
-  in the codebase (the live Tkinter desktop app is `src/desktop_app.py`, used
-  by every entrypoint, the PyInstaller spec, and all desktop tests). Docs
-  previously described the relationship backwards; `docs/ARCHITECTURE.md` is
-  now corrected.
-- **Single source of truth for per-run cost estimates.** The `~$0.22`/`~$0.45`
-  figures shown in the model-selection menu and used for the pre-run budget
-  check were hardcoded in two separate places in `main.py` and could drift
-  from the real pricing table. Both now read from
-  `claude_analyst.typical_run_cost()`, derived from `MODEL_PRICING`.
-
-### Tests
-- **API-client error-path coverage** raised sharply across the six paid-data
-  clients: `alpha_vantage_client.py` (19%→82%), `coingecko_client.py`
-  (19%→94%), `finnhub_client.py` (18%→81%), `fred_client.py` (22%→86%),
-  `polygon_client.py` (15%→85%), `twelve_data_client.py` (22%→83%). New tests
-  cover missing-API-key paths, paid-tier/rate-limit/4xx-5xx status handling,
-  malformed/empty JSON responses, and `should_cache` predicates rejecting
-  error payloads. Project-wide coverage: 69%→74%.
-
----
-
-## [1.29.0] — 2026-06-17
-
-Audit-driven hardening pass: security, data integrity, and resilience fixes
-surfaced by a full read-only audit of the codebase.
+Merge of the parallel hardening/coverage line into the v1.34 feature line.
+Brings the security, data-integrity, resilience, and test-coverage work that
+had developed on a separate branch into the mainline, on top of main's
+`src/desktop/`-canonical architecture.
 
 ### Security
-- **Auto-updater no longer installs unverified binaries.** When a release asset
-  cannot be checksum-verified against `SHA256SUMS.txt` (file absent or no entry),
-  the updater now refuses to mount/extract/execute it and instead reveals the
-  download for manual verification. Previously the unverified result was ignored
-  and the binary was installed anyway.
-- **CSV formula injection neutralized.** Exported recommendation CSV cells that
-  begin with `=`, `+`, `-`, `@`, tab, or CR are prefixed so spreadsheets render
-  them as text instead of executing them.
-- **Cache moved from pickle to JSON.** A tampered cache file under the workspace
-  can no longer lead to code execution; legacy `.pkl` files are cleaned up.
-- **Zip-slip-safe extraction** for Windows update archives.
+- **Auto-updater refuses to install unverified binaries.** When a release
+  asset can't be checksum-verified against `SHA256SUMS.txt`, the updater
+  reveals the download for manual verification instead of installing it.
+- **CSV formula injection neutralized** in exported recommendations
+  (`=`/`+`/`-`/`@`/tab/CR-leading cells escaped).
+- **Cache moved from pickle to JSON**, removing the deserialization
+  code-execution risk; legacy `.pkl` files are cleaned up.
+- **Zip-slip-safe** Windows update extraction.
+- **Workspace export scrubs pasted secrets** from text files and drops
+  variant-named key files (`.env.local`, `API_KEYS.backup.txt`, …).
 
 ### Data integrity & resilience
-- **Bitcoin weekly risk signal revived.** CoinGecko's `/simple/price` does not
-  support a 7-day change parameter, so the BTC risk-on/off signal was permanently
-  inert. Switched to `/coins/markets` (`price_change_percentage_7d_in_currency`).
-- **No more cache poisoning on transient failures.** Error/empty results from
-  market data, historical prices, FRED macro/FX, and Polygon are no longer cached
-  as "fresh" for the full TTL.
-- **yfinance retries actually fire** — added `requests.RequestException` to the
-  retry filter (the common HTTPError/connection-reset failures were never caught).
-- **Twelve Data rate-limit throttle is now thread-safe** (matches Alpha Vantage),
-  preventing rate-limit trips under the concurrent enrichment pool.
-- **Annualized metrics no longer explode** on dense/short histories — the
-  annualisation factor is bounded to the product's 1–2 runs/day cadence.
+- **Bitcoin 7-day risk signal revived** — switched CoinGecko to
+  `/coins/markets` (the `/simple/price` endpoint never supported a 7d param).
+- **No cache poisoning on transient failures** — error/empty results from
+  market data, historical prices, FRED macro/FX, and Polygon are no longer
+  cached as fresh for the full TTL.
+- **yfinance retries actually fire** (`requests.RequestException` added to the
+  retry filter); **Twelve Data throttle is now thread-safe**.
+- **Annualized metrics no longer explode** on short/dense histories (bounded
+  annualisation factor).
 - **Holdings CSV size bound** (10 MB) guards against OOM on malformed input.
 
-### Observability
-- Concentration-alert safety gate and FX-fallback path now log failures instead
-  of swallowing them; budget-enforcement errors print a visible warning.
+### Tests & tooling
+- **API-client error-path coverage** raised across the six paid-data clients
+  (alpha_vantage/coingecko/finnhub/fred/polygon/twelve_data) from 15–39% to
+  81–94%.
+- **Single source of truth for per-run cost estimates** via
+  `claude_analyst.typical_run_cost()`, replacing duplicated `$0.22`/`$0.45`
+  magic numbers in `main.py`.
+- **Demo smoke test** in CI now actually fails the build if the no-network
+  demo path breaks (was a `grep ... || true` no-op).
 
-### CI & tooling
-- **Demo smoke test is now fail-able.** CI runs `run_demo_smoke_test()` (bundled
-  samples, view models, markdown render — no network) and fails the build if the
-  demo path breaks. The previous step piped through `grep ... || true` (could
-  never fail) and launched a blocking Streamlit server.
-
-### Privacy
-- **Workspace export scrubs secrets harder.** Variant-named key files
-  (`.env.local`, `API_KEYS.backup.txt`, `*secret*`, `*credential*`) are now
-  excluded by prefix/substring, and included text files are content-redacted via
-  the shared redactor so an API key pasted into e.g. `config/settings.json`
-  no longer ships in cleartext.
-
-### Cleanup
-- Removed dead code (`thesis_tracker.remove_thesis`).
+### Desktop app (applied to `src/desktop/app.py`)
+- **Window/taskbar icon** set on the live Tk window when run from source.
+- **"Reveal in file manager" surfaces failures** instead of silently no-oping.
+- **Schedule picker no longer crashes** on non-numeric/out-of-range Spinbox
+  input (slots are validated and skipped).
+- **Preferences refuse to claim "saved"** while silently dropping invalid
+  numeric fields — the offending fields are named.
+- **Onboarding persists all three budgets** (`monthly_budget_usd`,
+  `budget_usd`, `budget_cad`) — the spend cap was previously dropped.
+- **Report-history selection is bounds-checked**; **clean shutdown** cancels
+  repeating `after()` loops to avoid `TclError` on quit.
+- **Advanced Editor backs up config JSON** to `.bak` before overwriting.
 
 ---
 
-## [1.28.0] — 2026-06-07
+## [1.34.0] — 2026-06-17
 
-### Features
-- FRED data wiring fix: `macro_regime` safety fallback now sets `recommendation["macro_regime"] = {}` on error instead of silently discarding it
-- Coverage floor raised from 45% to 55% — desktop/GUI files excluded via `.coveragerc`; non-GUI coverage is ~69%
-- Dry-run mode verified: `run_report_from_ui(dry_run=True)` confirmed to return `dry_run=True` without calling Claude API
-- Demo smoke test added to CI: `python -m src.main --demo --non-interactive` runs in the `pytest` job
+### Added
+- Added deterministic recommendation outcome tracking in
+  `src/recommendation_outcomes.py`. It assigns stable user-readable
+  recommendation IDs, scores fixed 1/5/20-day windows, compares each outcome
+  with SPY/QQQ/SMH benchmarks, and records close-to-close stop-loss /
+  take-profit triggers.
+- Added shared Outcomes views to Desktop, Streamlit, and Textual. The views
+  show hit rate, average action return, alpha versus benchmark, BUY/ADD success
+  rate, TRIM/SELL saved drawdown, best/worst recommendations, source buckets,
+  and estimated Claude cost per useful outcome.
+- Added fixed-window outcome summaries to the Track Record section in generated
+  reports when matured recommendation windows exist.
 
-### Tests
-- Added integration tests for `classify_regime()` wired with realistic `enriched` dict shapes
-- Added targeted unit tests for: `report_generator` helper functions, `cache`, `activity_loader`, `macro_regime`, `portfolio_analytics`, `backtester`, `decision_journal`, `scheduling` (Linux cron path), `updater`, `ui_support` dry-run
-- Added `.coveragerc` to exclude untestable tkinter GUI modules (`desktop_app.py`, `app_gui.py`, `ui_launcher.py`, `desktop/`)
+### Changed
+- Future paid runs now feed the compact outcome summary into Claude through the
+  existing backtest calibration context, so recommendations can reflect actual
+  historical follow-through.
+- The Streamlit, Textual, and embedded Desktop UIs now separate portfolio
+  performance, backtesting, user decision scoring, and recommendation outcomes
+  into clearer surfaces.
 
-### Infrastructure
-- `.github/workflows/tests.yml`: `--cov-fail-under` raised from 45 to 55; demo smoke test step added
+---
+
+## [1.33.0] — 2026-06-16
+
+### Added
+- Added a shared `src/report_review.py` view model that reviews a generated
+  recommendation JSON log, quality warnings, Data Confidence, source
+  degradation, drift versus the previous report, and matching decision-journal
+  rows without live API calls or Claude spend.
+- Added Report Review surfaces to Desktop, Streamlit, and Textual. Users can
+  inspect review gates, top reasons to verify, recommendation readiness, drift,
+  source degradation, and pending feedback from the same UI payload.
+- Added contextual decision feedback from the report view. Desktop and
+  Streamlit can now mark a recommendation as accepted, ignored, modified,
+  delayed, watched, or executed directly from the report review flow.
+- Added a no-spend app self-test payload surfaced in Desktop Diagnostics,
+  Streamlit Diagnostics, and Textual Data Files. It checks version metadata,
+  setup readiness, bundled demo smoke, report-review loading, and support-bundle
+  availability.
+
+### Changed
+- Report Viewer / Today's Report now pairs the rendered markdown with a compact
+  review summary so users do not need to manually cross-check the JSON log,
+  History, Diagnostics, and Decision Journal after every run.
+- Diagnostics now includes a copyable app self-test summary suitable for support
+  requests without exposing API keys or raw Wealthsimple CSV contents.
+
+---
+
+## [1.32.0] — 2026-06-14
+
+### Added
+- Added a shared paid-run readiness view used by Desktop, Streamlit, and
+  Textual. It converts the pre-run checklist into `READY`, `REVIEW_FIRST`, or
+  `BLOCKED`, shows the primary next action, and makes warning-confirmation
+  requirements explicit before Claude spend.
+- Added support-bundle previews in the UI and `python src/main.py
+  support-bundle --preview`, listing every file that will be included and every
+  sensitive artifact that is excluded before writing a zip.
+- Added a top-level **Actionability Check** section near the top of generated
+  reports with data-confidence verdict, quote freshness, source coverage,
+  catalyst coverage, warning count, buy-signal readiness, and the top reason to
+  review or block.
+- Added `tools/package_smoke.py` and CI/release workflow hooks to verify source
+  checkout health plus macOS, Windows, and Linux package structure/version
+  metadata before artifacts are uploaded.
+
+### Changed
+- Desktop Run Report now shows a clearer **Ready To Run** panel above the raw
+  pre-run checklist.
+- Desktop Diagnostics, Streamlit Diagnostics/Data Files, and Textual Data Files
+  now show support-bundle contents before export.
+- Build & Release now fails platform builds before upload if package smoke
+  checks detect missing executables, version metadata, or bundled UI/support
+  modules.
+
+---
+
+## [1.31.0] — 2026-06-14
+
+### Added
+- Added shared setup-readiness diagnostics used by CLI, Desktop, Streamlit,
+  and Textual. The view reports onboarding stage, workspace writability, API
+  key status, paid-run blockers, update status, demo availability, and a single
+  next action.
+- Added CSV candidate confirmation rows for holdings and activities exports,
+  including recommended file, schema confidence, sample/demo detection,
+  freshness, row count, and correction text.
+- Added `python src/main.py setup --json` for first-run/setup preflight and
+  `python src/main.py support-bundle` for creating a redacted support zip.
+- Added redacted support-bundle zip export from Desktop, Streamlit, and
+  Textual. The zip contains doctor/setup/data-file summaries and diagnostics
+  logs, but excludes raw API keys and raw Wealthsimple CSV contents.
+
+### Changed
+- Desktop Data Files now shows setup readiness and CSV candidates to confirm.
+- Streamlit Data Files now shows setup readiness and recommended CSV choices.
+- Textual Data Files now shows setup readiness, CSV candidates, and support
+  export status.
+
+---
+
+## [1.30.0] — 2026-06-13
+
+### Added
+- Added a shared Data Files / Workspace view model showing the current
+  holdings CSV, activities CSV, API key file, reports folder, recommendation
+  logs folder, uploads folder, and workspace status.
+- Added persistent CSV path defaults in `config/data_files.json`, with save
+  controls in Desktop, Streamlit, and Textual.
+- Added a shared pre-run checklist for paid report runs covering required
+  Anthropic key, holdings schema, activities schema, sample/demo files,
+  monthly budget, optional API coverage, and update status.
+- Added one-click demo smoke actions to Desktop, Streamlit, and Textual so a
+  user can validate bundled sample data and UI view models without Anthropic
+  spend.
+- Added enriched report-history metadata with input CSV paths, BUY/ADD counts,
+  TRIM/SELL counts, warning counts, and data-confidence labels.
+
+### Changed
+- Desktop, Streamlit, and Textual now use the same selected CSV defaults and
+  the same pre-run blocking logic before launching the paid pipeline.
+- New recommendation JSON logs include an `input_files` block recording the
+  holdings CSV, activities CSV, and portfolio source used for the run.
+
+---
+
+## [1.29.0] — 2026-06-13
+
+### Added
+- Added shared Wealthsimple CSV inspection for holdings and activities exports,
+  including schema kind, confidence, missing columns, sample/demo detection,
+  and actionable correction text.
+- Added CSV Health output to doctor/preflight diagnostics and surfaced the same
+  health payload in Desktop and Streamlit Diagnostics.
+- Added run-level CSV pair validation that automatically corrects swapped
+  holdings/activities paths when both files are provided in the wrong fields.
+
+### Fixed
+- Blocked accidental paid runs on `holdings-report-sample.csv` unless demo mode
+  is explicitly active.
+- Reused the same swapped-file detection in both holdings and activities
+  parsers for consistent error messages.
+
+---
+
+## [1.28.0] — 2026-06-11
+
+### Added
+- Added `python src/main.py doctor --simulate-current-version VERSION` so
+  release checks can confirm that an older installed app sees the newest
+  published GitHub Release without editing `src/version.py` or applying an
+  update.
+
+### Docs
+- Documented the release-health command for validating updater detection after
+  publishing a release.
+
+---
+
+## [1.27.2] — 2026-06-10
+
+### CI
+- Opt GitHub Actions workflows into the Node 24 JavaScript runtime ahead
+  of GitHub's Node 20 runner deprecation.
+- Add `pip-audit` to the tag-triggered release test gate before packaging
+  artifacts.
+
+### Docs
+- Update release-process documentation to show the release audit gate and
+  move future security tightening toward SBOM generation.
+
+---
+
+## [1.27.1] — 2026-06-10
+
+### Fixed
+- Restored `src/desktop_app.py` to a thin compatibility launcher that aliases
+  the canonical `src.desktop.app` implementation.
+- Consolidated the duplicated Tkinter desktop implementation into
+  `src/desktop/app.py`, preserving `python src/desktop_app.py` and legacy
+  imports while removing the duplicate coverage burden.
+
+### CI
+- Added coverage configuration that omits full GUI window modules from the
+  headless coverage gate while keeping import/helper tests active.
+- Raised the CI coverage floor from 45% to 55%; local validation reaches 66%.
+
+### Version bumped: 1.27.0 → 1.27.1
 
 ---
 

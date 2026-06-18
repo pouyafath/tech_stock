@@ -1051,6 +1051,25 @@ def build_user_message(
                     f"latest hit_rate {recent.get('hit_rate', 0):.0%} vs mean {all_avg:.0%} "
                     f"({delta_pp:+.1f}pp, {trend})"
                 )
+            recommendation_outcomes = backtest_summary.get("recommendation_outcomes") or {}
+            if recommendation_outcomes.get("scored_windows"):
+                overall_outcomes = recommendation_outcomes.get("overall") or {}
+                lines.append("  Fixed-window recommendation outcomes (v1.34):")
+                lines.append(
+                    f"    windows={recommendation_outcomes.get('scored_windows')} | "
+                    f"recs={recommendation_outcomes.get('scored_recommendations')} | "
+                    f"hit={overall_outcomes.get('hit_rate', 0):.0%} | "
+                    f"avg_action={overall_outcomes.get('avg_action_return_pct', 0):+.2f}% | "
+                    f"avg_alpha={overall_outcomes.get('avg_alpha_vs_benchmark_pct', 0) or 0:+.2f}%"
+                )
+                if recommendation_outcomes.get("buy_add_success_rate") is not None:
+                    lines.append(f"    BUY/ADD success: {recommendation_outcomes.get('buy_add_success_rate', 0):.0%}")
+                if recommendation_outcomes.get("trim_sell_saved_drawdown_count"):
+                    lines.append(
+                        f"    TRIM/SELL saved drawdown: "
+                        f"{recommendation_outcomes.get('trim_sell_saved_drawdown_avg_pct', 0):+.2f}% avg "
+                        f"across {recommendation_outcomes.get('trim_sell_saved_drawdown_count')} windows"
+                    )
         by_ticker = backtest_summary.get("avg_return_by_ticker", {})
         if by_ticker:
             lines.append("  Avg actual return by ticker:")

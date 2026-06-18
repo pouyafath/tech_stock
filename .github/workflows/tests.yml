@@ -5,6 +5,9 @@ on:
     branches: ["**"]
   pull_request:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   pytest:
     runs-on: ubuntu-latest
@@ -65,3 +68,5 @@ jobs:
           pip install pyinstaller
       - name: Validate PyInstaller is available
         run: pyinstaller --version
+      - name: Validate package-smoke source checks
+        run: python tools/package_smoke.py --platform source --dist .

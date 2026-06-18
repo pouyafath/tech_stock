@@ -44,7 +44,7 @@ the [User Guide](USER_GUIDE.md).
    ┌───────────────────┼───────────────────┐
    ▼                   ▼                   ▼
 Streamlit          Desktop (Tk)      Textual TUI
-ui/streamlit_app   src/desktop_app.py ui/textual_app
+ui/streamlit_app   src/desktop/*     ui/textual_app
 ```
 
 Each box maps to one module under `src/`. Every transformation is a
@@ -66,6 +66,8 @@ write; Claude API call).
 | `src/report_quality.py` | The 7-layer quality gate (catalyst, stale-position, thesis decay, trailing stop, VIX regime, conviction sizing, drawdown) |
 | `src/data_confidence.py` | Shared quote/source/catalyst/readiness trust summary for reports and UIs |
 | `src/report_generator.py` | Markdown + CSV + JSON log output |
+| `src/report_review.py` | Shared report-review and feedback-loop view model for UIs |
+| `src/recommendation_outcomes.py` | Fixed 1/5/20-day recommendation outcome tracking, benchmark alpha, stop/take-profit checks, and stable recommendation IDs |
 | `src/recommendation_sizing.py` | Deterministic share/fraction sizing for SELL/TRIM |
 | **API clients (all observability-logged)** | |
 | `src/finnhub_client.py` | Earnings calendar, analyst recommendations, news sentiment |
@@ -78,6 +80,7 @@ write; Claude API call).
 | **Learning loop (v1.16)** | |
 | `src/backtester.py` | Past-recommendation evaluation, `reliability_diagram`, walk-forward windows (v1.18), conviction-stratified sizing multipliers |
 | `src/decision_journal.py` | User-decision recording + scorecard with per-horizon edge (v1.16) |
+| `src/recommendation_outcomes.py` | All-recommendation fixed-window outcomes used by the Outcomes tab and future prompt calibration |
 | `src/drift_tracker.py` | Action / conviction / thesis-text drift detection between sessions |
 | `src/thesis_tracker.py` | Thesis verdict evaluation (materialized / partial / not_yet / invalidated) |
 | `src/position_aging.py` | Position-age buckets (fresh / core / mature / aged / stale) |
@@ -88,18 +91,24 @@ write; Claude API call).
 | **Productisation (v1.19)** | |
 | `src/onboarding.py` | First-run wizard state machine |
 | `src/cost_tracker.py` | Anthropic spend log + monthly budget enforcement |
-| `src/preflight.py` | Doctor command, update/API/CSV/budget/release checks, and no-spend demo smoke test |
+| `src/csv_health.py` | Wealthsimple CSV schema inspection, swapped-file detection, and sample/demo guards |
+| `src/data_files.py` | Saved CSV defaults, Data Files / Workspace view model, and shared paid-run checklist |
+| `src/preflight.py` | Doctor command, update/API/CSV Health/budget/release checks, and no-spend demo smoke test |
+| `src/setup_readiness.py` | First-run/setup readiness view, paid-run readiness verdict, CSV candidate confirmation metadata, support-bundle preview, and redacted support bundle export |
 | `src/workspace_export.py` | Sanitised zip export of the user's workspace |
 | `src/notifications.py` | Cross-platform desktop notifications (macOS osascript / Linux notify-send / Windows BurntToast) |
 | `src/scheduling.py` | Per-user launchd / Task Scheduler / cron installer |
 | **UI** | |
-| `ui/streamlit_app.py` | Web dashboard for Dashboard, Buy Signals, reports, runs, history, performance, backtesting, journal, learning, diagnostics, scheduling, and editing |
-| `src/desktop_app.py` | Embedded Tkinter dashboard implementation with native menu bar |
+| `ui/streamlit_app.py` | Web dashboard for Dashboard, Buy Signals, reports, runs, history, performance, backtesting, outcomes, journal, learning, diagnostics, scheduling, and editing |
+| `src/desktop/` | Embedded Tkinter dashboard implementation with native menu bar |
+| `src/desktop_app.py` | Backward-compatible launcher/import wrapper for the desktop app |
 | `ui/textual_app.py` | Terminal UI |
 | `src/app_gui.py` | Native launcher (PyInstaller entry) |
 | `src/ui_launcher.py` | Shell launcher used by `./run.sh` |
 | `src/ui_theme.py` | Shared palette + HTML helpers + Streamlit CSS bundle |
-| `src/ui_support.py` | UI-facing data aggregators (`learning_view`, `diagnostics_view`, `decision_scorecard_summary`, preflight surfaces, etc.) |
+| **Release tooling** | |
+| `tools/package_smoke.py` | Source/package structure and version smoke checks for CI release builds |
+| `src/ui_support.py` | UI-facing data aggregators (`learning_view`, `diagnostics_view`, `report_review_view`, `decision_scorecard_summary`, setup readiness, Data Files, pre-run checklist, history surfaces, etc.) |
 | **Infra** | |
 | `src/updater.py` | GitHub Releases auto-update + checksum verification |
 | `src/changelog_utils.py` | CHANGELOG section parser (used by CI release workflow) |
@@ -147,6 +156,9 @@ write; Claude API call).
     `data/recommendations_log/`, seed new entries into the decision
     journal, append the cost record to `data/cost_log.jsonl`, fire any
     matching notification channels.
+12. **Review** — `report_review.build_report_review` joins the matching
+    report, JSON log, Data Confidence, quality warnings, source degradation,
+    drift, and decision journal rows into one post-run UI payload.
 
 ## The 7-layer quality gate
 
@@ -213,10 +225,11 @@ the model sees in pass 2.
                   Back into the prompt
 ```
 
-The flow is closed: every report informs the next, both via the
-backtester (objective track-record) and the decision journal (user's
-actual edge per holding period). The Learning tab visualises this
-state.
+The flow is closed: every report informs the next via three independent
+feedback paths: the backtester (mature horizon track record), the
+Outcomes engine (fixed 1/5/20-day recommendation hit rate, alpha, and
+saved drawdown), and the decision journal (user's actual edge per
+holding period). The Learning and Outcomes tabs visualise this state.
 
 ## Storage layout
 
@@ -235,7 +248,7 @@ state.
 │   ├── cost_log.jsonl          # Per-run Anthropic spend
 │   └── .cache/                 # Pickle cache for yfinance/news
 ├── reports/                    # Markdown reports + recommendation CSVs
-├── exports/                    # User-triggered workspace zips
+├── exports/                    # User-triggered workspace and redacted support zips
 ├── logs/diagnostics.jsonl      # Structured-log API degradations (v1.17)
 └── temporary_upload/           # User-dropped Wealthsimple CSVs
 ```
@@ -257,5 +270,6 @@ These show up in every commit message and PR review:
 5. **Tools, not toys.** Every UI surface should answer a real
    user question (`Diagnostics` answers "why is this slow?",
    `Performance` answers "how am I doing?", `Learning` answers "is my
-   conviction calibrated?"). Avoid features that look impressive but
+   conviction calibrated?", `Outcomes` answers "were the recommendations
+   actually useful?"). Avoid features that look impressive but
    don't change a decision.

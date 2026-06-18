@@ -19,6 +19,7 @@ from pathlib import Path
 
 from src._utils import clean_csv_row, safe_float
 from src.constants import CDR_EXCHANGES, SECTOR_ALIASES, SECTOR_OVERRIDES
+from src.csv_health import inspect_csv
 
 # Minimum columns we need from the Wealthsimple Holdings CSV.
 # If any of these are missing, parsing will produce garbage — fail loudly.
@@ -31,20 +32,6 @@ REQUIRED_HOLDINGS_COLUMNS = {
     "Market Value",
     "Market Unrealized Returns",
 }
-
-ACTIVITIES_EXPORT_COLUMNS = {
-    "transaction_date",
-    "activity_type",
-    "activity_sub_type",
-    "symbol",
-    "quantity",
-    "unit_price",
-    "net_cash_amount",
-}
-
-
-def _normalise_columns(columns: set[str]) -> set[str]:
-    return {column.strip().strip('"').lower() for column in columns}
 
 
 def parse_holdings_csv(csv_path: str | Path) -> dict:
@@ -107,9 +94,9 @@ def parse_holdings_csv(csv_path: str | Path) -> dict:
 
     # ── Validate CSV schema — fail loudly if Wealthsimple changed the format ─
     if reader.fieldnames:
+        inspection = inspect_csv(csv_path, expected_kind="holdings")
         actual_cols = {c.strip().strip('"') for c in reader.fieldnames}
-        normalised_cols = _normalise_columns(actual_cols)
-        if ACTIVITIES_EXPORT_COLUMNS <= normalised_cols:
+        if inspection.swapped:
             raise ValueError(
                 "This file looks like a Wealthsimple Activities CSV, but it was selected as the Holdings CSV. "
                 "Choose a holdings-report CSV for the Holdings field, and put this activities-export CSV in the "

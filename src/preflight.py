@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from src.cost_tracker import check_budget, spend_summary
+from src.csv_health import inspect_csv
 from src.onboarding import demo_snapshot
 from src.updater import UpdateInfo, check_for_update
 from src.version import APP_VERSION
@@ -110,28 +111,66 @@ def _csv_date_from_name(path: Path) -> str | None:
 
 
 def _csv_freshness() -> dict[str, Any]:
-    from src.main import UPLOAD_DIR
+    from src.data_files import csv_search_dirs, discover_csv_candidates, selected_data_files
 
-    search_dirs = [UPLOAD_DIR, Path.home() / "Downloads"]
+    search_dirs = csv_search_dirs()
+    selected = selected_data_files()
     out: dict[str, Any] = {}
     now = datetime.now()
-    for kind, pattern in {"holdings": "holdings-report*.csv", "activities": "activities-export*.csv"}.items():
+    for kind in ("holdings", "activities"):
         candidates: list[Path] = []
-        for directory in search_dirs:
-            if directory.exists():
-                candidates.extend(directory.glob(pattern))
-        unique = sorted({path.resolve() for path in candidates if path.exists()}, key=lambda p: (p.stat().st_mtime, p.name), reverse=True)
+        if selected.get(kind):
+            candidates.append(selected[kind])
+        candidates.extend(discover_csv_candidates(kind, limit=20))
+        seen: set[Path] = set()
+        unique: list[Path] = []
+        for path in candidates:
+            if not path or not path.exists():
+                continue
+            key = path.resolve()
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(path)
         latest = unique[0] if unique else None
-        age_hours = None
-        if latest:
-            age_hours = round((now.timestamp() - latest.stat().st_mtime) / 3600, 2)
+        inspections: list[dict[str, Any]] = []
+        for path in unique[:5]:
+            inspection = inspect_csv(path, expected_kind=kind).to_dict()
+            inspection["age_hours"] = round((now.timestamp() - path.stat().st_mtime) / 3600, 2)
+            inspection["filename_date"] = _csv_date_from_name(path)
+            inspections.append(inspection)
+        latest_inspection = inspections[0] if inspections else inspect_csv(None, expected_kind=kind).to_dict()
+        age_hours = latest_inspection.get("age_hours") if latest else None
+        stale = age_hours is None or age_hours > 72
+        if kind == "activities" and latest is None:
+            status = "WARN"
+        elif kind == "holdings" and latest is None:
+            status = "FAIL"
+        elif latest_inspection.get("swapped") or (kind == "holdings" and not latest_inspection.get("ok_for_expected")):
+            status = "FAIL"
+        elif latest_inspection.get("is_sample") and kind == "holdings":
+            status = "FAIL"
+        elif stale or latest_inspection.get("is_sample") or not latest_inspection.get("ok_for_expected"):
+            status = "WARN"
+        else:
+            status = "OK"
         out[kind] = {
             "latest_path": latest,
-            "filename_date": _csv_date_from_name(latest) if latest else None,
+            "filename_date": latest_inspection.get("filename_date") if latest else None,
             "candidate_count": len(unique),
             "age_hours": age_hours,
-            "stale": age_hours is None or age_hours > 72,
+            "stale": stale,
             "search_dirs": search_dirs,
+            "status": status,
+            "schema_kind": latest_inspection.get("kind"),
+            "schema_confidence": latest_inspection.get("confidence"),
+            "schema_ok": latest_inspection.get("ok_for_expected"),
+            "swapped": latest_inspection.get("swapped"),
+            "is_sample": latest_inspection.get("is_sample"),
+            "issues": latest_inspection.get("issues") or [],
+            "action": latest_inspection.get("action") or "",
+            "inspection": latest_inspection,
+            "recent_candidates": inspections,
         }
     return out
 
@@ -253,11 +292,18 @@ def _summary_rows(payload: dict[str, Any]) -> list[dict[str, str]]:
     csv = payload.get("csv_freshness") or {}
     budget = payload.get("budget") or {}
 
+    simulated_current = payload.get("simulated_current_version")
+    version_detail = f"installed {payload.get('app_version')} / latest {update.get('latest_version') or 'unknown'}"
+    if simulated_current:
+        version_detail = (
+            f"installed {payload.get('app_version')}; "
+            f"simulated current {simulated_current} / latest {update.get('latest_version') or 'unknown'}"
+        )
     rows.append(
         {
             "check": "Version",
             "status": "UPDATE" if update.get("available") else "OK",
-            "detail": f"installed {payload.get('app_version')} / latest {update.get('latest_version') or 'unknown'}",
+            "detail": version_detail,
         }
     )
     rows.append(
@@ -283,11 +329,21 @@ def _summary_rows(payload: dict[str, Any]) -> list[dict[str, str]]:
     )
     for kind in ("holdings", "activities"):
         item = csv.get(kind) or {}
+        issues = item.get("issues") or []
+        issue_text = f"; issue={issues[0]}" if issues else ""
+        detail = (
+            f"{item.get('latest_path') or 'not found'}; "
+            f"kind={item.get('schema_kind') or 'missing'}; "
+            f"age_hours={item.get('age_hours')}"
+            f"{issue_text}"
+        )
+        if item.get("action") and item.get("status") in {"FAIL", "WARN"}:
+            detail = f"{detail}; action={item.get('action')}"
         rows.append(
             {
                 "check": f"{kind.title()} CSV",
-                "status": "WARN" if item.get("stale") else "OK",
-                "detail": f"{item.get('latest_path') or 'not found'}; age_hours={item.get('age_hours')}",
+                "status": item.get("status") or ("WARN" if item.get("stale") else "OK"),
+                "detail": detail,
             }
         )
     rows.append(
@@ -322,8 +378,17 @@ def _next_action(payload: dict[str, Any]) -> str:
     holdings = csv.get("holdings") or {}
     if not holdings.get("latest_path"):
         return "Upload or select a Wealthsimple holdings-report CSV before running a paid report."
+    if holdings.get("is_sample"):
+        return "Select a real Wealthsimple holdings-report CSV; sample CSVs are for demo mode only."
+    if holdings.get("swapped"):
+        return "Move the activities export out of the Holdings field and select a holdings-report CSV."
+    if holdings.get("status") == "FAIL":
+        return holdings.get("action") or "Fix the Holdings CSV before running a paid report."
     if holdings.get("stale"):
         return "Export a fresh Wealthsimple holdings-report CSV before trading from the report."
+    activities = csv.get("activities") or {}
+    if activities.get("swapped"):
+        return "Move the holdings report out of the Activities field, or leave Activities blank."
     if update.get("available"):
         return f"Update to {update.get('latest_version')} after reviewing the release notes."
     if api.get("optional_missing", 0):
@@ -336,16 +401,22 @@ def build_preflight(
     force_update: bool = False,
     live_api_checks: bool = False,
     include_demo_smoke: bool = False,
+    simulated_current_version: str | None = None,
     timeout: float = 6.0,
 ) -> dict[str, Any]:
     """Build the doctor payload used by CLI and UI Diagnostics."""
     try:
-        update_info = check_for_update(timeout=timeout, use_cache=not force_update)
+        update_info = check_for_update(
+            current_version=simulated_current_version,
+            timeout=timeout,
+            use_cache=not force_update,
+        )
     except Exception as exc:  # noqa: BLE001
-        update_info = UpdateInfo(current_version=APP_VERSION, error=str(exc))
+        update_info = UpdateInfo(current_version=simulated_current_version or APP_VERSION, error=str(exc))
 
     payload: dict[str, Any] = {
         "app_version": APP_VERSION,
+        "simulated_current_version": simulated_current_version,
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "update": _update_status(update_info),
         "workspace": _workspace_status(),
@@ -396,12 +467,18 @@ def cli_doctor(argv: list[str] | None = None) -> int:
     parser.add_argument("--force-refresh", action="store_true", help="Bypass the update-check cache.")
     parser.add_argument("--live-api-checks", action="store_true", help="Run live connectivity probes for configured APIs.")
     parser.add_argument("--demo-smoke", action="store_true", help="Validate bundled demo data and UI view models without paid API calls.")
+    parser.add_argument(
+        "--simulate-current-version",
+        metavar="VERSION",
+        help="Run update diagnostics as if the installed app were VERSION, without applying an update.",
+    )
     args = parser.parse_args(argv)
 
     payload = build_preflight(
         force_update=args.force_refresh,
         live_api_checks=args.live_api_checks,
         include_demo_smoke=args.demo_smoke,
+        simulated_current_version=args.simulate_current_version,
     )
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))

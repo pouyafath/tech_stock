@@ -10,8 +10,83 @@ python src/main.py doctor --json --force-refresh --demo-smoke
 ```
 
 It checks the installed version, latest published release, update cache,
-workspace, API key discovery, CSV freshness, monthly budget, release assets,
+workspace, API key discovery, CSV Health, monthly budget, release assets,
 checksums, bundled demo data, and UI view models.
+
+In Desktop or Streamlit, open **Diagnostics** and run **App Self-Test** for the
+same no-spend health check plus Report Review and support-bundle loading.
+
+For a shorter first-run/setup view, use:
+
+```bash
+python src/main.py setup --json
+```
+
+It reports the workspace path, API-key discovery, the recommended Holdings and
+Activities CSV candidates, demo smoke availability, and the next action before a
+paid run.
+
+If you need to share diagnostics, create a redacted support bundle:
+
+```bash
+python src/main.py support-bundle --preview
+python src/main.py support-bundle
+```
+
+Use `--preview` first if you want to inspect what will be included. The zip is
+written to `exports/` by default. It includes diagnostics, doctor, setup
+readiness, and data-file metadata, but excludes raw Wealthsimple CSV contents,
+API keys, `.env`, `.env.zip`, `API_KEYS.txt`, caches, and generated reports.
+
+## A Paid Run Is Blocked Before It Starts
+
+Desktop, Streamlit, and Textual run a shared pre-run checklist before calling
+Claude. A blocked paid run means one of these checks failed:
+
+- `ANTHROPIC_API_KEY` is missing.
+- Holdings CSV is missing, unreadable, incomplete, sample/demo data, or actually
+  an activities export.
+- Activities CSV is selected in the wrong field.
+- Monthly budget is hard-blocked.
+
+Fix the action shown in the checklist, then run again. Non-blocking warnings
+such as stale optional activities data or missing optional APIs can be accepted
+from the UI.
+
+Recent versions also show a **Ready To Run** verdict above the raw checklist:
+
+- `READY`: no blocking checks and no review warnings.
+- `REVIEW_FIRST`: the app can run, but one or more warnings should be reviewed
+  before spending on Claude.
+- `BLOCKED`: at least one required input or safety check must be fixed first.
+
+## The App Keeps Selecting The Wrong CSV
+
+Open **Data Files** in Desktop, Streamlit, or Textual and check the Setup
+Readiness and CSV Candidates sections. The row marked **recommended** is the file
+the app would use automatically; confirm it before a paid run. Save the correct
+paths as defaults. The app writes only those paths to:
+
+```text
+config/data_files.json
+```
+
+Delete or edit that file if you want to return to auto-discovery.
+
+## CSV Health Shows FAIL Or WARN
+
+Doctor, Desktop Diagnostics, and Streamlit Diagnostics show a **CSV Health**
+table for Holdings and Activities. It reports:
+
+- detected schema kind: `holdings`, `activities`, partial, unknown, or missing
+- file age in hours
+- whether the file is sample/demo data
+- whether a holdings export and activities export appear swapped
+- the action to take before a paid run
+
+`FAIL` means fix the Holdings CSV before running a paid report. `WARN` means
+the app can usually run, but the data may be stale or the optional activities
+file is missing.
 
 ## The App Says The Holdings CSV Is Missing Required Columns
 
@@ -37,6 +112,18 @@ transaction-level fields such as `activity_type`, `direction`,
 
 Recent versions of tech_stock detect swapped files and show a direct correction
 message.
+
+If both files are supplied in the wrong fields, current versions auto-correct
+the pair before the report run. If only one wrong file is supplied, the run
+stops early with an actionable message.
+
+## The App Is Using `holdings-report-sample.csv`
+
+Sample CSVs are for demo mode only. A paid run is blocked when the Holdings CSV
+is a sample file because it would produce a report for fake holdings.
+
+Use **Browse** or pass `--holdings` with your real Wealthsimple
+`holdings-report-YYYY-MM-DD.csv`.
 
 ## The App Cannot Find My CSV Files
 
@@ -133,6 +220,10 @@ Common causes:
 - Optional source degradation.
 
 Read **Data Confidence** and **Report Quality Warnings** before the action table.
+Then open **Report Review** to see the same gates, source degradation, drift, and
+pending decision-feedback rows in one UI panel. If Report Review cannot load,
+the matching markdown report and JSON log names probably do not share the same
+timestamp stem, or the JSON log is unreadable.
 
 ## macOS Blocks The App
 
@@ -171,11 +262,20 @@ Also inspect:
 - `logs/update.log`
 - Desktop App **Diagnostics**
 - `python src/main.py doctor --json --demo-smoke`
+- `python src/main.py setup --json`
 
 If the issue is specific to report rendering, try Streamlit:
 
 ```bash
 python -m streamlit run ui/streamlit_app.py
+```
+
+To collect enough local state for debugging without exposing secrets or raw CSV
+contents, run:
+
+```bash
+python src/main.py support-bundle --preview
+python src/main.py support-bundle
 ```
 
 ## Streamlit Starts But No Browser Opens
@@ -207,9 +307,18 @@ python src/main.py doctor --json --force-refresh
 python src/main.py check-update
 ```
 
+To test whether an older installed version would see the latest published
+release without installing anything, simulate that installed version:
+
+```bash
+python src/main.py doctor --json --force-refresh --simulate-current-version 1.27.2
+```
+
 Inspect:
 
 - `update.latest_version`
+- `update.current_version`
+- `simulated_current_version`
 - `update.from_cache`
 - `update.cache_age_seconds`
 - `update.release_url`
@@ -301,6 +410,31 @@ chmod +x tech_stock-x86_64.AppImage
 Some Linux distributions require FUSE compatibility packages. If the AppImage
 still fails, run from source using the instructions in
 [USER_GUIDE.md](USER_GUIDE.md).
+
+## Outcomes Tab Shows No Matured Results
+
+The Outcomes view scores fixed 1/5/20-day windows from saved recommendation
+logs. It can be empty even when reports exist.
+
+Common causes:
+
+- The latest recommendations are too recent; wait until at least one selected
+  window has passed.
+- Historical prices are unavailable from yfinance for a ticker/date pair.
+- The recommendation action was `HOLD`, `WATCH`, or `CASH`, which is not scored
+  as an actionable outcome.
+- There are no JSON files under `data/recommendations_log/`.
+
+What to check:
+
+```bash
+ls data/recommendations_log
+python src/main.py --version
+```
+
+Open **Outcomes** and refresh again. Pricing issues appear in the table as
+`missing_start_price` or `missing_end_price`. Those are source-data gaps, not
+Claude spend failures.
 
 ## Tests Fail In A Development Checkout
 

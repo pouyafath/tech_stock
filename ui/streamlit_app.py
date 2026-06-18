@@ -35,31 +35,44 @@ from src.ui_support import (  # noqa: E402
     EDITABLE_JSON_FILES,
     api_health_view,
     api_key_inventory,
+    app_self_test_view,
     apply_available_update,
     buy_signal_view,
     check_update_available,
+    csv_choice_view,
     current_app_version,
+    data_files_view,
     decision_journal_view,
     decision_scorecard_summary,
     default_run_settings,
     degradation_health,
     delete_api_key,
+    demo_smoke_view,
     diagnostics_support_bundle,
     diagnostics_view,
+    export_support_bundle,
     find_default_csvs,
     latest_log_summary,
     latest_report,
     learning_view,
     list_reports,
+    outcomes_view,
+    paid_run_readiness_view,
+    pre_run_checklist_view,
     preview_holdings_csv,
     read_editable_json,
     read_text_file,
     relative_to_root,
+    report_history_view,
+    report_review_view,
     run_backtest_summary,
     run_report_from_ui,
     save_api_key,
     save_decision_from_ui,
+    save_selected_data_files,
     save_uploaded_bytes,
+    setup_readiness_view,
+    support_bundle_preview,
     validate_json_text,
     write_editable_json,
 )
@@ -524,9 +537,11 @@ _html(
     tab_buy,
     tab_report,
     tab_run,
+    tab_data_files,
     tab_history,
     tab_performance,
     tab_backtest,
+    tab_outcomes,
     tab_journal,
     tab_learning,
     tab_diagnostics,
@@ -538,9 +553,11 @@ _html(
         "🎯 Buy Signals",
         "📝 Today's Report",
         "▶️ Run Report",
+        "🗂 Data Files",
         "📚 History",
         "💹 Performance",
         "📈 Backtest",
+        "✅ Outcomes",
         "📓 Journal",
         "🧠 Learning",
         "🩺 Diagnostics",
@@ -917,6 +934,73 @@ with tab_buy:
     _render_buy_signals()
 
 
+# ─── Report Review helper ─────────────────────────────────────────────────
+
+
+def _render_report_review_panel(report_path: Path | str | None, key_prefix: str) -> None:
+    view = report_review_view(report_path=report_path) if report_path else report_review_view()
+    st.markdown("### Report Review")
+    if not view.get("ok"):
+        st.warning(view.get("error") or "No matching recommendation JSON log found.")
+        return
+
+    status = view.get("status_label") or "Unknown"
+    confidence = view.get("data_confidence") or {}
+    col_status, col_warn, col_pending = st.columns(3)
+    col_status.metric("Review status", status)
+    col_warn.metric("Quality warnings", confidence.get("warning_count", 0))
+    pending = sum(1 for row in view.get("decision_rows") or [] if row.get("user_decision") == "pending")
+    col_pending.metric("Pending decisions", pending)
+
+    metric_rows = view.get("metric_rows") or []
+    if metric_rows:
+        st.dataframe(pd.DataFrame(metric_rows), hide_index=True, width="stretch")
+    reasons = view.get("top_reasons") or []
+    if reasons:
+        st.markdown("**Why this needs attention**")
+        for reason in reasons[:5]:
+            st.caption(f"- {reason}")
+
+    rec_rows = view.get("recommendation_rows") or []
+    if rec_rows:
+        with st.expander("Recommendation readiness", expanded=False):
+            st.dataframe(pd.DataFrame(rec_rows), hide_index=True, width="stretch")
+
+    change_rows = view.get("change_rows") or []
+    if change_rows:
+        with st.expander("Changed since previous report", expanded=False):
+            st.dataframe(pd.DataFrame(change_rows), hide_index=True, width="stretch")
+
+    decision_rows = view.get("decision_rows") or []
+    if decision_rows:
+        with st.expander("Record decision feedback", expanded=False):
+            labels = [
+                f"{row.get('ticker')} {row.get('recommended_action')} · current: {row.get('user_decision')} · {row.get('id')}"
+                for row in decision_rows
+            ]
+            selected = st.selectbox("Recommendation", labels, key=f"{key_prefix}_decision_row")
+            decision = st.selectbox(
+                "Your decision",
+                ["accepted", "ignored", "modified", "delayed", "watch", "executed"],
+                key=f"{key_prefix}_decision_value",
+            )
+            reason = st.text_input("Reason / note", key=f"{key_prefix}_decision_reason")
+            if st.button("Save decision feedback", key=f"{key_prefix}_save_decision"):
+                row = decision_rows[labels.index(selected)]
+                try:
+                    save_decision_from_ui(
+                        str(row.get("id")),
+                        user_decision=decision,
+                        reason=reason or "Recorded from report review.",
+                    )
+                    st.success("Decision feedback saved.")
+                except Exception as exc:  # noqa: BLE001
+                    st.error(f"Could not save decision feedback: {exc}")
+
+    with st.expander("Copyable support summary", expanded=False):
+        st.code(view.get("support_summary") or "", language="text")
+
+
 # ─── Today's Report ────────────────────────────────────────────────────────
 
 with tab_report:
@@ -943,6 +1027,8 @@ with tab_report:
             )
         with st.container(border=True):
             st.markdown(read_text_file(report_path))
+        with st.container(border=True):
+            _render_report_review_panel(report_path, "today")
 
 
 # ─── Run Report ────────────────────────────────────────────────────────────
@@ -1027,6 +1113,69 @@ def _render_run_tab() -> None:
         value=False,
         help="Loads CSV, parses portfolio, fetches market data — but stops before the Claude API call.",
     )
+    is_dry_run = st.session_state.get("dry_run_mode", False)
+    checklist_holdings_path, checklist_activities_path = _resolve_run_inputs(
+        holdings_mode,
+        holdings_path_text,
+        holdings_upload,
+        activities_mode,
+        activities_path_text,
+        activities_upload,
+    )
+    checklist = pre_run_checklist_view(
+        holdings_csv=checklist_holdings_path,
+        activities_csv=checklist_activities_path,
+        use_fallback_config=holdings_mode == "Fallback config",
+        dry_run=is_dry_run,
+    )
+    readiness = paid_run_readiness_view(
+        holdings_csv=checklist_holdings_path,
+        activities_csv=checklist_activities_path,
+        use_fallback_config=holdings_mode == "Fallback config",
+        dry_run=is_dry_run,
+        model_choice=model_choice,
+        budget_usd=float(budget_usd or 0),
+        budget_cad=float(budget_cad or 0),
+    )
+    st.markdown("### Ready to run")
+    readiness_status = readiness.get("status") or "UNKNOWN"
+    if readiness_status == "READY":
+        st.success(readiness.get("summary") or "Ready to run.")
+    elif readiness_status == "BLOCKED":
+        st.error(readiness.get("summary") or readiness.get("next_action") or "Fix blocking issues first.")
+    else:
+        st.warning(readiness.get("summary") or readiness.get("next_action") or "Review before running.")
+    if readiness.get("steps"):
+        st.dataframe(pd.DataFrame(readiness["steps"]), hide_index=True, width="stretch")
+    st.markdown("### Pre-run checklist")
+    if checklist.get("rows"):
+        st.dataframe(pd.DataFrame(checklist["rows"]), hide_index=True, width="stretch")
+    if not checklist.get("can_run"):
+        st.error(checklist.get("next_action") or "Fix blocking checklist items before running.")
+    elif checklist.get("warning_count"):
+        st.warning(f"{checklist['warning_count']} warning(s) found. Review before running.")
+    else:
+        st.success("Checklist passed. Ready to run.")
+
+    col_save_paths, col_demo = st.columns(2)
+    with col_save_paths:
+        if st.button("💾 Save these file paths as defaults", width="stretch", key="run_save_data_paths"):
+            path = save_selected_data_files(checklist_holdings_path, checklist_activities_path)
+            _toast(f"Saved defaults to {relative_to_root(path)}")
+            st.rerun()
+    with col_demo:
+        if st.button("🧪 Run demo smoke test", width="stretch", key="run_demo_smoke"):
+            result = demo_smoke_view()
+            if result.get("ok"):
+                st.success(
+                    f"Demo smoke passed: {sum(1 for row in result.get('checks', []) if row.get('ok'))}/{len(result.get('checks', []))} checks."
+                )
+            else:
+                st.error("; ".join(result.get("errors") or ["Demo smoke failed."]))
+
+    allow_warning_run = True
+    if checklist.get("can_run") and checklist.get("warning_count"):
+        allow_warning_run = st.checkbox("I reviewed the warnings and want to run anyway.", key="run_warning_override")
 
     if st.button("▶ Run report", type="primary", width="stretch", key="run_report_btn"):
         holdings_path, activities_path = _resolve_run_inputs(
@@ -1041,13 +1190,17 @@ def _render_run_tab() -> None:
         if holdings_mode != "Fallback config" and holdings_path is None:
             st.error("Select a holdings CSV, upload one, or choose fallback config mode.")
             st.stop()
+        if not checklist.get("can_run"):
+            st.error(checklist.get("next_action") or "Fix blocking checklist items before running.")
+            st.stop()
+        if checklist.get("warning_count") and not allow_warning_run:
+            st.error("Review the pre-run warnings and tick the confirmation box before running.")
+            st.stop()
 
         for label, path in [("Holdings", holdings_path), ("Activities", activities_path)]:
             if path is not None and not path.exists():
                 st.error(f"{label} CSV not found: {path}")
                 st.stop()
-
-        is_dry_run = st.session_state.get("dry_run_mode", False)
 
         status = st.status(
             "Dry-run validation — market data only (Claude skipped)"
@@ -1129,41 +1282,150 @@ with tab_run:
     _render_run_tab()
 
 
+# ─── Data Files ────────────────────────────────────────────────────────────
+
+with tab_data_files:
+    st.subheader("Data Files / Workspace")
+    st.caption("The app uses these paths for CSV inputs, reports, logs, API keys, and uploads.")
+    setup = setup_readiness_view()
+    setup_status = setup.get("status") or "UNKNOWN"
+    status_method = st.success if setup_status == "READY" else st.error if setup_status == "BLOCKED" else st.warning
+    status_method(f"Setup status: {setup_status}. Next action: {setup.get('next_action') or 'Ready.'}")
+    setup_rows = setup.get("rows") or []
+    if setup_rows:
+        st.markdown("### Setup readiness")
+        st.dataframe(pd.DataFrame(setup_rows), hide_index=True, width="stretch")
+
+    view = data_files_view()
+    rows = view.get("rows") or []
+    if rows:
+        st.markdown("### Active paths")
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+    else:
+        _html(empty_state("No file status available", "Refresh the page to rebuild the Data Files view."))
+
+    selected = view.get("selected") or {}
+    col_h, col_a = st.columns(2)
+    with col_h:
+        holdings_default = st.text_input(
+            "Default Holdings CSV",
+            value=str(selected.get("holdings") or ""),
+            key="data_files_holdings_default",
+        )
+    with col_a:
+        activities_default = st.text_input(
+            "Default Activities CSV",
+            value=str(selected.get("activities") or ""),
+            key="data_files_activities_default",
+        )
+    col_save, col_demo, col_support = st.columns(3)
+    with col_save:
+        if st.button("Save defaults", type="primary", width="stretch", key="data_files_save_defaults"):
+            path = save_selected_data_files(holdings_default, activities_default)
+            _toast(f"Saved Data Files defaults to {relative_to_root(path)}")
+            st.rerun()
+    with col_demo:
+        if st.button("Run demo smoke test", width="stretch", key="data_files_demo_smoke"):
+            result = demo_smoke_view()
+            if result.get("ok"):
+                st.success(
+                    f"Demo smoke passed: {sum(1 for row in result.get('checks', []) if row.get('ok'))}/{len(result.get('checks', []))}."
+                )
+            else:
+                st.error("; ".join(result.get("errors") or ["Demo smoke failed."]))
+    with col_support:
+        if st.button("Export support bundle", width="stretch", key="data_files_support_bundle"):
+            result = export_support_bundle(include_demo_smoke=False)
+            if result.get("ok"):
+                st.success(result.get("summary") or f"Exported to {result.get('output_path')}")
+            else:
+                st.error(result.get("summary") or result.get("error") or "Support bundle export failed.")
+
+    with st.expander("Preview support bundle contents", expanded=False):
+        preview = support_bundle_preview(include_demo_smoke=False)
+        st.caption(preview.get("privacy_note") or "Redacted support bundle.")
+        st.dataframe(pd.DataFrame(preview.get("files") or []), hide_index=True, width="stretch")
+        st.markdown("**Excluded**")
+        st.write(", ".join(preview.get("excluded") or []))
+
+    st.markdown("### CSV candidates to confirm")
+    for kind in ("holdings", "activities"):
+        candidates = csv_choice_view(kind)
+        st.markdown(f"**{kind.title()}**")
+        if candidates:
+            st.dataframe(pd.DataFrame(candidates), hide_index=True, width="stretch")
+        else:
+            st.caption("No candidates found.")
+
+
 # ─── History ───────────────────────────────────────────────────────────────
 
 with tab_history:
-    reports = list_reports(limit=200)
-    if not reports:
+    history_view = report_history_view(limit=200)
+    history_rows = history_view.get("rows") or []
+    reports = [row.get("report_path") for row in history_rows if row.get("report_path")]
+    if not history_rows:
         _html(empty_state("No reports in history", "Past reports will appear here after your first run."))
     else:
-        col_filter, col_search = st.columns([1, 3])
+        col_filter, col_signal, col_search = st.columns([1, 1, 3])
         session_filter = col_filter.selectbox("Session", ["all", "morning", "afternoon"], key="hist_session")
+        signal_filter = col_signal.selectbox("Signals", ["all", "warnings", "buy/add", "trim/sell"], key="hist_signal")
         search = col_search.text_input("🔎 Search filename", key="hist_search")
         filtered = [
-            path
-            for path in reports
-            if (session_filter == "all" or session_filter in path.name) and (not search or search.lower() in path.name.lower())
+            row
+            for row in history_rows
+            if (session_filter == "all" or row.get("session") == session_filter)
+            and (not search or search.lower() in str(row.get("filename", "")).lower())
+            and (
+                signal_filter == "all"
+                or (signal_filter == "warnings" and row.get("warning_count", 0) > 0)
+                or (signal_filter == "buy/add" and row.get("buy_add_count", 0) > 0)
+                or (signal_filter == "trim/sell" and row.get("trim_sell_count", 0) > 0)
+            )
         ]
         if not filtered:
             _html(empty_state("No reports match filters", "Try clearing the search or changing the session filter."))
         else:
-            labels = [relative_to_root(path) for path in filtered]
+            table_rows = [
+                {
+                    "report": row.get("report"),
+                    "session": row.get("session"),
+                    "buy/add": row.get("buy_add_count"),
+                    "trim/sell": row.get("trim_sell_count"),
+                    "warnings": row.get("warning_count"),
+                    "data_conf": row.get("data_confidence"),
+                    "holdings_csv": Path(row.get("holdings_csv") or "").name,
+                    "activities_csv": Path(row.get("activities_csv") or "").name,
+                }
+                for row in filtered
+            ]
+            st.dataframe(pd.DataFrame(table_rows), hide_index=True, width="stretch")
+            labels = [row.get("report") or str(row.get("report_path")) for row in filtered]
             compare = st.checkbox("🔀 Compare two reports side-by-side", key="hist_compare")
             if compare and len(filtered) > 1:
                 col_a, col_b = st.columns(2)
                 with col_a:
                     sel_a = st.selectbox("Report A", labels, key="hist_a")
                     with st.container(border=True, height=600):
-                        st.markdown(read_text_file(filtered[labels.index(sel_a)]))
+                        st.markdown(read_text_file(filtered[labels.index(sel_a)].get("report_path")))
                 with col_b:
                     sel_b = st.selectbox("Report B", labels, index=min(1, len(labels) - 1), key="hist_b")
                     with st.container(border=True, height=600):
-                        st.markdown(read_text_file(filtered[labels.index(sel_b)]))
+                        st.markdown(read_text_file(filtered[labels.index(sel_b)].get("report_path")))
             else:
                 selected_label = st.selectbox("Report", labels, key="hist_selected")
-                selected_report = filtered[labels.index(selected_label)]
+                selected_row = filtered[labels.index(selected_label)]
+                selected_report = selected_row.get("report_path")
                 with st.container(border=True):
+                    st.caption(
+                        f"Holdings: `{selected_row.get('holdings_csv') or 'unknown'}` · "
+                        f"Activities: `{selected_row.get('activities_csv') or 'none'}` · "
+                        f"Warnings: {selected_row.get('warning_count', 0)} · "
+                        f"Data confidence: {selected_row.get('data_confidence') or 'unknown'}"
+                    )
                     st.markdown(read_text_file(selected_report))
+                with st.container(border=True):
+                    _render_report_review_panel(selected_report, "history")
 
 
 # ─── Performance ──────────────────────────────────────────────────────────
@@ -1419,6 +1681,128 @@ with tab_backtest:
                 st.caption("No realized examples yet.")
         with st.expander("🔬 Raw JSON"):
             st.json(backtest)
+
+
+# ─── Outcomes ──────────────────────────────────────────────────────────────
+
+
+def _format_outcome_metric(value, kind: str | None = None) -> str:
+    if kind == "pct_ratio":
+        try:
+            return f"{float(value):.0%}"
+        except (TypeError, ValueError):
+            return "—"
+    if kind == "pct":
+        return _format_pct(value, signed=True, digits=2)
+    if kind == "money":
+        return _format_currency(value)
+    return "—" if value is None else str(value)
+
+
+def _outcome_bucket_rows(bucket: dict, label: str) -> list[dict]:
+    rows = []
+    for key, stats in (bucket or {}).items():
+        rows.append(
+            {
+                label: key,
+                "n": stats.get("n", 0),
+                "avg_action_return_pct": stats.get("avg_action_return_pct"),
+                "avg_alpha_vs_benchmark_pct": stats.get("avg_alpha_vs_benchmark_pct"),
+                "hit_rate": stats.get("hit_rate"),
+                "benchmark_win_rate": stats.get("benchmark_win_rate"),
+            }
+        )
+    return rows
+
+
+def _render_outcomes() -> None:
+    st.caption("Fixed 1/5/20-day outcome tracking for every actionable recommendation. Uses cached yfinance historical closes.")
+    if st.button("🔄 Refresh outcomes", type="primary", key="outcomes_refresh"):
+        with st.spinner("Scoring recommendation outcomes..."):
+            st.session_state["outcomes_view"] = outcomes_view()
+        _toast("Outcomes refreshed", icon="✅")
+
+    view = st.session_state.get("outcomes_view")
+    if view is None:
+        _html(empty_state("No outcome data loaded", "Click Refresh outcomes to score matured recommendations."))
+        return
+    summary = view.get("summary") or {}
+    if not summary.get("scored_windows"):
+        _html(
+            empty_state(
+                "No matured outcomes yet",
+                f"{summary.get('pending_windows', 0)} pending window(s), {summary.get('error_count', 0)} pricing issue(s).",
+            )
+        )
+        if view.get("errors"):
+            with st.expander("Pricing issues"):
+                st.dataframe(pd.DataFrame(view["errors"]), hide_index=True, width="stretch")
+        return
+
+    cards = view.get("metric_cards") or []
+    cols = st.columns(4)
+    for index, card in enumerate(cards):
+        cols[index % 4].metric(card.get("label", ""), _format_outcome_metric(card.get("value"), card.get("kind")))
+
+    st.caption(view.get("prompt_summary") or summary.get("prompt_summary") or "")
+
+    sub_summary, sub_examples, sub_sources, sub_raw = st.tabs(["Summary", "Examples", "Source Buckets", "Raw"])
+    with sub_summary:
+        col_a, col_b = st.columns(2)
+        with col_a:
+            rows = _outcome_bucket_rows(summary.get("by_action") or {}, "action")
+            if rows:
+                st.markdown("### By Action")
+                st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        with col_b:
+            rows = _outcome_bucket_rows(summary.get("by_horizon") or {}, "horizon_days")
+            if rows:
+                st.markdown("### By Horizon")
+                st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        ticker_rows = _outcome_bucket_rows(summary.get("by_ticker") or {}, "ticker")
+        if ticker_rows:
+            st.markdown("### By Ticker")
+            st.dataframe(pd.DataFrame(ticker_rows), hide_index=True, width="stretch")
+
+    with sub_examples:
+        col_best, col_worst = st.columns(2)
+        with col_best:
+            st.markdown("### Best Recommendations")
+            best = summary.get("best_recommendations") or []
+            if best:
+                st.dataframe(pd.DataFrame(best), hide_index=True, width="stretch")
+            else:
+                _html(empty_state("No winners yet", "Matured outcomes will appear here."))
+        with col_worst:
+            st.markdown("### Worst Recommendations")
+            worst = summary.get("worst_recommendations") or []
+            if worst:
+                st.dataframe(pd.DataFrame(worst), hide_index=True, width="stretch")
+            else:
+                _html(empty_state("No losers yet", "Matured outcomes will appear here."))
+        alpha = summary.get("best_alpha") or []
+        if alpha:
+            st.markdown("### Best Alpha vs Benchmark")
+            st.dataframe(pd.DataFrame(alpha), hide_index=True, width="stretch")
+
+    with sub_sources:
+        source_rows = _outcome_bucket_rows(summary.get("by_source_bucket") or {}, "source_bucket")
+        if source_rows:
+            st.dataframe(pd.DataFrame(source_rows), hide_index=True, width="stretch")
+        else:
+            _html(empty_state("No source attribution yet", "Outcome rows need source tags from recommendation logs."))
+        st.caption(
+            f"Stop-loss hits: {summary.get('stop_loss_hits', 0)} · "
+            f"take-profit hits: {summary.get('take_profit_hits', 0)} · "
+            f"pending windows: {summary.get('pending_windows', 0)} · pricing errors: {summary.get('error_count', 0)}"
+        )
+
+    with sub_raw:
+        st.dataframe(pd.DataFrame(view.get("recent_rows") or []), hide_index=True, width="stretch")
+
+
+with tab_outcomes:
+    _render_outcomes()
 
 
 # ─── Journal ───────────────────────────────────────────────────────────────
@@ -1919,6 +2303,19 @@ def _render_diagnostics() -> None:
         st.session_state[cache_key] = diagnostics_view(hours=int(window))
     view = st.session_state[cache_key]
 
+    st.markdown("### App Self-Test")
+    if st.button("Run no-spend self-test", width="stretch", key="diag_self_test"):
+        st.session_state["diag_self_test_cache"] = app_self_test_view()
+    self_test = st.session_state.get("diag_self_test_cache")
+    if self_test:
+        col_status, col_warn, col_fail = st.columns(3)
+        col_status.metric("Status", self_test.get("status"))
+        col_warn.metric("Warnings", self_test.get("warn_count", 0))
+        col_fail.metric("Failures", self_test.get("fail_count", 0))
+        st.dataframe(pd.DataFrame(self_test.get("rows") or []), hide_index=True, width="stretch")
+        with st.expander("Copyable self-test summary", expanded=False):
+            st.code(self_test.get("support_summary") or "", language="text")
+
     preflight = view.get("preflight") or {}
     rows = preflight.get("summary_rows") or []
     st.markdown("### Preflight")
@@ -1926,6 +2323,24 @@ def _render_diagnostics() -> None:
         st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
     else:
         _html(empty_state("Preflight unavailable", "Refresh diagnostics to rebuild the doctor payload."))
+
+    csv_health = view.get("csv_health") or preflight.get("csv_freshness") or {}
+    if csv_health:
+        st.markdown("### CSV Health")
+        csv_rows = []
+        for kind in ("holdings", "activities"):
+            item = csv_health.get(kind) or {}
+            csv_rows.append(
+                {
+                    "type": kind.title(),
+                    "status": item.get("status") or "",
+                    "detected": item.get("schema_kind") or "missing",
+                    "path": item.get("latest_path") or "not found",
+                    "age_hours": item.get("age_hours"),
+                    "action": item.get("action") or "",
+                }
+            )
+        st.dataframe(pd.DataFrame(csv_rows), hide_index=True, width="stretch")
 
     sources = view.get("sources") or {}
     if not sources:
@@ -1995,6 +2410,18 @@ def _render_diagnostics() -> None:
 
     st.markdown("### Support bundle")
     st.caption("Last 500 events, fully redacted (API keys / tokens / emails are scrubbed). Paste this into a bug report — safe to share.")
+    with st.expander("Preview support zip contents", expanded=True):
+        preview = support_bundle_preview(include_demo_smoke=False)
+        st.caption(preview.get("privacy_note") or "Redacted support bundle.")
+        st.dataframe(pd.DataFrame(preview.get("files") or []), hide_index=True, width="stretch")
+        st.markdown("**Excluded from zip**")
+        st.write(", ".join(preview.get("excluded") or []))
+    if st.button("📦 Export full support bundle zip", width="stretch", key="diag_export_support_bundle"):
+        result = export_support_bundle(include_demo_smoke=False)
+        if result.get("ok"):
+            st.success(result.get("summary") or f"Exported to {result.get('output_path')}")
+        else:
+            st.error(result.get("summary") or result.get("error") or "Support bundle export failed.")
     bundle = diagnostics_support_bundle(limit=500)
     if bundle:
         st.code(bundle, language="json")

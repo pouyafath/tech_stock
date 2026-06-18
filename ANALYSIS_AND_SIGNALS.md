@@ -313,7 +313,9 @@ Each successful run normally writes:
 | Decision-journal entries | Pending user decisions for later outcome scoring |
 
 Past recommendation logs feed the backtester, drift tracker, performance views,
-and learning loop.
+the fixed-window Outcomes view, and learning loop. Outcomes assigns stable IDs
+to actionable recommendations and scores 1/5/20-day follow-through, benchmark
+alpha, saved drawdown, and close-to-close stop/take-profit triggers.
 
 ## Important Limitations
 
@@ -326,6 +328,8 @@ and learning loop.
 - Technical indicators are backward-looking.
 - Backtest results are based on the application's own historical recommendation
   logs and are not proof of future performance.
+- Outcomes use historical closes around fixed dates, not intraday execution
+  prices or brokerage fills.
 - Claude can misinterpret data, overstate confidence, or produce an incorrect
   thesis.
 - Taxes, account-specific restrictions, liquidity, order-book depth, and user
@@ -343,6 +347,10 @@ Before taking action:
 6. Check position and company exposure after the proposed trade.
 7. Review stop, take-profit, invalidation, and time horizon.
 8. Confirm the order type and executable market price in the brokerage app.
+9. Record the actual decision in Report Review or Decision Journal so future
+   scorecards can compare the model recommendation with your follow-through.
+10. After enough trading days pass, refresh Outcomes to see whether the
+    recommendation worked versus the relevant benchmark.
 
 ## Code References
 
@@ -357,7 +365,9 @@ Before taking action:
 | Data Confidence | `src/data_confidence.py` |
 | Portfolio analytics | `src/portfolio_analytics.py` |
 | Recommendation sizing | `src/recommendation_sizing.py` |
+| Recommendation outcomes | `src/recommendation_outcomes.py` |
 | Report rendering | `src/report_generator.py` |
+| Report review and feedback view | `src/report_review.py` |
 | Backtesting | `src/backtester.py` |
 | Drift tracking | `src/drift_tracker.py` |
 | Decision journal | `src/decision_journal.py` |

@@ -26,12 +26,13 @@ is on an older release than GitHub:
 ```bash
 .venv/bin/python -m src.main doctor --json
 .venv/bin/python -m src.main doctor --json --force-refresh
+.venv/bin/python -m src.main doctor --json --force-refresh --simulate-current-version 1.27.2
 ```
 
-The JSON payload includes installed version, latest published release,
-update-cache age/source, workspace paths, API-key discovery, API status,
-CSV freshness, monthly budget status, and release asset/checksum
-availability.
+The JSON payload includes installed version, optional simulated installed
+version, latest published release, update-cache age/source, workspace paths,
+API-key discovery, API status, CSV Health, monthly budget status, and release
+asset/checksum availability.
 
 To also validate bundled samples and view-model rendering without
 Anthropic spend:
@@ -39,6 +40,72 @@ Anthropic spend:
 ```bash
 .venv/bin/python -m src.main doctor --json --demo-smoke
 ```
+
+In the Desktop App or Streamlit, open **Diagnostics** and run **App Self-Test**
+for a no-spend UI health check covering setup readiness, bundled demo smoke,
+Report Review loading, and support-bundle availability.
+
+## Review a report and record feedback
+
+After a report is generated, open **Report Viewer** in Desktop, **Today's
+Report** in Streamlit, or **Report Review** in Textual.
+
+Use the Report Review table to check:
+
+- Data Confidence and quality-gate status.
+- Quote/catalyst/source-degradation warnings.
+- Drift versus the previous report.
+- Recommendation readiness and missing feedback rows.
+
+Then record each actionable recommendation as accepted, ignored, modified,
+delayed, watch, or executed. Desktop and Streamlit write that feedback directly
+to `data/decision_journal.json`; Textual shows the decision row IDs for audit
+and follow-up.
+
+## Confirm first-run setup state
+
+Use the shorter setup command when you only need the next action and the files
+the app plans to use:
+
+```bash
+.venv/bin/python -m src.main setup
+.venv/bin/python -m src.main setup --json
+```
+
+The output includes workspace status, API-key discovery, pre-run checklist
+results, recommended Holdings and Activities CSV candidates, and demo smoke
+availability.
+
+## Save the correct Wealthsimple CSVs
+
+Open **Data Files** in Desktop, Streamlit, or Textual. Confirm the Setup
+Readiness summary first, then check the **CSV Candidates** rows. The recommended
+row is the file the app would auto-select; confirm or override it before a paid
+run. The app stores only the paths in:
+
+```text
+config/data_files.json
+```
+
+Use **Run demo smoke test** from the same screen to validate the installed app
+without API keys or Anthropic spend.
+
+## Export a redacted support bundle
+
+When a run is blocked or the UI is behaving unexpectedly, export a support zip:
+
+```bash
+.venv/bin/python -m src.main support-bundle --preview
+.venv/bin/python -m src.main support-bundle
+.venv/bin/python -m src.main support-bundle --json
+.venv/bin/python -m src.main support-bundle --output-dir ~/Desktop
+```
+
+Use `--preview` first to list included files and exclusions without writing a
+zip. The bundle includes doctor output, setup readiness, CSV metadata, and
+recent diagnostics. It intentionally excludes raw CSV contents, generated
+reports, API keys, `.env`, `.env.zip`, `API_KEYS.txt`, caches, and temporary
+uploads.
 
 ## Run a single CLI report
 
@@ -139,6 +206,24 @@ Restore on the other machine by unzipping into the project root.
 Prints per-action and per-conviction hit-rates. The same data drives
 the Learning tab's reliability diagram and walk-forward chart.
 
+## Score fixed-window recommendation outcomes
+
+Open **Outcomes** in the Desktop, Streamlit, or Textual UI and click refresh.
+The app scores every actionable recommendation over fixed 1/5/20-day windows
+using cached yfinance historical closes. No Claude call is made.
+
+Use this view when you want to answer:
+
+- Did BUY/ADD calls work after 1, 5, and 20 days?
+- Did TRIM/SELL calls avoid drawdowns?
+- Did the recommendation beat QQQ, SPY, or SMH?
+- Which source bucket performed best: verified catalyst, quality warning,
+  manual review, or thesis-only?
+
+Each row has a stable recommendation ID such as
+`20260616_morning_NVDA_ADD_001`, so you can connect a UI row back to the JSON
+log and report.
+
 ## Hook a notification into a custom event
 
 ```python
@@ -192,6 +277,14 @@ The release CI uses this to populate the GitHub Release body.
 ./build_macos.sh        # → dist/tech_stock.dmg
 ./build_linux.sh        # → dist/tech_stock-x86_64.AppImage (or tarball)
 build_windows.bat       # → dist/tech_stock_setup.exe (Windows only)
+```
+
+Smoke-check package structure and version metadata without launching the GUI:
+
+```bash
+python tools/package_smoke.py --platform source --dist .
+python tools/package_smoke.py --platform macos --dist dist
+python tools/package_smoke.py --platform linux --dist dist
 ```
 
 Or just push a `v*.*.*` tag and let CI do it — see

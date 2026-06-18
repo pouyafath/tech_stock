@@ -20,24 +20,37 @@ sys.path.insert(0, str(ROOT))
 from src.ui_support import (  # noqa: E402
     EDITABLE_JSON_FILES,
     api_health_view,
+    app_self_test_view,
     apply_available_update,
     buy_signal_view,
     check_update_available,
+    csv_choice_view,
     current_app_version,
+    data_files_view,
     decision_journal_view,
     decision_scorecard_summary,
     default_run_settings,
+    demo_smoke_view,
     discover_csv_files,
+    export_support_bundle,
     find_default_csvs,
     latest_log_summary,
     latest_report,
     learning_view,
     list_reports,
+    outcomes_view,
+    paid_run_readiness_view,
+    pre_run_checklist_view,
     read_editable_json,
     read_text_file,
     relative_to_root,
+    report_history_view,
+    report_review_view,
     run_backtest_summary,
     run_report_from_ui,
+    save_selected_data_files,
+    setup_readiness_view,
+    support_bundle_preview,
     validate_json_text,
     write_editable_json,
 )
@@ -197,7 +210,7 @@ class TechStockTUI(App):
         margin-top: 1;
     }
 
-    #dashboard_log, #connectivity_log, #buy_signals_log, #backtest_log, #update_log {
+    #dashboard_log, #connectivity_log, #buy_signals_log, #backtest_log, #outcomes_log, #update_log {
         height: 1fr;
         border: solid $primary;
         padding: 1;
@@ -286,13 +299,27 @@ class TechStockTUI(App):
                 yield Select(activities_options, value=activities_options[0][1], id="activities_select", allow_blank=False)
                 yield Static("Activities CSV path (optional)")
                 yield Input(value=str(defaults["activities"] or ""), id="activities_path")
-                yield Button("Run report", id="run_report", variant="primary")
+                with Horizontal(classes="form-row"):
+                    yield Button("Check setup", id="check_setup")
+                    yield Button("Save file defaults", id="save_data_files")
+                    yield Button("Run demo smoke", id="run_demo_smoke")
+                    yield Button("Run report", id="run_report", variant="primary")
                 yield Static("Ready.", id="status")
                 yield RichLog(id="console", wrap=True, highlight=True)
+            with TabPane("Data Files", id="data_files"):
+                with Horizontal(classes="form-row"):
+                    yield Button("Refresh data files", id="refresh_data_files")
+                    yield Button("Save current run paths", id="save_data_files_from_tab")
+                    yield Button("Run demo smoke", id="run_demo_smoke_files")
+                    yield Button("Export support bundle", id="export_support_bundle")
+                yield RichLog(id="data_files_log", wrap=True, highlight=True)
             with TabPane("Today's Report", id="today"):
                 yield Button("Refresh report", id="refresh_today")
                 yield Static("", id="today_path")
                 yield Markdown("", id="today_markdown")
+            with TabPane("Report Review", id="report_review"):
+                yield Button("Refresh review", id="refresh_report_review")
+                yield RichLog(id="report_review_log", wrap=True, highlight=True)
             with TabPane("History", id="history"):
                 yield Button("Refresh history", id="refresh_history")
                 yield Select(history_options, value=history_options[0][1], allow_blank=False, id="history_select")
@@ -301,6 +328,9 @@ class TechStockTUI(App):
             with TabPane("Backtest", id="backtest"):
                 yield Button("Refresh backtest", id="refresh_backtest")
                 yield RichLog(id="backtest_log", wrap=True, highlight=True)
+            with TabPane("Outcomes", id="outcomes"):
+                yield Button("Refresh outcomes", id="refresh_outcomes")
+                yield RichLog(id="outcomes_log", wrap=True, highlight=True)
             with TabPane("Portfolio Editor", id="editor"):
                 yield Select([(label, label) for label in EDITABLE_JSON_FILES], value="Settings", id="editor_file")
                 yield Button("Load JSON", id="load_json")
@@ -319,12 +349,15 @@ class TechStockTUI(App):
         self._load_dashboard()
         self._show_buy_signals_placeholder()
         self._load_today_report()
+        self._load_report_review()
         self._load_history_report()
         # Backtest is NOT loaded on mount — it fetches live price data from
         # yfinance for every past recommendation, which can take 20-30 s.
         # User triggers it explicitly with the "Refresh backtest" button.
         self._show_backtest_placeholder()
+        self._show_outcomes_placeholder()
         self._load_editor_text()
+        self._load_data_files()
         if os.environ.get("TECH_STOCK_SKIP_UPDATE_CHECK") != "1":
             self.run_worker(self._check_updates_async(startup=True), exclusive=False)
 
@@ -332,6 +365,16 @@ class TechStockTUI(App):
         button_id = event.button.id
         if button_id == "run_report":
             await self._run_report()
+        elif button_id == "check_setup":
+            self._render_pre_run_checklist()
+        elif button_id in {"save_data_files", "save_data_files_from_tab"}:
+            self._save_data_file_defaults()
+        elif button_id in {"run_demo_smoke", "run_demo_smoke_files"}:
+            await self._run_demo_smoke()
+        elif button_id == "refresh_data_files":
+            self._load_data_files()
+        elif button_id == "export_support_bundle":
+            self._export_support_bundle()
         elif button_id == "refresh_dashboard":
             self._load_dashboard()
         elif button_id == "check_connectivity":
@@ -340,6 +383,9 @@ class TechStockTUI(App):
             self.run_worker(self._load_buy_signals_async(), exclusive=True)
         elif button_id == "refresh_today":
             self._load_today_report()
+            self._load_report_review()
+        elif button_id == "refresh_report_review":
+            self._load_report_review()
         elif button_id == "refresh_history":
             self._refresh_history_select()
             self._load_history_report()
@@ -347,6 +393,8 @@ class TechStockTUI(App):
             self._load_history_report()
         elif button_id == "refresh_backtest":
             self.run_worker(self._load_backtest_async(), exclusive=True)
+        elif button_id == "refresh_outcomes":
+            self.run_worker(self._load_outcomes_async(), exclusive=True)
         elif button_id == "load_json":
             self._load_editor_text()
         elif button_id == "save_json":
@@ -377,8 +425,12 @@ class TechStockTUI(App):
         elif active == "history":
             self._refresh_history_select()
             self._load_history_report()
+        elif active == "data_files":
+            self._load_data_files()
         elif active == "backtest":
             self.run_worker(self._load_backtest_async(), exclusive=True)
+        elif active == "outcomes":
+            self.run_worker(self._load_outcomes_async(), exclusive=True)
         elif active == "editor":
             self._load_editor_text()
         elif active == "updates":
@@ -393,6 +445,10 @@ class TechStockTUI(App):
     async def _run_report(self) -> None:
         status = self.query_one("#status", Static)
         console = self.query_one("#console", RichLog)
+        checklist = self._render_pre_run_checklist()
+        if not checklist.get("can_run"):
+            status.update(f"Blocked: {checklist.get('next_action')}")
+            return
         console.clear()
         status.update("Running report. This can take several minutes for a full two-pass Claude run.")
 
@@ -433,6 +489,155 @@ class TechStockTUI(App):
         except ValueError:
             return 0.0
 
+    def _current_run_paths(self) -> tuple[str, str]:
+        return self.query_one("#holdings_path", Input).value, self.query_one("#activities_path", Input).value
+
+    def _render_pre_run_checklist(self) -> dict:
+        holdings, activities = self._current_run_paths()
+        readiness = paid_run_readiness_view(
+            holdings_csv=holdings,
+            activities_csv=activities,
+            use_fallback_config=not bool(holdings.strip()),
+            model_choice=self.query_one("#model", Select).value,
+            budget_usd=self._float_input("#budget_usd"),
+            budget_cad=self._float_input("#budget_cad"),
+        )
+        checklist = pre_run_checklist_view(
+            holdings_csv=holdings,
+            activities_csv=activities,
+            use_fallback_config=not bool(holdings.strip()),
+        )
+        console = self.query_one("#console", RichLog)
+        console.clear()
+        readiness_table = Table(title=f"Ready To Run — {readiness.get('status')}")
+        readiness_table.add_column("Step")
+        readiness_table.add_column("Status")
+        readiness_table.add_column("Detail")
+        readiness_table.add_column("Action")
+        for row in readiness.get("steps") or []:
+            status = row.get("status") or ""
+            style = "bold #ef4444" if status == "BLOCKED" else "#f59e0b" if status == "WARN" else "#22c55e"
+            readiness_table.add_row(row.get("step", ""), Text(status, style=style), row.get("detail", ""), row.get("action", ""))
+        console.write(readiness_table)
+        if readiness.get("summary"):
+            console.write(Text(readiness.get("summary", ""), style="bold #f59e0b" if readiness.get("status") != "READY" else "#22c55e"))
+        table = Table(title="Pre-run Checklist")
+        table.add_column("Check")
+        table.add_column("Status")
+        table.add_column("Detail")
+        table.add_column("Action")
+        for row in checklist.get("rows") or []:
+            style = "bold #ef4444" if row.get("blocking") else "#f59e0b" if row.get("status") == "WARN" else "#22c55e"
+            table.add_row(row.get("check", ""), Text(row.get("status", ""), style=style), row.get("detail", ""), row.get("action", ""))
+        console.write(table)
+        self.query_one("#status", Static).update(readiness.get("next_action") or "Ready.")
+        return checklist
+
+    def _save_data_file_defaults(self) -> None:
+        holdings, activities = self._current_run_paths()
+        path = save_selected_data_files(holdings.strip() or None, activities.strip() or None)
+        self.query_one("#status", Static).update(f"Saved file defaults: {relative_to_root(path)}")
+        self._load_data_files()
+
+    async def _run_demo_smoke(self) -> None:
+        console = self.query_one("#console", RichLog)
+        console.clear()
+        result = await asyncio.to_thread(demo_smoke_view)
+        table = Table(title="Demo Smoke Test")
+        table.add_column("Check")
+        table.add_column("Result")
+        table.add_column("Detail")
+        for row in result.get("checks") or []:
+            table.add_row(
+                row.get("name", ""),
+                Text("OK" if row.get("ok") else "FAIL", style="#22c55e" if row.get("ok") else "bold #ef4444"),
+                row.get("detail", ""),
+            )
+        console.write(table)
+        self.query_one("#status", Static).update("Demo smoke passed." if result.get("ok") else "Demo smoke failed.")
+
+    def _load_data_files(self) -> None:
+        try:
+            log = self.query_one("#data_files_log", RichLog)
+        except Exception:
+            return
+        log.clear()
+        setup = setup_readiness_view()
+        setup_table = Table(title=f"Setup Readiness — {setup.get('status')}")
+        setup_table.add_column("Check")
+        setup_table.add_column("Status")
+        setup_table.add_column("Detail")
+        setup_table.add_column("Action")
+        for row in setup.get("rows") or []:
+            status = row.get("status") or ""
+            style = "bold #ef4444" if status == "FAIL" else "#f59e0b" if status == "WARN" else "#22c55e"
+            setup_table.add_row(row.get("check", ""), Text(status, style=style), row.get("detail", ""), row.get("action", ""))
+        log.write(setup_table)
+        if setup.get("next_action"):
+            log.write(
+                Text(f"Next action: {setup.get('next_action')}", style="bold #f59e0b" if setup.get("status") != "READY" else "#22c55e")
+            )
+
+        self_test = app_self_test_view()
+        self_test_table = Table(title=f"App Self-Test — {self_test.get('status')}")
+        self_test_table.add_column("Check")
+        self_test_table.add_column("Status")
+        self_test_table.add_column("Detail")
+        self_test_table.add_column("Action")
+        for row in self_test.get("rows") or []:
+            status = row.get("status") or ""
+            style = "bold #ef4444" if status == "FAIL" else "#f59e0b" if status == "WARN" else "#22c55e"
+            self_test_table.add_row(row.get("check", ""), Text(status, style=style), row.get("detail", ""), row.get("action", ""))
+        log.write(self_test_table)
+
+        view = data_files_view()
+        table = Table(title=f"Data Files / Workspace — defaults: {relative_to_root(view.get('settings_path'))}")
+        table.add_column("Resource")
+        table.add_column("Status")
+        table.add_column("Path")
+        table.add_column("Detail")
+        for row in view.get("rows") or []:
+            status = row.get("status") or ""
+            style = "bold #ef4444" if status == "FAIL" else "#f59e0b" if status == "WARN" else "#22c55e"
+            table.add_row(row.get("resource", ""), Text(status, style=style), row.get("path", ""), row.get("detail", ""))
+        log.write(table)
+
+        for kind in ("holdings", "activities"):
+            candidates = Table(title=f"{kind.title()} CSV Candidates")
+            candidates.add_column("Pick")
+            candidates.add_column("Status")
+            candidates.add_column("File")
+            candidates.add_column("Age")
+            candidates.add_column("Rows")
+            candidates.add_column("Reason")
+            for row in csv_choice_view(kind):
+                status = row.get("status") or ""
+                style = "bold #ef4444" if status == "BLOCKED" else "#f59e0b" if status in {"REVIEW", "DEMO_ONLY"} else "#22c55e"
+                candidates.add_row(
+                    "YES" if row.get("recommended") else "",
+                    Text(status, style=style),
+                    row.get("filename", ""),
+                    str(row.get("age_hours") if row.get("age_hours") is not None else ""),
+                    str(row.get("row_count_hint") or ""),
+                    row.get("reason") or row.get("action") or "",
+                )
+            log.write(candidates)
+
+        preview = support_bundle_preview(include_demo_smoke=False)
+        bundle_table = Table(title="Support Bundle Preview")
+        bundle_table.add_column("File")
+        bundle_table.add_column("Privacy")
+        bundle_table.add_column("Description")
+        for row in preview.get("files") or []:
+            bundle_table.add_row(row.get("path", ""), row.get("privacy", ""), row.get("description", ""))
+        log.write(bundle_table)
+        log.write(Text("Excluded: " + ", ".join(preview.get("excluded") or []), style="#94a3b8"))
+
+    def _export_support_bundle(self) -> None:
+        log = self.query_one("#data_files_log", RichLog)
+        result = export_support_bundle(include_demo_smoke=False)
+        log.write(result.get("summary") or result.get("error") or "Support bundle export finished.")
+
     def _csv_options(self, prefix: str, default: Path | None) -> list[tuple[str, str]]:
         options: list[tuple[str, str]] = []
         if prefix == "holdings-report":
@@ -446,10 +651,20 @@ class TechStockTUI(App):
         return options
 
     def _history_options(self) -> list[tuple[str, str]]:
-        reports = list_reports(limit=50)
-        if not reports:
+        rows = report_history_view(limit=50).get("rows") or []
+        if not rows:
             return [("No reports found", "__none__")]
-        return [(relative_to_root(path), str(path)) for path in reports]
+        options = []
+        for row in rows:
+            path = row.get("report_path")
+            if not path:
+                continue
+            label = (
+                f"{row.get('report')} | B/A {row.get('buy_add_count', 0)} | "
+                f"T/S {row.get('trim_sell_count', 0)} | W {row.get('warning_count', 0)}"
+            )
+            options.append((label, str(path)))
+        return options or [("No reports found", "__none__")]
 
     def _refresh_history_select(self) -> None:
         select = self.query_one("#history_select", Select)
@@ -630,6 +845,41 @@ class TechStockTUI(App):
         self.query_one("#today_path", Static).update(relative_to_root(path) if path else "No report found.")
         self._update_markdown("#today_markdown", read_text_file(path) if path else "")
 
+    def _load_report_review(self) -> None:
+        try:
+            log = self.query_one("#report_review_log", RichLog)
+        except Exception:
+            return
+        log.clear()
+        view = report_review_view()
+        if not view.get("ok"):
+            log.write(Text(view.get("error") or "No report review available.", style="bold #f59e0b"))
+            return
+        log.write(
+            Text(
+                f"Status: {view.get('status_label')} | Session: {view.get('session_file')} | Report: {relative_to_root(view.get('report_path'))}",
+                style="bold #22c55e",
+            )
+        )
+        self._write_rows_table(log, "Review Gates", view.get("metric_rows") or [], ["metric", "status", "value", "next_action"])
+        if view.get("top_reasons"):
+            log.write(Text("Top reasons:", style="bold #f59e0b"))
+            for reason in view.get("top_reasons") or []:
+                log.write(f"- {reason}")
+        self._write_rows_table(
+            log,
+            "Recommendation Readiness",
+            view.get("recommendation_rows") or [],
+            ["readiness", "ticker", "action", "size", "conviction", "warnings", "risk_controls", "decision"],
+        )
+        self._write_rows_table(log, "Changed Since Previous Report", view.get("change_rows") or [], ["ticker", "change", "before", "after"])
+        self._write_rows_table(
+            log,
+            "Decision Feedback Rows",
+            view.get("decision_rows") or [],
+            ["ticker", "recommended_action", "size", "conviction", "user_decision", "id"],
+        )
+
     def _load_history_report(self) -> None:
         value = self.query_one("#history_select", Select).value
         path = Path(value) if isinstance(value, str) and value and value != "__none__" else latest_report()
@@ -682,6 +932,78 @@ class TechStockTUI(App):
         log.write(Text("📈 Backtest", style="bold #22c55e"))
         log.write(Text("Press 'Refresh backtest' to evaluate past recommendations.", style="dim"))
         log.write(Text("This fetches live price data via yfinance and may take 20–30 seconds.", style="dim italic"))
+
+    async def _load_outcomes_async(self) -> None:
+        self._show_outcomes_placeholder("Scoring fixed-window outcomes...")
+        view = await asyncio.to_thread(outcomes_view)
+        log = self.query_one("#outcomes_log", RichLog)
+        log.clear()
+        summary = view.get("summary") or {}
+        overall = summary.get("overall") or {}
+        if not summary.get("scored_windows"):
+            log.write(Text("No matured recommendation outcomes yet.", style="bold #f59e0b"))
+            log.write(f"Pending windows: {summary.get('pending_windows', 0)} | pricing issues: {summary.get('error_count', 0)}")
+            self._write_rows_table(log, "Pricing Issues", view.get("errors") or [], ["ticker", "horizon_days", "error", "id"])
+            return
+
+        metrics = Table(title=f"Outcomes — {summary.get('scored_windows', 0)} scored windows")
+        metrics.add_column("Metric")
+        metrics.add_column("Value", justify="right")
+        metrics.add_row("Scored recommendations", str(summary.get("scored_recommendations", 0)))
+        metrics.add_row("Hit rate", f"{overall.get('hit_rate', 0):.0%}")
+        metrics.add_row("Avg action return", f"{overall.get('avg_action_return_pct', 0):+.2f}%")
+        alpha = overall.get("avg_alpha_vs_benchmark_pct")
+        metrics.add_row("Avg alpha", f"{alpha:+.2f}%" if alpha is not None else "N/A")
+        buy_hit = summary.get("buy_add_success_rate")
+        metrics.add_row("BUY/ADD success", f"{buy_hit:.0%}" if buy_hit is not None else "N/A")
+        metrics.add_row("Claude cost", f"${summary.get('estimated_claude_cost_usd', 0):.4f}")
+        log.write(metrics)
+        if view.get("prompt_summary"):
+            log.write(Text(view["prompt_summary"], style="dim"))
+
+        self._write_outcome_bucket_table(log, "By Action", summary.get("by_action") or {})
+        self._write_outcome_bucket_table(log, "By Horizon", summary.get("by_horizon") or {})
+        self._write_outcome_bucket_table(log, "By Source Bucket", summary.get("by_source_bucket") or {})
+        self._write_rows_table(
+            log,
+            "Best Recommendations",
+            summary.get("best_recommendations") or [],
+            ["ticker", "action", "horizon_days", "action_return_pct", "alpha_vs_benchmark_pct", "benchmark", "id"],
+        )
+        self._write_rows_table(
+            log,
+            "Worst Recommendations",
+            summary.get("worst_recommendations") or [],
+            ["ticker", "action", "horizon_days", "action_return_pct", "alpha_vs_benchmark_pct", "benchmark", "id"],
+        )
+
+    def _show_outcomes_placeholder(self, message: str | None = None) -> None:
+        log = self.query_one("#outcomes_log", RichLog)
+        log.clear()
+        log.write(Text("✅ Outcomes", style="bold #22c55e"))
+        log.write(Text(message or "Press 'Refresh outcomes' to score fixed 1/5/20-day recommendation outcomes.", style="dim"))
+        log.write(Text("Uses cached yfinance historical closes. No Claude call is made.", style="dim italic"))
+
+    def _write_outcome_bucket_table(self, log: RichLog, title: str, bucket: dict) -> None:
+        rows = []
+        for label, stats in bucket.items():
+            alpha = stats.get("avg_alpha_vs_benchmark_pct")
+            rows.append(
+                {
+                    "bucket": label,
+                    "n": stats.get("n", 0),
+                    "avg_action_return_pct": f"{stats.get('avg_action_return_pct', 0):+.2f}%",
+                    "avg_alpha_vs_benchmark_pct": f"{alpha:+.2f}%" if alpha is not None else "N/A",
+                    "hit_rate": f"{stats.get('hit_rate', 0):.0%}",
+                    "benchmark_win_rate": f"{stats.get('benchmark_win_rate', 0):.0%}",
+                }
+            )
+        self._write_rows_table(
+            log,
+            title,
+            rows,
+            ["bucket", "n", "avg_action_return_pct", "avg_alpha_vs_benchmark_pct", "hit_rate", "benchmark_win_rate"],
+        )
 
     async def _check_updates_async(self, *, startup: bool) -> None:
         log = self.query_one("#update_log", RichLog)

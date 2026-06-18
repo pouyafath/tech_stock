@@ -16,11 +16,15 @@ GitHub Release when the workflow is running from a version tag.
    .venv/bin/python -m pytest -q
    .venv/bin/ruff check src/ tests/ ui/ tools/
    .venv/bin/ruff format --check src/ tests/ ui/ tools/
+   .venv/bin/python -m src.main setup --json
+   .venv/bin/python -m src.main support-bundle --json --preview
+   .venv/bin/python -m src.main support-bundle --json --output-dir /tmp/tech_stock_support_smoke
+   .venv/bin/python tools/package_smoke.py --platform source --dist .
    ```
 3. Bump `src/version.py`.
 4. Add a new section to the top of `CHANGELOG.md`:
    ```markdown
-   ## [1.23.0] — 2026-06-05
+   ## [1.28.0] — 2026-06-11
 
    ### Added
    - ...
@@ -34,8 +38,8 @@ GitHub Release when the workflow is running from a version tag.
    ```
    git checkout main
    git pull --ff-only
-   git tag v1.23.0
-   git push origin v1.23.0
+   git tag v1.28.0
+   git push origin v1.28.0
    ```
 
 CI now takes over and creates a draft release after the test and build gates
@@ -57,7 +61,8 @@ pass.
 ┌──────────────┐         ┌──────────────┐         ┌──────────────┐
 │ build-macos  │         │ build-windows│         │ build-linux  │
 │ → .dmg       │         │ → .exe       │         │ → AppImage   │
-│              │         │ → installer  │         │ → tarball    │
+│ → smoke      │         │ → installer  │         │ → tarball    │
+│              │         │ → smoke      │         │ → smoke      │
 └──────┬───────┘         └──────┬───────┘         └──────┬───────┘
        │                        │                        │
        └────────────┬───────────┴────────────────────────┘
@@ -76,6 +81,8 @@ Runs on macOS-14, windows-latest, ubuntu-22.04 in parallel:
 - ruff format check (no drift)
 - ruff lint
 - `pytest -q`
+- `pip-audit --requirement requirements.txt` on Ubuntu
+- source package smoke (`python tools/package_smoke.py --platform source --dist .`)
 
 If any platform fails the gate, the build jobs **do not run**. The
 release is silently aborted — there's no draft to publish.
@@ -83,6 +90,8 @@ release is silently aborted — there's no draft to publish.
 ### build-macos
 
 - `pyinstaller tech_stock.spec` produces `dist/tech_stock.app`
+- `python tools/package_smoke.py --platform macos --dist dist`
+  verifies the app bundle, version metadata, and bundled support/UI modules
 - Ad-hoc code-sign (`codesign --force --deep --sign -`) — placeholder
   for the future Developer ID + notarytool flow
 - `hdiutil` packages into `dist/tech_stock.dmg`
@@ -91,6 +100,8 @@ release is silently aborted — there's no draft to publish.
 ### build-windows
 
 - `pyinstaller tech_stock.spec` produces `dist/tech_stock/`
+- `python tools/package_smoke.py --platform windows --dist dist`
+  verifies the executable, version metadata, and bundled support/UI modules
 - Reads `APP_VERSION` from `src/version.py` and passes it as
   `/DAppVersion=…` to `iscc`
 - Inno Setup (installed via Chocolatey) builds
@@ -102,13 +113,15 @@ release is silently aborted — there's no draft to publish.
 - Installs `appimagetool` from upstream
 - Runs `build_linux.sh` which composes the AppDir layout and produces
   `dist/tech_stock-x86_64.AppImage`
+- `python tools/package_smoke.py --platform linux --dist dist`
+  verifies the Linux app folder/artifact and bundled support/UI modules
 - Falls back to a tarball when `appimagetool` is missing
 - Both potential artefacts uploaded with `continue-on-error: true`
 
 ### release
 
-- Extracts the version from the tag (`refs/tags/v1.23.0` -> `1.23.0`)
-- Runs `python -m src.changelog_utils 1.23.0` to extract the
+- Extracts the version from the tag (`refs/tags/v1.28.0` -> `1.28.0`)
+- Runs `python -m src.changelog_utils 1.28.0` to extract the
   matching CHANGELOG section, falling back to `--latest` if the
   version isn't in the file yet
 - Downloads every artefact
@@ -142,22 +155,42 @@ Do not publish a draft release until these checks pass:
    - update result is live, not cached
    - release asset and checksum availability are true where expected
    - demo smoke passes without API keys or Anthropic spend
-5. Publish the draft release only after the checklist is clean.
+5. Run `python src/main.py setup --json` and confirm the setup view shows the
+   correct installed version, workspace, API-key discovery state, and
+   recommended CSV candidates.
+6. Run `python src/main.py support-bundle --json --output-dir /tmp/tech_stock_release_support`
+   and confirm it creates a zip without raw CSV contents, API keys, `.env`,
+   `API_KEYS.txt`, caches, or generated reports.
+7. Run `python src/main.py support-bundle --json --preview` and confirm the
+   included/excluded list matches the support zip policy.
+8. Run `python tools/package_smoke.py --platform source --dist .` from the
+   source checkout. The platform build jobs run equivalent package-smoke checks
+   before uploading artifacts.
+9. Prepare the post-publish updater check command for the previous public
+   version, for example:
+   ```
+   python src/main.py doctor --json --force-refresh --simulate-current-version 1.27.2
+   ```
+10. Publish the draft release only after the pre-publish checklist is clean.
+
+Immediately after publishing, run the prepared command and confirm
+`update.available` is true and `update.latest_version` equals the release you
+just published.
 
 If the in-app updater still sees an older public version, use
-`doctor --json --force-refresh` to separate a real GitHub Releases issue
-from a local update-cache issue.
+`doctor --json --force-refresh --simulate-current-version <old-version>` to
+separate a real GitHub Releases issue from a local update-cache issue.
 
 ## Hot Fixes And Re-Tagging
 
 If something is wrong with an artefact:
 
 ```
-git tag -d v1.23.0
-git push --delete origin v1.23.0
+git tag -d v1.28.0
+git push --delete origin v1.28.0
 # fix
-git tag v1.23.0
-git push origin v1.23.0
+git tag v1.28.0
+git push origin v1.28.0
 ```
 
 The CI re-runs end-to-end. The draft release is regenerated. If a tag
@@ -188,8 +221,8 @@ Reserve `v2.0.1` for the first patch **after** a real public `v2.0.0`.
   available (the workflow comment marks the spot).
 - Windows code-signing via `signtool` and a PFX certificate (the
   `build_windows.bat` already has the hook; CI just needs the secrets).
-- `pip-audit` step as part of `test-gate` so dependency vulns block
-  releases after false-positive handling is documented.
+- SBOM generation for release artifacts so packaged dependencies can be
+  audited after download as well as before packaging.
 
 ## Files Involved
 
