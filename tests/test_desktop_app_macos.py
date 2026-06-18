@@ -24,7 +24,7 @@ import pytest
 tkinter = pytest.importorskip("tkinter")
 
 ROOT = Path(__file__).resolve().parents[1]
-DESKTOP_IMPL = ROOT / "src" / "desktop" / "app.py"
+DESKTOP_IMPL = ROOT / "src" / "desktop_app.py"
 
 
 def test_platform_fonts_returns_complete_ladder():
