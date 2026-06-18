@@ -4,6 +4,52 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.30.2] — 2026-06-18
+
+Desktop app robustness pass (audit-driven). Fixes crashes, misleading
+"saved" messages, and teardown noise; the slow-handler threading items
+from the audit are tracked as follow-ups.
+
+### Desktop app — correctness
+- **Schedule picker no longer crashes on bad input.** A non-numeric or
+  out-of-range hour/minute typed into the schedule Spinbox raised an
+  unhandled `ValueError` on Install/Preview; such slots are now skipped
+  cleanly via a validated `_coerce_time_field` helper.
+- **Preferences won't claim "saved" while dropping your input.** Invalid
+  numeric fields (budget, max position %, min return %) used to be silently
+  discarded while the status still said "Preferences saved." The save now
+  refuses and names the offending fields.
+- **Onboarding wizard saves all three budgets.** The budget stage collected
+  a Claude spend cap, a USD trade budget, and a CAD trade budget but only
+  persisted the CAD one — silently dropping the spend cap. All three are
+  now written (`monthly_budget_usd`, `budget_usd`, `budget_cad`).
+- **Report history selection is bounds-checked** so a selection that
+  survives a list refresh can't `IndexError`.
+
+### Desktop app — lifecycle & feedback
+- **Clean shutdown.** A `WM_DELETE_WINDOW` handler now cancels the repeating
+  `after()` loops (progress drain, elapsed timer) before the window is
+  destroyed, preventing `TclError` tracebacks on quit. macOS Quit, the File
+  menu, and Ctrl+Q all route through it.
+- **Saving an API key confirms it.** The key manager now shows a success
+  status line instead of updating silently.
+- **"Open log folder" gives feedback** when there is no log folder yet
+  instead of doing nothing.
+
+### Config safety
+- **Advanced Editor backs up before overwriting.** `write_editable_json`
+  now writes a single-level `.bak` of the previous contents before
+  clobbering `settings.json` / `watchlist.json` / `portfolio.json`, so a
+  bad manual edit is recoverable.
+
+### Known follow-ups (not in this release)
+- Several refresh handlers (Performance vs-SPY, Diagnostics preflight,
+  Learning, Schedule install, notifications, CSV preview) still run their
+  I/O on the UI thread and can briefly freeze the window; these should move
+  to the existing background-thread + progress-queue pattern.
+
+---
+
 ## [1.30.1] — 2026-06-18
 
 Desktop app polish pass.
