@@ -57,6 +57,11 @@ had developed on a separate branch into the mainline, on top of main's
 - **Report-history selection is bounds-checked**; **clean shutdown** cancels
   repeating `after()` loops to avoid `TclError` on quit.
 - **Advanced Editor backs up config JSON** to `.bak` before overwriting.
+- **Fixed a config-path regression** from the `src/desktop/` move: Preferences
+  and the onboarding budget stage wrote to `src/config/settings.json`
+  (`parents[1]`) instead of the real repo-root `config/settings.json`, so
+  saved settings were never read back. All three sites now use the module
+  `ROOT`.
 
 ---
 

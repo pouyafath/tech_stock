@@ -477,12 +477,21 @@ class _OnboardingWizard(tk.Toplevel):
             try:
                 import json
 
-                settings_path = Path(__file__).resolve().parents[1] / "config" / "settings.json"
+                settings_path = ROOT / "config" / "settings.json"
                 settings = json.loads(settings_path.read_text(encoding="utf-8")) if settings_path.exists() else {}
-                try:
-                    settings["budget_cad"] = float(self._budget_cad_var.get() or 3000)
-                except ValueError:
-                    pass
+                # Persist all three fields the wizard collects. Previously only
+                # budget_cad was saved, silently dropping the Claude spend cap
+                # (monthly_budget_usd) and the USD trade budget the analyst reads.
+                for key, var, fallback in (
+                    ("monthly_budget_usd", self._budget_claude_var, 10),
+                    ("budget_usd", self._budget_usd_var, 0),
+                    ("budget_cad", self._budget_cad_var, 3000),
+                ):
+                    try:
+                        settings[key] = float(var.get() or fallback)
+                    except ValueError:
+                        settings[key] = float(fallback)
+                settings_path.parent.mkdir(parents=True, exist_ok=True)
                 settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
             except Exception:
                 logger.debug("Failed to save budget settings", exc_info=True)
@@ -522,6 +531,7 @@ class DesktopApp(tk.Tk):
         self.title("tech_stock")
         self.geometry("1280x880")
         self.minsize(1024, 720)
+        self._set_window_icon()
 
         # Shared palette (Streamlit + Textual + Tkinter all read the same tokens)
         self.bg = PALETTE.bg
@@ -553,6 +563,8 @@ class DesktopApp(tk.Tk):
         self._warmed_tabs: set[str] = set()
         self._report_elapsed_id: str | None = None
         self._report_start_time: float | None = None
+        self._drain_id: str | None = None
+        self._closing = False
 
         self._configure_style()
         self._build_menu()
@@ -567,7 +579,8 @@ class DesktopApp(tk.Tk):
         self.bind_all(f"<{MOD_KEY}-n>", lambda _e: self._jump_to_tab(self.reports_tab, sub=self.run_subtab))
         self.bind_all(f"<{MOD_KEY}-l>", lambda _e: self.load_report(latest_report(), select_tab=True))
 
-        self.after(100, self._drain_progress_queue)
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self._drain_id = self.after(100, self._drain_progress_queue)
         self.after_idle(self._post_paint_warmup)
         self.after(800, self._maybe_show_onboarding)
 
@@ -757,7 +770,7 @@ class DesktopApp(tk.Tk):
             menubar.add_cascade(menu=app_menu)
             # Wire up the system Preferences shortcut (⌘,)
             self.createcommand("tk::mac::ShowPreferences", self._jump_to_settings)
-            self.createcommand("tk::mac::Quit", self.destroy)
+            self.createcommand("tk::mac::Quit", self._on_close)
 
         # — File menu —
         file_menu = tk.Menu(menubar, tearoff=0)
@@ -776,8 +789,8 @@ class DesktopApp(tk.Tk):
         file_menu.add_command(label="Reveal Latest Report", command=self._reveal_latest_report)
         if not IS_MACOS:
             file_menu.add_separator()
-            file_menu.add_command(label="Quit", accelerator="Ctrl+Q", command=self.destroy)
-            self.bind_all("<Control-q>", lambda _e: self.destroy())
+            file_menu.add_command(label="Quit", accelerator="Ctrl+Q", command=self._on_close)
+            self.bind_all("<Control-q>", lambda _e: self._on_close())
         menubar.add_cascade(label="File", menu=file_menu)
 
         # — View menu —
@@ -1201,6 +1214,20 @@ class DesktopApp(tk.Tk):
             return
         self._reveal_in_finder(report)
 
+    def _set_window_icon(self) -> None:
+        """Use the packaged app icon for the title bar / taskbar / dock when
+        running from source (PyInstaller builds already set this via the
+        bundle's .icns/.ico, but a plain `python src/desktop_app.py` run
+        otherwise shows Tk's generic feather icon)."""
+        icon_path = Path(__file__).resolve().parents[2] / "assets" / "icon.png"
+        if not icon_path.exists():
+            return
+        try:
+            self._icon_image = tk.PhotoImage(file=str(icon_path))
+            self.iconphoto(True, self._icon_image)
+        except Exception:
+            logger.debug("Failed to set window icon from %s", icon_path, exc_info=True)
+
     def _reveal_in_finder(self, path: Path) -> None:
         import subprocess
 
@@ -1215,7 +1242,8 @@ class DesktopApp(tk.Tk):
             else:
                 subprocess.Popen(["xdg-open", str(path.parent if path.is_file() else path)])
         except Exception:
-            pass
+            logger.debug("Failed to reveal %s in file manager", path, exc_info=True)
+            self._set_status(f"Couldn't open file manager — file is at {path}", tone="error")
 
     def _open_repo(self) -> None:
         import webbrowser
@@ -2329,7 +2357,7 @@ class DesktopApp(tk.Tk):
         """Form-based settings for common options."""
         import json
 
-        settings_path = Path(__file__).resolve().parents[1] / "config" / "settings.json"
+        settings_path = ROOT / "config" / "settings.json"
         try:
             settings = json.loads(settings_path.read_text(encoding="utf-8"))
         except Exception:
@@ -2444,16 +2472,36 @@ class DesktopApp(tk.Tk):
     def _save_preferences(self) -> None:
         import json
 
-        settings_path = Path(__file__).resolve().parents[1] / "config" / "settings.json"
+        settings_path = ROOT / "config" / "settings.json"
         try:
             settings = json.loads(settings_path.read_text(encoding="utf-8")) if settings_path.exists() else {}
         except Exception:
             settings = {}
 
-        try:
-            settings["budget_cad"] = float(self._pref_budget_cad.get() or 3000)
-        except ValueError:
-            pass
+        # Collect numeric-field parse errors so we can refuse to silently keep
+        # a stale value while telling the user "saved".
+        invalid: list[str] = []
+
+        def _num(raw: str, fallback: float, label: str) -> float:
+            try:
+                return float(str(raw).strip() or fallback)
+            except ValueError:
+                invalid.append(label)
+                return fallback
+
+        budget_cad = _num(self._pref_budget_cad.get(), 3000, "Investment budget (CAD)")
+        max_pos = _num(self._pref_max_pos.get(), 25, "Max position %")
+        min_return = _num(self._pref_min_return.get(), 0.5, "Min net expected return %")
+
+        if invalid:
+            joined = ", ".join(invalid)
+            self._pref_status.set(f"Not saved — these must be numbers: {joined}")
+            self._set_status(f"Preferences not saved — invalid: {joined}", tone="error")
+            return
+
+        settings["budget_cad"] = budget_cad
+        settings["max_position_pct"] = max_pos
+        settings["min_net_expected_return_pct"] = min_return
         settings["risk_tolerance"] = self._pref_risk.get()
         settings["account_type"] = self._pref_account.get()
 
@@ -2463,15 +2511,6 @@ class DesktopApp(tk.Tk):
         else:
             settings["claude_model"] = "claude-sonnet-4-6"
         settings["enable_two_pass_review"] = self._pref_two_pass.get()
-
-        try:
-            settings["max_position_pct"] = float(self._pref_max_pos.get() or 25)
-        except ValueError:
-            pass
-        try:
-            settings["min_net_expected_return_pct"] = float(self._pref_min_return.get() or 0.5)
-        except ValueError:
-            pass
 
         settings["enable_decision_journal"] = self._pref_journal.get()
         settings["enable_sentiment"] = self._pref_sentiment.get()
@@ -2706,6 +2745,17 @@ class DesktopApp(tk.Tk):
         self.schedule_preview_text.pack(fill="both", expand=True)
         self.schedule_preview_text.configure(state="disabled")
 
+    @staticmethod
+    def _coerce_time_field(value: str, *, lo: int, hi: int) -> int | None:
+        """Parse a Spinbox hour/minute value, returning None if it is not a
+        whole number in [lo, hi].  ttk.Spinbox lets the user type free text,
+        so a bare int() here used to crash Install/Preview with a ValueError."""
+        try:
+            parsed = int(str(value).strip())
+        except (ValueError, TypeError):
+            return None
+        return parsed if lo <= parsed <= hi else None
+
     def _selected_schedule_times(self) -> list:
         from src.scheduling import ScheduleTime
 
@@ -2713,10 +2763,16 @@ class DesktopApp(tk.Tk):
         for slot in self.schedule_slots:
             if not slot["enabled"].get():
                 continue
+            hour = self._coerce_time_field(slot["hour"].get(), lo=0, hi=23)
+            minute = self._coerce_time_field(slot["minute"].get(), lo=0, hi=59)
+            if hour is None or minute is None:
+                # Skip a slot with an out-of-range / non-numeric entry rather
+                # than crashing the whole Install/Preview action.
+                continue
             out.append(
                 ScheduleTime(
-                    hour=int(slot["hour"].get()),
-                    minute=int(slot["minute"].get()),
+                    hour=hour,
+                    minute=minute,
                     session_type=slot["session"],
                 )
             )
@@ -3050,6 +3106,8 @@ class DesktopApp(tk.Tk):
         log_path = getattr(self, "_diagnostics_log_path", None)
         if log_path and log_path.exists():
             self._reveal_in_finder(log_path)
+        else:
+            self.diagnostics_status.set("No log folder yet — run a report first.")
 
     def _build_editor_tab(self) -> None:
         toolbar = ttk.Frame(self.editor_tab)
@@ -3227,6 +3285,7 @@ class DesktopApp(tk.Tk):
             messagebox.showerror("Save failed", str(exc))
             return
         self.api_key_manager_status.set(f"Saved {env_name} to {path}")
+        self._set_status(f"{env_name} saved", tone="success")
         self.refresh_api_key_manager()
 
     def delete_selected_api_key(self) -> None:
@@ -3851,7 +3910,7 @@ class DesktopApp(tk.Tk):
     def _tick_elapsed(self) -> None:
         import time as _time
 
-        if self._report_start_time is None:
+        if self._report_start_time is None or self._closing:
             return
         elapsed = int(_time.time() - self._report_start_time)
         self._report_elapsed_var.set(f"Elapsed: {elapsed}s")
@@ -3869,6 +3928,8 @@ class DesktopApp(tk.Tk):
             pass
 
     def _drain_progress_queue(self) -> None:
+        if self._closing:
+            return
         try:
             while True:
                 kind, payload = self.progress_queue.get_nowait()
@@ -3887,7 +3948,24 @@ class DesktopApp(tk.Tk):
                     self._update_apply_done(payload)
         except queue.Empty:
             pass
-        self.after(100, self._drain_progress_queue)
+        self._drain_id = self.after(100, self._drain_progress_queue)
+
+    def _on_close(self) -> None:
+        """Stop the self-rescheduling ``after()`` loops before tearing the
+        window down so they can't fire against destroyed widgets (which would
+        spew TclError tracebacks to stderr on quit). Worker threads are daemons
+        and exit with the process; their late queue writes are harmless once
+        the drain loop has stopped."""
+        self._closing = True
+        for after_id in (self._drain_id, self._report_elapsed_id):
+            if after_id:
+                try:
+                    self.after_cancel(after_id)
+                except Exception:
+                    pass
+        self._drain_id = None
+        self._report_elapsed_id = None
+        self.destroy()
 
     def _report_run_done(self, result: Any) -> None:
         self._stop_progress()
@@ -4541,8 +4619,13 @@ class DesktopApp(tk.Tk):
         selection = self.history_list.curselection()
         if not selection:
             return
-        path = self.history_paths[selection[0]]
-        row = (getattr(self, "history_rows", []) or [{}])[selection[0]]
+        index = selection[0]
+        # A selection can outlive a refresh that shortened the list, so guard
+        # the index before using it to avoid an IndexError.
+        if index >= len(self.history_paths):
+            return
+        path = self.history_paths[index]
+        row = (getattr(self, "history_rows", []) or [{}])[index if index < len(getattr(self, "history_rows", []) or [{}]) else 0]
         metadata = (
             f"## Report Metadata\n\n"
             f"- Holdings CSV: `{row.get('holdings_csv') or 'unknown'}`\n"
