@@ -4,6 +4,22 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.30.1] — 2026-06-18
+
+Desktop app polish pass.
+
+### Desktop app
+- **Window/taskbar icon.** Running `python src/desktop_app.py` (or `--desktop`)
+  directly from source now shows the packaged `assets/icon.png` in the title
+  bar/taskbar/dock instead of Tk's generic feather icon — previously only
+  PyInstaller builds got a real icon.
+- **"Reveal in file manager" no longer fails silently.** If `open`/`explorer`/
+  `xdg-open` can't be launched (e.g. no file manager available), the status
+  bar now shows the file's path instead of the button appearing to do
+  nothing.
+
+---
+
 ## [1.30.0] — 2026-06-18
 
 Follow-up cleanup pass: single source of truth for per-run cost estimates,

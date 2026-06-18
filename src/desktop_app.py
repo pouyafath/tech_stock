@@ -508,6 +508,7 @@ class DesktopApp(tk.Tk):
         self.title("tech_stock")
         self.geometry("1280x880")
         self.minsize(1024, 720)
+        self._set_window_icon()
 
         # Shared palette (Streamlit + Textual + Tkinter all read the same tokens)
         self.bg = PALETTE.bg
@@ -1172,6 +1173,20 @@ class DesktopApp(tk.Tk):
             return
         self._reveal_in_finder(report)
 
+    def _set_window_icon(self) -> None:
+        """Use the packaged app icon for the title bar / taskbar / dock when
+        running from source (PyInstaller builds already set this via the
+        bundle's .icns/.ico, but a plain `python src/desktop_app.py` run
+        otherwise shows Tk's generic feather icon)."""
+        icon_path = Path(__file__).resolve().parents[1] / "assets" / "icon.png"
+        if not icon_path.exists():
+            return
+        try:
+            self._icon_image = tk.PhotoImage(file=str(icon_path))
+            self.iconphoto(True, self._icon_image)
+        except Exception:
+            logger.debug("Failed to set window icon from %s", icon_path, exc_info=True)
+
     def _reveal_in_finder(self, path: Path) -> None:
         import subprocess
 
@@ -1186,7 +1201,8 @@ class DesktopApp(tk.Tk):
             else:
                 subprocess.Popen(["xdg-open", str(path.parent if path.is_file() else path)])
         except Exception:
-            pass
+            logger.debug("Failed to reveal %s in file manager", path, exc_info=True)
+            self._set_status(f"Couldn't open file manager — file is at {path}", tone="error")
 
     def _open_repo(self) -> None:
         import webbrowser

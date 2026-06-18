@@ -170,6 +170,33 @@ def test_about_handler_reads_dynamic_version():
     assert "About tech_stock" in src
 
 
+def test_window_icon_is_set_on_init():
+    """A plain `python src/desktop_app.py` run must not fall back to Tk's
+    generic feather icon — the packaged app icon should be applied."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    init_start = src.index("def __init__(self)")
+    next_def = src.index("\n    def ", init_start + 10)
+    init_body = src[init_start:next_def]
+    assert "self._set_window_icon()" in init_body
+
+    icon_start = src.index("def _set_window_icon(self)")
+    icon_next_def = src.index("\n    def ", icon_start + 10)
+    icon_body = src[icon_start:icon_next_def]
+    assert "icon.png" in icon_body
+    assert "iconphoto" in icon_body
+
+
+def test_reveal_in_finder_surfaces_failures_instead_of_silently_failing():
+    """If the OS file-manager command fails, the user must see *something*
+    (status bar message) rather than a button click that does nothing."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    fn_start = src.index("def _reveal_in_finder(self")
+    fn_next_def = src.index("\n    def ", fn_start + 10)
+    fn_body = src[fn_start:fn_next_def]
+    assert "except Exception:\n            pass" not in fn_body
+    assert "_set_status" in fn_body
+
+
 if __name__ == "__main__":
     import pytest
 
