@@ -256,6 +256,7 @@ def macro_context() -> dict | None:
             ttl_seconds=ttl,
             loader=_fetch_macro_context,
             enabled=settings.get("cache_enabled", True),
+            should_cache=lambda v: bool(v),
         )
     except Exception as exc:  # noqa: BLE001
         log_event("fred", "error", "macro_context_failed", f"macro_context() failed: {exc}", {})
@@ -284,6 +285,7 @@ def live_cad_per_usd() -> float | None:
             ttl_seconds=ttl,
             loader=lambda: _fetch_series_latest(FX_SERIES),
             enabled=settings.get("cache_enabled", True),
+            should_cache=lambda v: v is not None,
         )
     except Exception as exc:  # noqa: BLE001
         log_event("fred", "error", "cad_fx_failed", f"live_cad_per_usd() failed: {exc}", {})

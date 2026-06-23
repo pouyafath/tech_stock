@@ -6,7 +6,7 @@ No API key required — all free.
 
 Resilience:
   - tenacity retries on transient yfinance failures (3 tries, 2-10s backoff)
-  - pickle cache in data/.cache/market_data/ (default TTL 1h)
+  - JSON cache in data/.cache/market_data/ (default TTL 1h)
   - outer try/except returns {"ticker": t, "error": str} so one bad ticker
     never kills the whole run.
 """
@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime, timedelta, timezone
 
 import pandas as pd
+import requests
 import yfinance as yf
 from tenacity import (
     retry,
@@ -268,7 +269,7 @@ def compute_indicators(hist: pd.DataFrame) -> dict:
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
-    retry=retry_if_exception_type((ConnectionError, TimeoutError, OSError)),
+    retry=retry_if_exception_type((ConnectionError, TimeoutError, OSError, requests.RequestException)),
     reraise=True,
 )
 def _fetch_ticker_raw(ticker: str, history_months: int, include_options: bool = False) -> dict:
@@ -437,6 +438,10 @@ def get_ticker_data(ticker: str, history_months: int = 10) -> dict:
             ttl_seconds=ttl,
             loader=lambda: _fetch_ticker_raw(ticker, history_months, include_options=include_options),
             enabled=cache_enabled,
+            # Never cache an error/empty result — a transient yfinance failure
+            # would otherwise be served as "fresh" for the full TTL (1h),
+            # poisoning every recommendation in that window.
+            should_cache=lambda v: isinstance(v, dict) and not v.get("error"),
         )
     except Exception as e:
         return {"ticker": ticker, "error": str(e)}
@@ -528,7 +533,7 @@ def get_portfolio_prices(holdings: list) -> dict:
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
-    retry=retry_if_exception_type((ConnectionError, TimeoutError, OSError)),
+    retry=retry_if_exception_type((ConnectionError, TimeoutError, OSError, requests.RequestException)),
     reraise=True,
 )
 def _fetch_price_at(ticker: str, iso_date: str) -> float | None:
@@ -561,6 +566,8 @@ def price_at(ticker: str, iso_date: str) -> float | None:
             ttl_seconds=ttl,
             loader=lambda: _fetch_price_at(ticker, iso_date),
             enabled=cache_enabled,
+            # Don't cache a failed lookup (None) for 30 days.
+            should_cache=lambda v: v is not None,
         )
     except Exception:
         return None

@@ -60,3 +60,32 @@ def test_death_cross_upgrades_correction_to_bear():
     result = classify_regime({}, _mc(vix=27, sma_50=400.0, sma_200=450.0))
     assert result["regime"] == "bear"
     assert result["conviction_cap"] == 9
+
+
+def test_vix_from_fred_data():
+    """FRED VIXCLS key takes priority over market_context."""
+    result = classify_regime({"VIXCLS": {"value": 40.0}}, {})
+    assert result["regime"] == "bear"
+
+
+def test_yield_curve_from_fred_dict_value():
+    """T10Y2Y as dict with 'value' key is read correctly."""
+    result = classify_regime({"T10Y2Y": {"value": -0.5}}, _mc(vix=18))
+    assert result["regime"] == "transition"
+
+
+def test_yield_curve_positive_no_transition():
+    result = classify_regime({"T10Y2Y": {"value": 1.0}}, _mc(vix=18))
+    assert result["regime"] == "bull"
+
+
+def test_vix_fallback_to_scalar_in_market_context():
+    """VIX as a scalar float in market_context."""
+    result = classify_regime({}, {"VIX": 35.0})
+    assert result["regime"] == "bear"
+
+
+def test_invalid_vix_falls_back_to_default():
+    result = classify_regime({"VIXCLS": {"value": "n/a"}}, {})
+    # Default vix=20 → bull
+    assert result["regime"] == "bull"

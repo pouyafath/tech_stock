@@ -365,6 +365,30 @@ def verify_asset_checksum(path: Path, info: UpdateInfo, timeout: float = 30.0) -
     return True
 
 
+def _reveal_download(path: Path, system: str) -> None:
+    """Open the downloaded file (or its folder) for the user without executing it."""
+    try:
+        if system == "darwin":
+            subprocess.Popen(["open", "-R", str(path)])
+        elif system == "windows":
+            subprocess.Popen(["explorer", "/select,", str(path)])
+        else:
+            subprocess.Popen(["xdg-open", str(path.parent)])
+    except Exception as exc:  # pragma: no cover - platform-dependent
+        _log(f"could not reveal download {path}: {exc}")
+
+
+def _safe_extract_zip(zip_path: Path, dest: Path) -> None:
+    """Extract a zip, rejecting entries that would escape the destination (zip-slip)."""
+    dest = dest.resolve()
+    with zipfile.ZipFile(zip_path) as archive:
+        for member in archive.namelist():
+            target = (dest / member).resolve()
+            if not (target == dest or str(target).startswith(str(dest) + os.sep)):
+                raise RuntimeError(f"Unsafe path in archive (zip-slip): {member}")
+        archive.extractall(dest)
+
+
 def _app_bundle_path() -> Path | None:
     executable = Path(sys.executable).resolve()
     for parent in [executable, *executable.parents]:
@@ -525,6 +549,31 @@ def apply_update(info: UpdateInfo, *, restart: bool = True) -> UpdateResult:
         )
 
     system = platform.system().lower()
+
+    # Only auto-apply an update when the asset's integrity was positively
+    # verified against SHA256SUMS.txt. A None result means the checksum file was
+    # absent or had no entry for this asset — we must NOT silently mount/extract
+    # and execute an unverified binary. Fall back to revealing the download so
+    # the user can verify and install it manually.
+    if checksum_verified is not True:
+        _log(
+            "checksum not verified (no SHA256SUMS.txt entry for this asset); "
+            "refusing to auto-install — revealing download for manual verification"
+        )
+        _reveal_download(downloaded, system)
+        return UpdateResult(
+            ok=False,
+            message=(
+                "Update downloaded but its checksum could NOT be verified, so it was not "
+                "installed automatically. Verify the file against the release's SHA256SUMS.txt "
+                f"and install it manually: {downloaded}"
+            ),
+            log_path=log_path,
+            downloaded_path=downloaded,
+            error="checksum not verified",
+            checksum_verified=checksum_verified,
+        )
+
     restart_started = False
     if restart and system == "darwin":
         restart_started = _start_macos_update(downloaded)
@@ -537,8 +586,7 @@ def apply_update(info: UpdateInfo, *, restart: bool = True) -> UpdateResult:
         elif system == "windows":
             extract_dir = update_dir() / f"tech_stock-{info.latest_version}-windows"
             shutil.rmtree(extract_dir, ignore_errors=True)
-            with zipfile.ZipFile(downloaded) as archive:
-                archive.extractall(extract_dir)
+            _safe_extract_zip(downloaded, extract_dir)
             os.startfile(extract_dir)  # type: ignore[attr-defined]
         else:
             subprocess.Popen(["open", info.release_url] if sys.platform == "darwin" else ["xdg-open", info.release_url])

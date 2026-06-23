@@ -165,3 +165,75 @@ def test_summarize_empty_results_returns_empty_calibration_blocks():
     out = summarize([])
     assert out["reliability"] == {}
     assert out["walk_forward"] == []
+
+
+def test_load_all_recommendations_from_log_dir(tmp_path):
+    import json
+
+    from src.backtester import load_all_recommendations
+
+    log_dir = tmp_path / "recommendations_log"
+    log_dir.mkdir()
+    payload = {
+        "recommendations": [
+            {"ticker": "NVDA", "action": "BUY", "conviction": 8, "time_horizon": "1-3 months"},
+            {"action": "HOLD"},  # no ticker, should be skipped
+        ]
+    }
+    (log_dir / "20260501_0900_morning.json").write_text(json.dumps(payload))
+    (log_dir / "bad_name.json").write_text("{}")  # no parseable date
+
+    recs = load_all_recommendations(log_dir)
+    assert len(recs) == 1
+    assert recs[0]["ticker"] == "NVDA"
+    assert recs[0]["session_date"] == "2026-05-01"
+
+
+def test_load_all_recommendations_empty_dir(tmp_path):
+    from src.backtester import load_all_recommendations
+
+    recs = load_all_recommendations(tmp_path / "nonexistent")
+    assert recs == []
+
+
+def test_load_trade_history_parses_csv(tmp_path):
+    from src.backtester import load_trade_history
+
+    csv_path = tmp_path / "trade_history.csv"
+    csv_path.write_text("date,ticker,action,shares,price_cad,followed_recommendation,notes\n2026-05-01,NVDA,BUY,1,1200,yes,test\n")
+    trades = load_trade_history(csv_path)
+    assert len(trades) == 1
+    assert trades[0]["ticker"] == "NVDA"
+    assert trades[0]["followed_recommendation"] is True
+
+
+def test_load_trade_history_missing_file(tmp_path):
+    from src.backtester import load_trade_history
+
+    assert load_trade_history(tmp_path / "missing.csv") == []
+
+
+def test_horizon_days_known_and_unknown():
+    from src.backtester import _horizon_days
+
+    assert _horizon_days("1-2 weeks") == 10
+    assert _horizon_days("unknown_horizon") == 10
+    assert _horizon_days("") == 10
+    assert _horizon_days("intraday") == 1
+
+
+def test_is_rec_mature_past_horizon():
+    from datetime import datetime
+
+    from src.backtester import _is_rec_mature
+
+    rec = {"session_date": "2026-01-01", "time_horizon": "1-2 weeks"}
+    assert _is_rec_mature(rec, datetime(2026, 2, 1)) is True
+    assert _is_rec_mature(rec, datetime(2026, 1, 5)) is False
+
+
+def test_run_backtest_no_log_dir(tmp_path):
+    from src.backtester import run_backtest
+
+    result = run_backtest(tmp_path / "empty_log_dir")
+    assert result.get("n_samples", 0) == 0

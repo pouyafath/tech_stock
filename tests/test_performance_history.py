@@ -154,6 +154,27 @@ def test_portfolio_performance_summary_downside_risk_metrics(tmp_path):
     assert summary["cvar_95_pct"] <= summary["var_95_pct"] + 1e-9
 
 
+def test_annualized_metrics_stay_bounded_with_dense_same_day_snapshots(tmp_path):
+    """Many same-day snapshots must not explode the annualisation factor.
+
+    Regression for a bug where sessions_per_year = len * 365 / span_days blew up
+    when span_days floored to 1, inflating every annualised metric by hundreds
+    of times. The factor is now bounded by the 1–2 runs/day design cadence.
+    """
+    value = 10000.0
+    times = ["0900", "1000", "1100", "1200", "1300", "1400", "1500", "1600"]
+    for i, hhmm in enumerate(times):
+        session = "morning" if int(hhmm) < 1200 else "afternoon"
+        _write_log(tmp_path, f"20260501_{hhmm}_{session}.json", round(value, 2))
+        value *= 1.01  # steady +1% per session, all on the same calendar day
+    summary = portfolio_performance_summary(log_dir=tmp_path, fetch_spy=False)
+    assert summary["ready"] is True
+    # With the old formula this was ~2500%+; bounded annualisation keeps it well
+    # under 1500% even for a steady +1%/session climb (factor capped at 504).
+    assert abs(summary["annualized_return_pct"]) < 1500
+    assert summary["annualized_volatility_pct"] < 1000
+
+
 def test_portfolio_performance_summary_skips_spy_when_disabled(tmp_path):
     _write_log(tmp_path, "20260101_0930_morning.json", 10000.0)
     _write_log(tmp_path, "20260201_0930_morning.json", 10500.0)

@@ -24,6 +24,15 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: pytest -q --cov=src --cov-report=term-missing --cov-fail-under=55
+      - name: Demo smoke test (bundled samples, no network)
+        # Validates sample data, view models, and markdown rendering with no
+        # network/Claude spend. Fails the build if the demo path breaks — the
+        # previous `... | grep ... || true` could never fail and also launched
+        # a blocking Streamlit server.
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          python -c "import sys; from src.preflight import run_demo_smoke_test; r = run_demo_smoke_test(); print(r); sys.exit(0 if r.get('ok') else 1)"
 
   lint-security:
     runs-on: ubuntu-latest

@@ -266,6 +266,31 @@ def test_write_editable_json_validates_and_formats(monkeypatch, tmp_path):
     assert settings.read_text() == '{\n  "budget_cad": 3000\n}\n'
 
 
+def test_write_editable_json_backs_up_prior_contents(monkeypatch, tmp_path):
+    """Overwriting an existing config file must leave a .bak with the old data
+    so a bad edit in the Advanced Editor is recoverable."""
+    settings = tmp_path / "settings.json"
+    settings.write_text('{"budget_cad": 1000}\n', encoding="utf-8")
+    monkeypatch.setitem(ui_support.EDITABLE_JSON_FILES, "Settings", settings)
+
+    ui_support.write_editable_json("Settings", '{"budget_cad": 5000}')
+
+    backup = settings.with_suffix(settings.suffix + ".bak")
+    assert backup.exists()
+    assert backup.read_text(encoding="utf-8") == '{"budget_cad": 1000}\n'
+    assert '"budget_cad": 5000' in settings.read_text(encoding="utf-8")
+
+
+def test_write_editable_json_no_backup_for_new_file(monkeypatch, tmp_path):
+    """A brand-new file has nothing to back up — no spurious .bak created."""
+    settings = tmp_path / "settings.json"
+    monkeypatch.setitem(ui_support.EDITABLE_JSON_FILES, "Settings", settings)
+
+    ui_support.write_editable_json("Settings", '{"budget_cad": 5000}')
+
+    assert not settings.with_suffix(settings.suffix + ".bak").exists()
+
+
 def test_validate_json_text_reports_line_and_column():
     ok, message = ui_support.validate_json_text('{"budget": }')
 

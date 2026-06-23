@@ -15,6 +15,7 @@ All functions return None on error or missing API key — never raise.
 """
 
 import os
+import threading
 import time
 
 import requests
@@ -34,6 +35,7 @@ BASE_URL = "https://api.twelvedata.com"
 # Rate-limit guard: free tier = 2 req/sec
 _last_call_time: float = 0.0
 _MIN_CALL_INTERVAL = 0.55  # 2 req/sec with a tiny margin
+_rate_lock = threading.Lock()  # enrichment runs this across a thread pool
 
 
 def _api_key() -> str | None:
@@ -52,13 +54,16 @@ def _request(endpoint: str, params: dict) -> dict | None:
     if not key:
         return None
 
-    elapsed = time.monotonic() - _last_call_time
-    if elapsed < _MIN_CALL_INTERVAL:
-        time.sleep(_MIN_CALL_INTERVAL - elapsed)
+    # Serialize the measure+sleep+stamp so concurrent enrichment workers don't
+    # all read the same _last_call_time and fire simultaneously (rate-limit trip).
+    with _rate_lock:
+        elapsed = time.monotonic() - _last_call_time
+        if elapsed < _MIN_CALL_INTERVAL:
+            time.sleep(_MIN_CALL_INTERVAL - elapsed)
+        _last_call_time = time.monotonic()
 
     params = {**params, "apikey": key}
     r = requests.get(f"{BASE_URL}{endpoint}", params=params, timeout=10)
-    _last_call_time = time.monotonic()
 
     if r.status_code >= 400:
         log_event(

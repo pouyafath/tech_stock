@@ -172,6 +172,175 @@ def test_about_handler_reads_dynamic_version():
     assert "About tech_stock" in src
 
 
+def test_window_icon_is_set_on_init():
+    """A plain `python src/desktop_app.py` run must not fall back to Tk's
+    generic feather icon — the packaged app icon should be applied."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    init_start = src.index("def __init__(self)")
+    init_body = src[init_start : src.index("\n    def ", init_start + 10)]
+    assert "self._set_window_icon()" in init_body
+
+    icon_start = src.index("def _set_window_icon(self)")
+    icon_body = src[icon_start : src.index("\n    def ", icon_start + 10)]
+    assert "icon.png" in icon_body
+    assert "iconphoto" in icon_body
+    # src/desktop/app.py is two levels under the repo root.
+    assert "parents[2]" in icon_body
+
+
+def test_reveal_in_finder_surfaces_failures_instead_of_silently_failing():
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    fn_start = src.index("def _reveal_in_finder(self")
+    fn_body = src[fn_start : src.index("\n    def ", fn_start + 10)]
+    assert "except Exception:\n            pass" not in fn_body
+    assert "_set_status" in fn_body
+
+
+def test_coerce_time_field_rejects_bad_spinbox_input():
+    """Out-of-range / non-numeric schedule Spinbox values coerce to None
+    (slot skipped) instead of raising ValueError on Install/Preview."""
+    from src.desktop_app import DesktopApp
+
+    coerce = DesktopApp._coerce_time_field
+    assert coerce("0", lo=0, hi=23) == 0
+    assert coerce("23", lo=0, hi=23) == 23
+    assert coerce(" 9 ", lo=0, hi=23) == 9
+    assert coerce("59", lo=0, hi=59) == 59
+    assert coerce("24", lo=0, hi=23) is None
+    assert coerce("-1", lo=0, hi=23) is None
+    assert coerce("abc", lo=0, hi=23) is None
+    assert coerce("", lo=0, hi=23) is None
+    assert coerce("9.5", lo=0, hi=23) is None
+
+
+def test_close_handler_stops_after_loops():
+    """The window must register a close handler that cancels its repeating
+    after() loops so they don't fire against destroyed widgets on quit."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    assert 'self.protocol("WM_DELETE_WINDOW", self._on_close)' in src
+    close_start = src.index("def _on_close(self)")
+    close_body = src[close_start : src.index("\n    def ", close_start + 10)]
+    assert "self._closing = True" in close_body
+    assert "after_cancel" in close_body
+    assert "self.destroy()" in close_body
+    drain_start = src.index("def _drain_progress_queue(self)")
+    drain_body = src[drain_start : src.index("\n    def ", drain_start + 10)]
+    assert "if self._closing:" in drain_body
+
+
+def test_history_selection_is_bounds_checked():
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    fn_start = src.index("def _history_selected(self")
+    fn_body = src[fn_start : src.index("\n    def ", fn_start + 10)]
+    assert "len(self.history_paths)" in fn_body
+
+
+def test_preferences_reject_invalid_numbers():
+    """Saving Preferences with a non-numeric field must not claim success."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    fn_start = src.index("def _save_preferences(self")
+    fn_body = src[fn_start : src.index("\n    def ", fn_start + 10)]
+    assert "must be numbers" in fn_body
+
+
+def test_onboarding_budgets_persist_all_three_fields():
+    """The wizard's budget stage saves the spend cap and both trade budgets."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    primary_start = src.index("def _primary(self)")
+    primary_body = src[primary_start : src.index("\n    def ", primary_start + 10)]
+    budgets_start = primary_body.index('elif self._current == "budgets":')
+    budgets_body = primary_body[budgets_start : primary_body.index("elif self._current ==", budgets_start + 10)]
+    assert "monthly_budget_usd" in budgets_body
+    assert "budget_usd" in budgets_body
+    assert "budget_cad" in budgets_body
+
+
+def test_settings_paths_resolve_to_repo_root_config():
+    """src/desktop/app.py is two levels deep, so config paths must use the
+    module ROOT (repo-root/config), not parents[1] (which is src/config)."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    assert 'parents[1] / "config"' not in src
+
+
+def test_scrollable_frames_support_mousewheel():
+    """Both scrollable panes must react to the wheel/trackpad — dragging the
+    scrollbar by hand is not an acceptable production UX."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    sf_start = src.index("def _scrollable_frame(self")
+    sf_body = src[sf_start : src.index("\n    @staticmethod", sf_start)]
+    assert "self._bind_mousewheel(canvas, content)" in sf_body
+
+    bind_start = src.index("def _bind_mousewheel(self")
+    bind_body = src[bind_start : src.index("\n    def ", bind_start + 10)]
+    # All three platform wheel events must be wired.
+    for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+        assert seq in bind_body, f"missing wheel binding for {seq}"
+    # Crossing onto a child widget must not tear the binding down.
+    assert "NotifyInferior" in bind_body
+
+
+def test_wheel_scroll_steps_handles_every_platform():
+    """Linux (Button-4/5), Windows (±120 deltas), macOS (small deltas)."""
+    from src.desktop_app import DesktopApp
+
+    steps = DesktopApp._wheel_scroll_steps
+    # Linux buttons
+    assert steps(0, 4) == -1
+    assert steps(0, 5) == 1
+    # Windows multiples of 120 (positive delta = scroll up = negative units)
+    assert steps(120, None) == -1
+    assert steps(-120, None) == 1
+    assert steps(240, None) == -2
+    # macOS small deltas
+    assert steps(1, None) == -1
+    assert steps(-3, None) == 1
+    # No movement
+    assert steps(0, None) == 0
+
+
+def test_tree_rows_are_zebra_striped():
+    """Data tables alternate row backgrounds; the stripe tags are background-
+    only so they stack with the semantic foreground tags (BUY/SELL/etc.)."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+
+    make_start = src.index("def _make_tree(self")
+    make_body = src[make_start : src.index("\n    def ", make_start + 10)]
+    assert 'tree.tag_configure("oddrow"' in make_body
+    assert 'tree.tag_configure("evenrow"' in make_body
+
+    fill_start = src.index("def _replace_tree_rows(self")
+    fill_body = src[fill_start : src.index("\n    def ", fill_start + 10)]
+    assert '"evenrow" if offset % 2 else "oddrow"' in fill_body
+
+
+def test_sanitize_window_size_clamps_to_screen():
+    """A restored size must fit on the current screen and respect the minimum."""
+    from src.desktop_app import DesktopApp
+
+    clamp = DesktopApp._sanitize_window_size
+    # Normal case passes through.
+    assert clamp("1400x900", 1920, 1080) == "1400x900"
+    # Too big for the screen → clamped down to the screen.
+    assert clamp("4000x3000", 1920, 1080) == "1920x1080"
+    # Below the minimum → bumped up to the floor.
+    assert clamp("400x300", 1920, 1080) == "1024x720"
+    # Junk / missing → None so the default geometry is kept.
+    assert clamp("not-a-size", 1920, 1080) is None
+    assert clamp(None, 1920, 1080) is None
+
+
+def test_window_size_is_persisted_on_close_and_restored_on_init():
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    # Restore is attempted during construction.
+    init_start = src.index("def __init__(self)")
+    init_body = src[init_start : src.index("\n    def ", init_start + 10)]
+    assert "self._restore_window_size()" in init_body
+    # And the current size is saved before the window is torn down.
+    close_start = src.index("def _on_close(self)")
+    close_body = src[close_start : src.index("\n    def ", close_start + 10)]
+    assert "self._save_window_size()" in close_body
+
+
 if __name__ == "__main__":
     import pytest
 

@@ -103,9 +103,18 @@ def ensure_workspace() -> None:
 
 ensure_workspace()
 
+
+def _model_cost_hint(model_id: str, tail: str) -> str:
+    """Build a menu hint like '~$0.22/run — two-pass, recommended' from the
+    single-source-of-truth per-run cost estimate in claude_analyst."""
+    from src.claude_analyst import typical_run_cost
+
+    return f"~${typical_run_cost(model_id):.2f}/run — {tail}"
+
+
 MODELS = {
-    "1": ("claude-sonnet-4-6", "Sonnet 4.6", "~$0.22/run — two-pass, recommended"),
-    "2": ("claude-opus-4-7", "Opus 4.7", "~$0.45/run — deeper analysis, slower"),
+    "1": ("claude-sonnet-4-6", "Sonnet 4.6", _model_cost_hint("claude-sonnet-4-6", "two-pass, recommended")),
+    "2": ("claude-opus-4-7", "Opus 4.7", _model_cost_hint("claude-opus-4-7", "deeper analysis, slower")),
 }
 
 
@@ -584,6 +593,17 @@ def save_recommendations_csv(
     """Save recommendations as a clean CSV table."""
     import csv
 
+    def _csv_safe(value):
+        """Neutralize spreadsheet formula injection in free-text/string cells.
+
+        A cell whose first character is one of = + - @ (or a leading tab/CR) is
+        treated as a formula by Excel/Sheets/LibreOffice. Prefix such values with
+        an apostrophe so they render as literal text instead of executing.
+        """
+        if isinstance(value, str) and value and value[0] in ("=", "+", "-", "@", "\t", "\r"):
+            return "'" + value
+        return value
+
     csv_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     csv_path = csv_dir / f"{timestamp}_{session_type}_recommendations.csv"
@@ -651,45 +671,42 @@ def save_recommendations_csv(
 
             tranche_cells = [_fmt_tranche(t) for t in plan[:3]] + [""] * 3
 
-            writer.writerow(
-                {
-                    "Ticker": ticker,
-                    "Action": r.get("action", "HOLD"),
-                    "Hold Tier": r.get("hold_tier", ""),
-                    "Conviction": r.get("conviction", 0),
-                    "Invest USD": f"${r['invest_amount_usd']:,.0f}" if r.get("invest_amount_usd") else "",
-                    "Action Shares": r.get("shares", ""),
-                    "Action Fraction": f"{r.get('action_fraction') * 100:.0f}%" if r.get("action_fraction") else "",
-                    "Action Amount": (
-                        f"${r.get('action_amount'):,.0f} {r.get('action_amount_currency', 'USD')}"
-                        if r.get("action_amount") is not None
-                        else ""
-                    ),
-                    "Expected Stock Move %": f"{expected_move:+.2f}%",
-                    "Expected Benefit of Action %": f"{net_expected:+.2f}%",
-                    "Net Expected %": f"{net_expected:+.2f}%",
-                    "Time Horizon": r.get("time_horizon", ""),
-                    "Exit Target": r.get("target_exit_date", ""),
-                    "Bear Case %": f"{lo:+.0f}%" if lo is not None else "",
-                    "Bull Case %": f"{hi:+.0f}%" if hi is not None else "",
-                    "Stop Loss %": f"{controls.get('stop_loss_pct'):+.1f}%" if controls.get("stop_loss_pct") is not None else "",
-                    "Take Profit %": f"{controls.get('take_profit_pct'):+.1f}%" if controls.get("take_profit_pct") is not None else "",
-                    "Catalyst Verified": "YES" if r.get("catalyst_verified") else "NO",
-                    "Catalyst Source": r.get("catalyst_source", ""),
-                    "Manual Review": "YES" if r.get("manual_review_required") else "NO",
-                    "Tranche 1 (now)": tranche_cells[0],
-                    "Tranche 2 (pullback)": tranche_cells[1],
-                    "Tranche 3 (confirmation)": tranche_cells[2],
-                    "Quote": f"{md.get('current_price')} {md.get('currency', '')}".strip() if md.get("current_price") is not None else "",
-                    "Previous Close": f"{md.get('previous_close')} {md.get('currency', '')}".strip()
-                    if md.get("previous_close") is not None
-                    else "",
-                    "Quote Time UTC": md.get("quote_timestamp_utc", ""),
-                    "Quote Source": md.get("quote_source", ""),
-                    "Earnings Alert": "⚠️ YES" if r.get("earnings_alert") else "",
-                    "Thesis": r.get("thesis", ""),
-                }
-            )
+            row = {
+                "Ticker": ticker,
+                "Action": r.get("action", "HOLD"),
+                "Hold Tier": r.get("hold_tier", ""),
+                "Conviction": r.get("conviction", 0),
+                "Invest USD": f"${r['invest_amount_usd']:,.0f}" if r.get("invest_amount_usd") else "",
+                "Action Shares": r.get("shares", ""),
+                "Action Fraction": f"{r.get('action_fraction') * 100:.0f}%" if r.get("action_fraction") else "",
+                "Action Amount": (
+                    f"${r.get('action_amount'):,.0f} {r.get('action_amount_currency', 'USD')}" if r.get("action_amount") is not None else ""
+                ),
+                "Expected Stock Move %": f"{expected_move:+.2f}%",
+                "Expected Benefit of Action %": f"{net_expected:+.2f}%",
+                "Net Expected %": f"{net_expected:+.2f}%",
+                "Time Horizon": r.get("time_horizon", ""),
+                "Exit Target": r.get("target_exit_date", ""),
+                "Bear Case %": f"{lo:+.0f}%" if lo is not None else "",
+                "Bull Case %": f"{hi:+.0f}%" if hi is not None else "",
+                "Stop Loss %": f"{controls.get('stop_loss_pct'):+.1f}%" if controls.get("stop_loss_pct") is not None else "",
+                "Take Profit %": f"{controls.get('take_profit_pct'):+.1f}%" if controls.get("take_profit_pct") is not None else "",
+                "Catalyst Verified": "YES" if r.get("catalyst_verified") else "NO",
+                "Catalyst Source": r.get("catalyst_source", ""),
+                "Manual Review": "YES" if r.get("manual_review_required") else "NO",
+                "Tranche 1 (now)": tranche_cells[0],
+                "Tranche 2 (pullback)": tranche_cells[1],
+                "Tranche 3 (confirmation)": tranche_cells[2],
+                "Quote": f"{md.get('current_price')} {md.get('currency', '')}".strip() if md.get("current_price") is not None else "",
+                "Previous Close": f"{md.get('previous_close')} {md.get('currency', '')}".strip()
+                if md.get("previous_close") is not None
+                else "",
+                "Quote Time UTC": md.get("quote_timestamp_utc", ""),
+                "Quote Source": md.get("quote_source", ""),
+                "Earnings Alert": "⚠️ YES" if r.get("earnings_alert") else "",
+                "Thesis": r.get("thesis", ""),
+            }
+            writer.writerow({k: _csv_safe(v) for k, v in row.items()})
     return csv_path
 
 
@@ -1028,11 +1045,13 @@ def _run_impl(
     # v1.19: monthly budget cap.  Soft-warn at 80% of the configured
     # ``monthly_budget_usd``; hard-block at 100% unless the user explicitly
     # overrides via ``ALLOW_OVERAGE=1`` (or sets monthly_budget_usd=0).
-    # ~$0.22 is the typical Sonnet cost; Opus is ~$0.45.
+    # Per-run cost estimate comes from claude_analyst.typical_run_cost so the
+    # figure stays in sync with the model menu and the real pricing table.
     try:
+        from src.claude_analyst import typical_run_cost
         from src.cost_tracker import check_budget, is_overage_allowed
 
-        expected = 0.45 if "opus" in display_model else 0.22
+        expected = typical_run_cost(display_model)
         budget = check_budget(expected_cost_usd=expected)
         if budget.soft_warn:
             print(f"{C.YELLOW}[tech_stock] ⚠️  {budget.message}{C.RESET}")
@@ -1043,9 +1062,10 @@ def _run_impl(
             print(f"{C.YELLOW}[tech_stock] OVERRIDE — {budget.message}{C.RESET}")
     except SystemExit:
         raise
-    except Exception:
-        # Budget enforcement must not break the report path
-        pass
+    except Exception as exc:
+        # Budget enforcement must not break the report path, but a silently
+        # disabled spend cap is dangerous — surface it instead of swallowing.
+        print(f"{C.YELLOW}[tech_stock] ⚠️  budget check skipped (enforcement error): {exc}{C.RESET}", file=sys.stderr)
 
     print(f"{C.DIM}[tech_stock] Calling Claude ({display_model}) for recommendations...{C.RESET}")
 
@@ -1086,7 +1106,7 @@ def _run_impl(
         fred_series = ((enriched.get("macro") or {}).get("series")) or {}
         recommendation["macro_regime"] = classify_regime(fred_series, market_context)
     except Exception:
-        pass
+        recommendation["macro_regime"] = {}
 
     # ── Compute drift between this run and the previous session ───────────
     drift = recommendation.get("drift_vs_previous") or compute_drift(

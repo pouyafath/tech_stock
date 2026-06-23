@@ -1,12 +1,19 @@
 """
 cache.py
-Simple pickle-based cache for expensive network calls (yfinance, news).
+Simple JSON-based cache for expensive network calls (yfinance, news).
 Files stored under data/.cache/ (gitignored). Safe on corruption — treats any
-read/unpickle error as a cache miss and re-runs the loader.
+read/decode error as a cache miss and re-runs the loader.
+
+JSON is used deliberately instead of pickle: cached payloads originate from
+third-party JSON APIs (plain dict/list/scalar values), and JSON deserialization
+cannot execute code, so a tampered cache file under the workspace cannot lead to
+arbitrary code execution the way an unpickled file could.
 """
 
 import hashlib
-import pickle
+import json
+import os
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -34,7 +41,7 @@ def _cache_key_to_filename(namespace: str, key: str) -> Path:
     """Hash the namespace+key into a safe filename."""
     raw = f"{namespace}:{key}".encode()
     digest = hashlib.sha1(raw).hexdigest()[:16]
-    return CACHE_DIR / namespace / f"{digest}.pkl"
+    return CACHE_DIR / namespace / f"{digest}.json"
 
 
 def _is_fresh(path: Path, ttl_seconds: int) -> bool:
@@ -74,8 +81,8 @@ def cached(
     # Try to read from cache first
     if _is_fresh(path, ttl_seconds):
         try:
-            with open(path, "rb") as f:
-                cached_value = pickle.load(f)
+            with open(path, encoding="utf-8") as f:
+                cached_value = json.load(f)
             if should_cache is None or should_cache(cached_value):
                 return cached_value
         except Exception as exc:  # noqa: BLE001
@@ -89,10 +96,12 @@ def cached(
     if should_cache is None or should_cache(value):
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_suffix(".pkl.tmp")
-            with open(tmp, "wb") as f:
-                pickle.dump(value, f)
-            tmp.replace(path)  # atomic
+            # Per-process/thread-unique temp name avoids a same-key write race
+            # where two workers share one ".tmp" path and clobber each other.
+            tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(value, f)
+            os.replace(tmp, path)  # atomic
         except Exception as exc:  # noqa: BLE001
             # Cache write failed — disk full, perm denied, etc.  Not fatal
             # (value is still returned to caller) but worth surfacing in
@@ -110,11 +119,13 @@ def clear_cache(namespace: str = None):
     if target.is_file():
         target.unlink()
         return
-    for f in target.rglob("*.pkl"):
-        try:
-            f.unlink()
-        except Exception as exc:  # noqa: BLE001
-            _log("warning", "unlink_failed", f"clear_cache: could not unlink {f.name}: {exc}", {"file": str(f)})
+    # Clean current JSON entries plus any legacy .pkl files from older versions.
+    for pattern in ("*.json", "*.pkl"):
+        for f in target.rglob(pattern):
+            try:
+                f.unlink()
+            except Exception as exc:  # noqa: BLE001
+                _log("warning", "unlink_failed", f"clear_cache: could not unlink {f.name}: {exc}", {"file": str(f)})
 
 
 if __name__ == "__main__":

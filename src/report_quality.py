@@ -5,6 +5,7 @@ Deterministic quality checks and safety gates for generated recommendations.
 
 from __future__ import annotations
 
+import logging
 import re
 from copy import deepcopy
 from dataclasses import asdict, dataclass
@@ -368,8 +369,8 @@ def evaluate(
                         "Review combined weight of correlated positions and consider reducing exposure.",
                     )
                 )
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).warning("concentration-alert gate failed, skipping: %s", exc)
 
     return [warning.to_dict() for warning in warnings]
 

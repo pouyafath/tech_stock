@@ -12,7 +12,7 @@ from itertools import combinations
 
 import pandas as pd
 
-from src.constants import COMPANY_ALIASES
+from src.constants import CAD_PER_USD_DEFAULT, COMPANY_ALIASES
 
 _fx_cache: tuple[float, float] | None = None  # (rate, timestamp)
 _FX_TTL = 4 * 3600  # 4 hours
@@ -33,8 +33,8 @@ def get_usd_cad_rate() -> float:
         rate = float(data["rates"]["CAD"])
         _fx_cache = (rate, now)
         return rate
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).debug("exchangerate-api FX fetch failed: %s", exc)
     try:
         import urllib.request
 
@@ -54,10 +54,10 @@ def get_usd_cad_rate() -> float:
                 continue
             _fx_cache = (rate, now)
             return rate
-    except Exception:
-        pass
-    logging.getLogger(__name__).warning("FX rate fetch failed; using hardcoded 1.37")
-    return 1.37
+    except Exception as exc:
+        logging.getLogger(__name__).debug("FRED DEXCAUS FX fetch failed: %s", exc)
+    logging.getLogger(__name__).warning("FX rate fetch failed; using default %.4f", CAD_PER_USD_DEFAULT)
+    return CAD_PER_USD_DEFAULT
 
 
 def company_key(ticker: str) -> str:
