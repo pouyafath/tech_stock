@@ -3,6 +3,9 @@
 venv/
 env/
 
+# Claude Code session-local state (machine/session-specific, not project data)
+.claude/scheduled_tasks.lock
+
 # Python
 __pycache__/
 *.py[cod]
