@@ -43,6 +43,7 @@ Thumbs.db
 
 # Project-specific outputs
 reports/
+config/window_state.json
 data/recommendations_log/
 data/.cache/
 data/paper_portfolio.json

@@ -532,6 +532,7 @@ class DesktopApp(tk.Tk):
         self.geometry("1280x880")
         self.minsize(1024, 720)
         self._set_window_icon()
+        self._restore_window_size()
 
         # Shared palette (Streamlit + Textual + Tkinter all read the same tokens)
         self.bg = PALETTE.bg
@@ -680,7 +681,7 @@ class DesktopApp(tk.Tk):
         )
         style.map(
             "Treeview",
-            background=[("selected", self.border)],
+            background=[("selected", self.border_strong)],
             foreground=[("selected", self.text_strong)],
         )
         style.map("Treeview.Heading", background=[("active", self.card)])
@@ -1228,6 +1229,71 @@ class DesktopApp(tk.Tk):
         except Exception:
             logger.debug("Failed to set window icon from %s", icon_path, exc_info=True)
 
+    @staticmethod
+    def _sanitize_window_size(
+        size: str | None,
+        screen_w: int,
+        screen_h: int,
+        *,
+        min_w: int = 1024,
+        min_h: int = 720,
+    ) -> str | None:
+        """Validate a saved ``"WIDTHxHEIGHT"`` string and clamp it onto the
+        current screen.
+
+        Restoring only the *size* (never the position) sidesteps the classic
+        multi-monitor bug where a window saved on a now-disconnected display
+        reopens off-screen and becomes unreachable. Returns ``None`` for an
+        unparseable value so the caller keeps the default geometry.
+        """
+        if not size:
+            return None
+        match = re.match(r"^\s*(\d+)x(\d+)", str(size))
+        if not match:
+            return None
+        width = max(min_w, min(int(match.group(1)), max(min_w, screen_w)))
+        height = max(min_h, min(int(match.group(2)), max(min_h, screen_h)))
+        return f"{width}x{height}"
+
+    @property
+    def _window_state_path(self) -> Path:
+        return ROOT / "config" / "window_state.json"
+
+    def _restore_window_size(self) -> None:
+        """Reopen at the size the user last left the window."""
+        import json
+
+        try:
+            path = self._window_state_path
+            if not path.exists():
+                return
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            logger.debug("Could not read saved window size", exc_info=True)
+            return
+        size = self._sanitize_window_size(data.get("size"), self.winfo_screenwidth(), self.winfo_screenheight())
+        if not size:
+            return
+        try:
+            self.geometry(size)
+        except tk.TclError:
+            logger.debug("Could not apply saved window size %r", size, exc_info=True)
+
+    def _save_window_size(self) -> None:
+        """Persist the current window size so the next launch matches it."""
+        import json
+
+        try:
+            width = self.winfo_width()
+            height = self.winfo_height()
+            if width <= 1 or height <= 1:  # window never realized — nothing useful to save
+                return
+            path = self._window_state_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"size": f"{width}x{height}"}, indent=2) + "\n", encoding="utf-8")
+        except Exception:
+            logger.debug("Could not persist window size", exc_info=True)
+
     def _reveal_in_finder(self, path: Path) -> None:
         import subprocess
 
@@ -1297,7 +1363,65 @@ class DesktopApp(tk.Tk):
         scrollbar.pack(side="right", fill="y")
         content.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.bind("<Configure>", lambda event: canvas.itemconfigure(window, width=event.width))
+        self._bind_mousewheel(canvas, content)
         return content
+
+    @staticmethod
+    def _wheel_scroll_steps(delta: int, num: int | None) -> int:
+        """Translate a wheel event into a signed number of scroll units.
+
+        Tk reports wheel input three different ways: Linux fires
+        ``<Button-4>``/``<Button-5>`` (no delta), Windows sends ``delta`` in
+        multiples of 120, and macOS sends small ``±1``/``±2`` deltas. Positive
+        delta means "scroll up", which is a *negative* unit count for Tk.
+        """
+        if num == 4:
+            return -1
+        if num == 5:
+            return 1
+        if not delta:
+            return 0
+        if abs(delta) >= 120:  # Windows — multiples of 120
+            return int(-delta / 120)
+        return -1 if delta > 0 else 1  # macOS — small deltas
+
+    def _bind_mousewheel(self, canvas: tk.Canvas, content: tk.Widget) -> None:
+        """Let the mouse wheel / trackpad scroll ``canvas`` while the pointer
+        is over it.
+
+        The binding is activated on ``<Enter>`` and torn down on ``<Leave>`` so
+        only the hovered scroll region reacts — several scrollable panes and
+        Treeviews coexist in this window and must not fight over the wheel. The
+        ``NotifyInferior`` guard keeps the binding alive when the pointer merely
+        crosses onto a child widget inside the scroll region.
+        """
+
+        def _on_wheel(event: tk.Event) -> str:
+            first, last = canvas.yview()
+            if first <= 0.0 and last >= 1.0:
+                return ""  # nothing to scroll — let the event propagate
+            steps = self._wheel_scroll_steps(getattr(event, "delta", 0), getattr(event, "num", None))
+            if steps:
+                canvas.yview_scroll(steps, "units")
+            return "break"
+
+        def _activate(_event: tk.Event) -> None:
+            # Bind without "+" so the most-recently-entered scroll region owns
+            # the wheel and stale closures from other panes can't fire.
+            canvas.bind_all("<MouseWheel>", _on_wheel)
+            canvas.bind_all("<Button-4>", _on_wheel)
+            canvas.bind_all("<Button-5>", _on_wheel)
+
+        def _deactivate(event: tk.Event) -> None:
+            if getattr(event, "detail", "") == "NotifyInferior":
+                return  # moved onto a child, still inside the scroll region
+            canvas.unbind_all("<MouseWheel>")
+            canvas.unbind_all("<Button-4>")
+            canvas.unbind_all("<Button-5>")
+
+        for widget in (canvas, content):
+            widget.bind("<Enter>", _activate, add="+")
+            widget.bind("<Leave>", _deactivate, add="+")
 
     def _build_dashboard_tab(self) -> None:
         content = self._scrollable_frame(self.dashboard_tab)
@@ -3730,6 +3854,11 @@ class DesktopApp(tk.Tk):
         tree.tag_configure("TRADE READY", foreground=self.good)
         tree.tag_configure("REVIEW FIRST", foreground=self.warning)
         tree.tag_configure("BLOCKED", foreground=self.danger)
+        # Zebra striping for readability. These set *background* only, so they
+        # stack cleanly with the semantic *foreground* tags above (a SELL row
+        # stays red on its stripe). Selection still wins via style.map.
+        tree.tag_configure("oddrow", background=self.surface)
+        tree.tag_configure("evenrow", background=self.panel)
         tree.pack(fill="both", expand=True)
         return tree
 
@@ -3957,6 +4086,7 @@ class DesktopApp(tk.Tk):
         and exit with the process; their late queue writes are harmless once
         the drain loop has stopped."""
         self._closing = True
+        self._save_window_size()
         for after_id in (self._drain_id, self._report_elapsed_id):
             if after_id:
                 try:
@@ -4506,11 +4636,12 @@ class DesktopApp(tk.Tk):
     def _replace_tree_rows(self, tree: ttk.Treeview, rows: list[list[Any]], *, tag_index: int | None = None) -> None:
         for item in tree.get_children():
             tree.delete(item)
-        for row in rows:
-            tags = ()
+        for offset, row in enumerate(rows):
+            tags: list[str] = []
             if tag_index is not None and tag_index < len(row):
-                tags = (str(row[tag_index]).upper(),)
-            tree.insert("", "end", values=row, tags=tags)
+                tags.append(str(row[tag_index]).upper())
+            tags.append("evenrow" if offset % 2 else "oddrow")
+            tree.insert("", "end", values=row, tags=tuple(tags))
 
     def _refresh_report_review(self, path: Path | None) -> None:
         if not hasattr(self, "report_review_tree"):

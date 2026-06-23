@@ -4,6 +4,32 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.36.0] — 2026-06-23
+
+Desktop UI production-readiness pass. All changes land on the canonical
+`src/desktop/app.py`; pure helpers are covered by headless tests.
+
+### Desktop app
+- **Mouse-wheel / trackpad scrolling** now works in the Home dashboard and
+  Preferences panes. Previously the only way to scroll was dragging the
+  scrollbar by hand. The binding activates on pointer-enter and tears down on
+  leave (with a `NotifyInferior` guard for child-widget crossings) so several
+  scrollable panes and Treeviews never fight over the wheel; wheel input is
+  normalized across Linux (`Button-4`/`5`), Windows (±120 deltas), and macOS
+  (small deltas).
+- **Zebra-striped data tables.** Every table alternates row backgrounds for
+  readability. The stripe tags set *background only*, so they stack cleanly
+  with the existing semantic *foreground* tags (BUY/SELL/severity).
+- **The window remembers its size** between launches. The saved size is
+  validated and clamped onto the current screen (and to the minimum), so a
+  size saved on a now-disconnected monitor can't reopen off-screen. Only the
+  size is restored — never the position — to avoid the multi-monitor
+  off-screen trap. Stored in `config/window_state.json` (git-ignored).
+- **More visible table selection** — selected rows use the stronger border
+  tone for clearer contrast against the striped background.
+
+---
+
 ## [1.35.0] — 2026-06-18
 
 Merge of the parallel hardening/coverage line into the v1.34 feature line.
