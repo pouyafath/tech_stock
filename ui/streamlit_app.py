@@ -69,9 +69,11 @@ from src.ui_support import (  # noqa: E402
     run_report_from_ui,
     save_api_key,
     save_decision_from_ui,
+    save_execution_checklist_from_ui,
     save_selected_data_files,
     save_uploaded_bytes,
     setup_readiness_view,
+    source_provenance_view,
     support_bundle_preview,
     validate_json_text,
     write_editable_json,
@@ -994,6 +996,35 @@ def _render_report_review_panel(report_path: Path | str | None, key_prefix: str)
         for reason in reasons[:5]:
             st.caption(f"- {reason}")
 
+    checklist_rows = view.get("execution_checklist_rows") or []
+    if checklist_rows:
+        with st.expander("Execution checklist", expanded=True):
+            st.dataframe(pd.DataFrame(checklist_rows), hide_index=True, width="stretch")
+            ids = sorted({row.get("id") for row in checklist_rows if row.get("id")})
+            if ids:
+                selected_id = st.selectbox("Checklist row", ids, key=f"{key_prefix}_checklist_id")
+                selected_rows = [row for row in checklist_rows if row.get("id") == selected_id]
+                existing = {row.get("check"): row.get("status") == "DONE" for row in selected_rows}
+                col_a, col_b, col_c, col_d, col_e = st.columns(5)
+                checklist = {
+                    "quote_confirmed": col_a.checkbox("Quote", value=existing.get("quote_confirmed", False), key=f"{key_prefix}_quote_ok"),
+                    "catalyst_checked": col_b.checkbox(
+                        "Catalyst", value=existing.get("catalyst_checked", False), key=f"{key_prefix}_catalyst_ok"
+                    ),
+                    "sizing_checked": col_c.checkbox("Sizing", value=existing.get("sizing_checked", False), key=f"{key_prefix}_sizing_ok"),
+                    "fee_fx_checked": col_d.checkbox("Fee/FX", value=existing.get("fee_fx_checked", False), key=f"{key_prefix}_fees_ok"),
+                    "manual_review_accepted": col_e.checkbox(
+                        "Review", value=existing.get("manual_review_accepted", False), key=f"{key_prefix}_review_ok"
+                    ),
+                }
+                notes = st.text_input("Checklist notes", key=f"{key_prefix}_checklist_notes")
+                if st.button("Save execution checklist", key=f"{key_prefix}_save_checklist"):
+                    try:
+                        save_execution_checklist_from_ui(str(selected_id), checklist=checklist, notes=notes)
+                        st.success("Execution checklist saved.")
+                    except Exception as exc:  # noqa: BLE001
+                        st.error(f"Could not save checklist: {exc}")
+
     rec_rows = view.get("recommendation_rows") or []
     if rec_rows:
         with st.expander("Recommendation readiness", expanded=False):
@@ -1331,6 +1362,15 @@ with tab_data_files:
     if setup_rows:
         st.markdown("### Setup readiness")
         st.dataframe(pd.DataFrame(setup_rows), hide_index=True, width="stretch")
+    recovery_steps = setup.get("recovery_steps") or []
+    if recovery_steps:
+        st.markdown("### Fix Setup")
+        st.caption("Follow these steps in order before a paid run.")
+        st.dataframe(pd.DataFrame(recovery_steps), hide_index=True, width="stretch")
+    quick_actions = setup.get("quick_actions") or []
+    if quick_actions:
+        st.markdown("### Setup quick actions")
+        st.dataframe(pd.DataFrame(quick_actions), hide_index=True, width="stretch")
 
     view = data_files_view()
     rows = view.get("rows") or []
@@ -2392,7 +2432,26 @@ def _render_diagnostics() -> None:
     if provenance:
         st.markdown("### Source Provenance")
         st.caption(provenance.get("summary") or "Ticker-level source provenance for the latest recommendation log.")
-        st.dataframe(pd.DataFrame((provenance.get("rows") or [])[:60]), hide_index=True, width="stretch")
+        prov_col_a, prov_col_b, prov_col_c = st.columns([1, 1, 1])
+        with prov_col_a:
+            status_filter = st.selectbox(
+                "Provenance status",
+                ["problem", "all", "OK", "PARTIAL", "MISSING", "DEGRADED"],
+                key="diag_provenance_status",
+            )
+        with prov_col_b:
+            source_filter = st.text_input("Source filter", value="all", key="diag_provenance_source")
+        with prov_col_c:
+            ticker_filter = st.text_input("Ticker filter", value="", key="diag_provenance_ticker")
+        filtered_provenance = source_provenance_view(
+            status_filter=status_filter,
+            source_filter=source_filter or "all",
+            ticker_filter=ticker_filter or "",
+        )
+        st.caption(
+            f"Showing {filtered_provenance.get('filtered_count', 0)} of {filtered_provenance.get('unfiltered_count', 0)} source rows."
+        )
+        st.dataframe(pd.DataFrame((filtered_provenance.get("rows") or [])[:60]), hide_index=True, width="stretch")
 
     sources = view.get("sources") or {}
     if not sources:

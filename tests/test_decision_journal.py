@@ -1,9 +1,11 @@
 from datetime import datetime
 
 from src.decision_journal import (
+    execution_checklist_status,
     format_for_report,
     load_journal,
     record_decision,
+    record_execution_checklist,
     run_scorecard,
     seed_from_recommendation_log,
 )
@@ -32,7 +34,36 @@ def test_seed_from_recommendation_log_creates_pending_action_rows(tmp_path):
     assert created_again == []
     assert len(rows) == 2
     assert rows[0]["user_decision"] == "pending"
+    assert rows[0]["execution_checklist"]["quote_confirmed"] is False
     assert {row["ticker"] for row in rows} == {"NVDA", "SOXL"}
+
+
+def test_record_execution_checklist_persists_review_state(tmp_path):
+    log = tmp_path / "20260501_0900_morning.json"
+    log.write_text(
+        """
+        {
+          "recommendations": [
+            {"ticker": "NVDA", "action": "BUY", "conviction": 8, "invest_amount_usd": 500}
+          ]
+        }
+        """
+    )
+    journal = tmp_path / "decision_journal.json"
+    seed_from_recommendation_log(log, journal)
+
+    row = record_execution_checklist(
+        journal,
+        "20260501_0900_morning.json:NVDA",
+        checklist={"quote_confirmed": True, "catalyst_checked": True},
+        notes="Checked quote and catalyst.",
+    )
+    status = execution_checklist_status(row)
+
+    assert status["status"] == "PENDING"
+    assert status["done"] == 2
+    assert row["execution_checklist"]["quote_confirmed"] is True
+    assert row["execution_checklist_notes"] == "Checked quote and catalyst."
 
 
 def test_record_decision_and_scorecard_compare_user_vs_model(tmp_path):

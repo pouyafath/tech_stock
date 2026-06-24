@@ -66,6 +66,9 @@ def test_report_review_summarizes_warnings_drift_and_journal(tmp_path):
     assert view["readiness_counts"][REVIEW_FIRST] == 1
     assert view["recommendation_rows"][0]["ticker"] == "NVDA"
     assert view["decision_rows"][0]["user_decision"] == "pending"
+    assert view["execution_checklist_rows"][0]["ticker"] == "NVDA"
+    assert view["execution_checklist_rows"][0]["status"] == "PENDING"
+    assert any(row["metric"] == "Execution checklist" for row in view["metric_rows"])
     assert view["change_rows"][0]["ticker"] == "SOXL"
     assert "tech_stock report review" in view["support_summary"]
 

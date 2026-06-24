@@ -69,8 +69,10 @@ Recent versions also show a **Ready To Run** verdict above the raw checklist:
 
 Open **Data Files** in Desktop, Streamlit, or Textual and check the Setup
 Readiness and CSV Candidates sections. The row marked **recommended** is the file
-the app would use automatically; confirm it before a paid run. Save the correct
-paths as defaults. The app writes only those paths to:
+the app would use automatically; confirm it before a paid run. The **Fix Setup**
+section lists the ordered recovery path when the app detects a missing Holdings
+CSV, a swapped Activities CSV, missing API keys, or demo-only data. Save the
+correct paths as defaults. The app writes only those paths to:
 
 ```text
 config/data_files.json
@@ -92,6 +94,13 @@ table for Holdings and Activities. It reports:
 `FAIL` means fix the Holdings CSV before running a paid report. `WARN` means
 the app can usually run, but the data may be stale or the optional activities
 file is missing.
+
+## Source Provenance Is Noisy
+
+Open **Diagnostics** and leave Source Provenance on the default `problem`
+filter. This shows missing, degraded, or partial evidence first. Narrow further
+by source family, such as `Quote`, `Catalyst`, or `Analyst`, or by ticker when
+you need to audit one recommendation.
 
 ## The App Says The Holdings CSV Is Missing Required Columns
 

@@ -81,7 +81,7 @@ write; Claude API call).
 | `src/cache.py` | Pickle-based on-disk cache (with structured-log degradations) |
 | **Learning loop (v1.16)** | |
 | `src/backtester.py` | Past-recommendation evaluation, `reliability_diagram`, walk-forward windows (v1.18), conviction-stratified sizing multipliers |
-| `src/decision_journal.py` | User-decision recording + scorecard with per-horizon edge (v1.16) |
+| `src/decision_journal.py` | User-decision recording, execution checklist state, and scorecard with per-horizon edge |
 | `src/recommendation_outcomes.py` | All-recommendation fixed-window outcomes, outcome lessons, and prompt calibration summaries |
 | `src/drift_tracker.py` | Action / conviction / thesis-text drift detection between sessions |
 | `src/thesis_tracker.py` | Thesis verdict evaluation (materialized / partial / not_yet / invalidated) |
@@ -96,7 +96,7 @@ write; Claude API call).
 | `src/csv_health.py` | Wealthsimple CSV schema inspection, swapped-file detection, and sample/demo guards |
 | `src/data_files.py` | Saved CSV defaults, Data Files / Workspace view model, and shared paid-run checklist |
 | `src/preflight.py` | Doctor command, update/API/CSV Health/budget/release checks, and no-spend demo smoke test |
-| `src/setup_readiness.py` | First-run/setup readiness view, paid-run readiness verdict, confirmation metadata, CSV candidate confirmation metadata, support-bundle preview, and redacted support bundle export |
+| `src/setup_readiness.py` | First-run/setup readiness view, ordered setup recovery steps, paid-run readiness verdict, confirmation metadata, CSV candidate confirmation metadata, support-bundle preview, and redacted support bundle export |
 | `src/workspace_export.py` | Sanitised zip export of the user's workspace |
 | `src/notifications.py` | Cross-platform desktop notifications (macOS osascript / Linux notify-send / Windows BurntToast) |
 | `src/scheduling.py` | Per-user launchd / Task Scheduler / cron installer |
@@ -111,7 +111,7 @@ write; Claude API call).
 | **Release tooling** | |
 | `tools/package_smoke.py` | Source/package structure and version smoke checks for CI release builds |
 | `src/release_check.py` | Release readiness checks for workflow settings, required Linux tarball, optional AppImage, and checksums |
-| `src/ui_support.py` | UI-facing data aggregators (`learning_view`, `diagnostics_view`, `report_review_view`, `decision_scorecard_summary`, setup readiness, Data Files, pre-run checklist, history surfaces, etc.) |
+| `src/ui_support.py` | UI-facing data aggregators (`learning_view`, `diagnostics_view`, `report_review_view`, source-provenance filters, `decision_scorecard_summary`, setup readiness, Data Files, pre-run checklist, history surfaces, etc.) |
 | **Infra** | |
 | `src/updater.py` | GitHub Releases auto-update + checksum verification |
 | `src/changelog_utils.py` | CHANGELOG section parser (used by CI release workflow) |

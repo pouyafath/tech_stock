@@ -33,6 +33,7 @@ from src.decision_journal import (
     journal_status,
     load_journal,
     record_decision,
+    record_execution_checklist,
     seed_from_recommendation_log,
 )
 from src.decision_journal import (
@@ -572,7 +573,13 @@ def source_coverage_view(log_path: str | Path | None = None) -> dict[str, Any]:
     return {**coverage, "session_file": resolved.name, "session_path": resolved}
 
 
-def source_provenance_view(log_path: str | Path | None = None) -> dict[str, Any]:
+def source_provenance_view(
+    log_path: str | Path | None = None,
+    *,
+    status_filter: str = "all",
+    source_filter: str = "all",
+    ticker_filter: str = "",
+) -> dict[str, Any]:
     """Return ticker-level source provenance for the selected/latest log."""
     resolved = normalize_optional_path(log_path) if log_path else None
     if not resolved:
@@ -585,7 +592,52 @@ def source_provenance_view(log_path: str | Path | None = None) -> dict[str, Any]
     if not resolved:
         return {"status": "MISSING", "summary": "No recommendation JSON logs found.", "rows": [], "session_file": ""}
     provenance = payload.get("source_provenance") or build_source_provenance(recommendation=payload)
-    return {**provenance, "session_file": resolved.name, "session_path": resolved}
+    rows = _filter_source_provenance_rows(
+        provenance.get("rows") or [],
+        status_filter=status_filter,
+        source_filter=source_filter,
+        ticker_filter=ticker_filter,
+    )
+    return {
+        **provenance,
+        "rows": rows,
+        "unfiltered_count": len(provenance.get("rows") or []),
+        "filtered_count": len(rows),
+        "active_filters": {
+            "status": status_filter,
+            "source": source_filter,
+            "ticker": ticker_filter,
+        },
+        "session_file": resolved.name,
+        "session_path": resolved,
+    }
+
+
+def _filter_source_provenance_rows(
+    rows: list[dict[str, Any]],
+    *,
+    status_filter: str,
+    source_filter: str,
+    ticker_filter: str,
+) -> list[dict[str, Any]]:
+    status = (status_filter or "all").strip().upper()
+    source = (source_filter or "all").strip().lower()
+    ticker = (ticker_filter or "").strip().upper()
+    filtered = []
+    for row in rows:
+        row_status = str(row.get("status") or "").upper()
+        row_source = str(row.get("source") or "").lower()
+        row_ticker = str(row.get("ticker") or "").upper()
+        if status == "PROBLEM" and row_status not in {"MISSING", "DEGRADED", "PARTIAL"}:
+            continue
+        if status not in {"ALL", "PROBLEM"} and row_status != status:
+            continue
+        if source != "all" and row_source != source:
+            continue
+        if ticker and ticker not in row_ticker:
+            continue
+        filtered.append(row)
+    return filtered
 
 
 BUY_SIGNAL_ACTIONS = {"BUY", "ADD"}
@@ -1210,6 +1262,20 @@ def save_decision_from_ui(
         decision_date=decision_date,
         execution_date=execution_date,
         reason=reason,
+        notes=notes,
+    )
+
+
+def save_execution_checklist_from_ui(
+    row_id: str,
+    *,
+    checklist: dict[str, bool],
+    notes: str = "",
+) -> dict[str, Any]:
+    return record_execution_checklist(
+        DECISION_JOURNAL_PATH,
+        row_id,
+        checklist=checklist,
         notes=notes,
     )
 

@@ -316,11 +316,12 @@ include:
   warnings, risk controls, explanation text, and "what changes my mind" checks.
 - **Run Report**: model, budget, CSV selection, preview, Ready To Run verdict,
   paid-run confirmations, and report execution.
-- **Data Files**: setup readiness, recommended CSV candidates, current
-  holdings/activities CSV defaults, API-key file, reports folder,
+- **Data Files**: setup readiness, ordered Fix Setup recovery steps,
+  recommended CSV candidates, current holdings/activities CSV defaults, API-key file, reports folder,
   recommendation logs folder, uploads folder, and workspace status.
 - **Report Viewer**: styled markdown display, search, latest report loading,
-  Report Review gates, drift/source-degradation summary, and decision feedback.
+  Report Review gates, execution checklist, drift/source-degradation summary,
+  and decision feedback.
 - **History**: previous report browsing with input CSV names, warning counts,
   action counts, data-confidence labels, rendering, and per-report review.
 - **Outcomes**: fixed 1/5/20-day recommendation outcome scoring with stable
@@ -330,7 +331,7 @@ include:
   portfolio JSON.
 - **API Checks**: key management, discovery paths, and connectivity checks.
 - **Diagnostics**: preflight status, no-spend app self-test, latest Source Coverage,
-  Source Provenance, source degradation, recent errors, spend, copyable
+  filterable Source Provenance, source degradation, recent errors, spend, copyable
   diagnostics, support-bundle contents preview, and redacted support-bundle zip
   export.
 - **Updates**: release checks, cache force-refresh, checksum status, update
@@ -559,7 +560,8 @@ python src/main.py setup --json
 
 This reports onboarding stage, workspace writability, API key status, paid-run
 blockers, recommended CSV candidates, demo availability, and the next setup
-action.
+action. The same payload includes **Fix Setup** recovery steps and quick
+actions. Follow those steps in order before a paid run.
 
 To create a redacted support zip:
 
@@ -598,7 +600,14 @@ Copy its summary when reporting an issue.
 The **Data Files** view is the faster place to check exactly which paths will be
 used. Use it before a paid run when you have multiple Wealthsimple exports in
 Downloads or the workspace upload folder. The recommended candidate row is the
-file the app would ask you to confirm.
+file the app would ask you to confirm. If setup is blocked, the **Fix Setup**
+section lists the ordered recovery path: add missing required API keys, confirm
+the Holdings CSV, fix a swapped Activities CSV, run demo smoke, or run the
+report once every required input is ready.
+
+Source Provenance in Diagnostics can be filtered by status, source family, and
+ticker. Use the default problem filter to find missing, degraded, or partial
+evidence before acting on a recommendation.
 
 ## Updates
 

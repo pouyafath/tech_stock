@@ -596,6 +596,25 @@ class TechStockTUI(App):
             log.write(
                 Text(f"Next action: {setup.get('next_action')}", style="bold #f59e0b" if setup.get("status") != "READY" else "#22c55e")
             )
+        recovery_steps = setup.get("recovery_steps") or []
+        if recovery_steps:
+            recovery_table = Table(title="Fix Setup")
+            recovery_table.add_column("Step")
+            recovery_table.add_column("Status")
+            recovery_table.add_column("Title")
+            recovery_table.add_column("Detail")
+            recovery_table.add_column("Action")
+            for row in recovery_steps:
+                status = row.get("status") or ""
+                style = "bold #ef4444" if status == "FAIL" else "#f59e0b" if status == "WARN" else "#22c55e"
+                recovery_table.add_row(
+                    str(row.get("step") or ""),
+                    Text(status, style=style),
+                    row.get("title", ""),
+                    row.get("detail", ""),
+                    row.get("action", ""),
+                )
+            log.write(recovery_table)
 
         self_test = app_self_test_view()
         self_test_table = Table(title=f"App Self-Test — {self_test.get('status')}")
@@ -640,7 +659,7 @@ class TechStockTUI(App):
             )
         log.write(coverage_table)
 
-        provenance = source_provenance_view()
+        provenance = source_provenance_view(status_filter="problem")
         provenance_table = Table(title=f"Source Provenance — {provenance.get('status') or 'UNKNOWN'}")
         provenance_table.add_column("Ticker")
         provenance_table.add_column("Source")
@@ -660,6 +679,13 @@ class TechStockTUI(App):
                 row.get("action") or "",
             )
         log.write(provenance_table)
+        log.write(
+            Text(
+                f"Source provenance filter: problem rows "
+                f"({provenance.get('filtered_count', 0)} of {provenance.get('unfiltered_count', 0)} shown).",
+                style="#94a3b8",
+            )
+        )
 
         for kind in ("holdings", "activities"):
             candidates = Table(title=f"{kind.title()} CSV Candidates")
@@ -953,6 +979,12 @@ class TechStockTUI(App):
             "Recommendation Readiness",
             view.get("recommendation_rows") or [],
             ["readiness", "ticker", "action", "size", "conviction", "warnings", "risk_controls", "decision"],
+        )
+        self._write_rows_table(
+            log,
+            "Execution Checklist",
+            view.get("execution_checklist_rows") or [],
+            ["ticker", "label", "required", "status", "detail", "updated_at"],
         )
         self._write_rows_table(log, "Changed Since Previous Report", view.get("change_rows") or [], ["ticker", "change", "before", "after"])
         self._write_rows_table(

@@ -4,6 +4,28 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.38.0] — 2026-06-24
+
+### Added
+- Added ordered setup recovery steps and quick actions to the shared setup
+  readiness payload. Desktop, Streamlit, and Textual now show the next concrete
+  fix before a paid run: add API key, confirm Holdings CSV, fix swapped
+  Activities CSV, run demo smoke, or run the report.
+- Added an execution checklist to Report Review. Each actionable
+  recommendation can now track quote confirmation, catalyst check, sizing
+  check, fee/FX check, and manual review acceptance in the decision journal.
+- Added source-provenance filters for status, source, and ticker in shared UI
+  support and Streamlit Diagnostics. Desktop Diagnostics now exposes equivalent
+  filters and defaults to problem rows.
+
+### Changed
+- Textual Data Files now shows setup recovery steps and defaults Source
+  Provenance to problem rows to reduce noise.
+- Report Review now includes an execution-checklist metric so pending manual
+  checks are visible before acting on a recommendation.
+
+---
+
 ## [1.37.0] — 2026-06-24
 
 ### Added

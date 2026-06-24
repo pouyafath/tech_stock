@@ -220,6 +220,9 @@ def setup_readiness_view(
             }
         )
 
+    holdings_choices = csv_choice_rows("holdings")
+    activities_choices = csv_choice_rows("activities")
+    recovery_steps = _setup_recovery_steps(rows, holdings_choices, activities_choices, selected)
     status = (
         "READY"
         if all(row["status"] in {"OK", "SKIP"} for row in rows)
@@ -243,9 +246,11 @@ def setup_readiness_view(
             "selected_files": selected,
             "rows": rows,
             "csv_choices": {
-                "holdings": csv_choice_rows("holdings"),
-                "activities": csv_choice_rows("activities"),
+                "holdings": holdings_choices,
+                "activities": activities_choices,
             },
+            "recovery_steps": recovery_steps,
+            "quick_actions": _setup_quick_actions(recovery_steps),
             "pre_run_checklist": checklist,
             "preflight_summary": preflight.get("summary_rows") or [],
         }
@@ -604,6 +609,157 @@ def _setup_next_action(rows: list[dict[str, Any]], fallback: str) -> str:
         if row.get("status") == "WARN" and row.get("action"):
             return row["action"]
     return fallback or "Ready for a report run."
+
+
+def _setup_recovery_steps(
+    rows: list[dict[str, Any]],
+    holdings_choices: list[dict[str, Any]],
+    activities_choices: list[dict[str, Any]],
+    selected: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Return first-run recovery steps in the order a user should fix them."""
+    steps: list[dict[str, Any]] = []
+    by_check = {str(row.get("check") or ""): row for row in rows}
+    api_row = by_check.get("API keys") or {}
+    if api_row.get("status") == "FAIL":
+        steps.append(
+            _recovery_step(
+                1,
+                "Add Anthropic API key",
+                "BLOCKED",
+                api_row.get("detail") or "ANTHROPIC_API_KEY is missing.",
+                "Open API Checks, paste ANTHROPIC_API_KEY, then run Check APIs.",
+                "api_keys",
+                "~/Documents/tech_stock/API_KEYS.txt or the project API_KEYS.txt/.env",
+            )
+        )
+
+    holdings_ready = _recommended_ready(holdings_choices)
+    if not selected.get("holdings") and holdings_ready:
+        steps.append(
+            _recovery_step(
+                2,
+                "Confirm Holdings CSV",
+                "ACTION",
+                f"Recommended file: {holdings_ready.get('filename')}",
+                "Click Use this CSV or save the recommended Holdings path as default.",
+                "holdings_csv",
+                holdings_ready.get("path") or "",
+            )
+        )
+    elif not holdings_ready:
+        holdings_row = by_check.get("Holdings CSV") or {}
+        steps.append(
+            _recovery_step(
+                2,
+                "Choose a fresh Holdings CSV",
+                "BLOCKED" if holdings_row.get("status") == "FAIL" else "REVIEW",
+                holdings_row.get("detail") or "No valid holdings export was found.",
+                "Export Wealthsimple Holdings CSV and save it in Downloads or the workspace.",
+                "holdings_csv",
+                "",
+            )
+        )
+
+    activities_ready = _recommended_ready(activities_choices)
+    activities_bad = any(row.get("status") == "BLOCKED" for row in activities_choices)
+    if activities_bad:
+        steps.append(
+            _recovery_step(
+                3,
+                "Fix Activities CSV field",
+                "REVIEW",
+                "One candidate looks swapped or invalid.",
+                "Move the activities export into the Activities field, or clear it if unavailable.",
+                "activities_csv",
+                activities_ready.get("path") if activities_ready else "",
+            )
+        )
+    elif activities_ready and not selected.get("activities"):
+        steps.append(
+            _recovery_step(
+                3,
+                "Optional: confirm Activities CSV",
+                "OPTIONAL",
+                f"Recommended file: {activities_ready.get('filename')}",
+                "Save this path to improve holding-days and trade-history context.",
+                "activities_csv",
+                activities_ready.get("path") or "",
+            )
+        )
+
+    demo_row = by_check.get("Demo smoke") or {}
+    if demo_row.get("status") == "OK":
+        steps.append(
+            _recovery_step(
+                4,
+                "Run demo smoke test",
+                "OPTIONAL",
+                "Validates the installed app without Claude spend.",
+                "Use this before troubleshooting paid runs.",
+                "demo_smoke",
+                "",
+            )
+        )
+    if not steps:
+        steps.append(
+            _recovery_step(
+                1,
+                "Run report",
+                "READY",
+                "Setup is ready.",
+                "Open Run Report, confirm paid-run warnings if any, then generate the report.",
+                "run_report",
+                "",
+            )
+        )
+    return steps
+
+
+def _setup_quick_actions(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    actions = []
+    for step in steps:
+        kind = step.get("kind")
+        if kind == "api_keys":
+            target = step.get("path_hint") or ""
+            actions.append({"label": "Open API Checks", "action": "open_api_checks", "target": target, "path": target})
+        elif kind in {"holdings_csv", "activities_csv"} and step.get("path_hint"):
+            target = step.get("path_hint") or ""
+            actions.append({"label": "Use this CSV", "action": f"use_{kind}", "target": target, "path": target})
+        elif kind == "demo_smoke":
+            actions.append({"label": "Run demo smoke test", "action": "run_demo_smoke", "target": "", "path": ""})
+        elif kind == "run_report":
+            actions.append({"label": "Run report", "action": "run_report", "target": "", "path": ""})
+    return actions
+
+
+def _recommended_ready(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    for row in rows:
+        if row.get("recommended") and row.get("status") == "READY":
+            return row
+    return {}
+
+
+def _recovery_step(
+    order: int,
+    step: str,
+    status: str,
+    detail: str,
+    action: str,
+    kind: str,
+    path_hint: str,
+) -> dict[str, Any]:
+    return {
+        "order": order,
+        "step": step,
+        "title": step,
+        "status": status,
+        "detail": detail,
+        "action": action,
+        "kind": kind,
+        "path_hint": path_hint,
+        "path": path_hint,
+    }
 
 
 def _workspace_status(preflight: dict[str, Any]) -> str:

@@ -65,8 +65,10 @@ from src.ui_support import (
     run_report_from_ui,
     save_api_key,
     save_decision_from_ui,
+    save_execution_checklist_from_ui,
     save_selected_data_files,
     setup_readiness_view,
+    source_provenance_view,
     support_bundle_preview,
     validate_json_text,
     write_editable_json,
@@ -1626,6 +1628,18 @@ class DesktopApp(tk.Tk):
             height=6,
         )
         self.report_review_tree.pack(fill="x")
+
+        checklist_panel = ttk.Frame(review_panel, style="Panel.TFrame")
+        checklist_panel.pack(fill="x", pady=(10, 0))
+        ttk.Label(checklist_panel, text="Execution checklist", style="Subheading.TLabel").pack(anchor="w", pady=(0, 6))
+        self.report_review_checklist_tree = self._make_tree(
+            checklist_panel,
+            ["ticker", "check", "required", "status", "detail"],
+            [90, 190, 90, 100, 720],
+            height=5,
+        )
+        self.report_review_checklist_tree.pack(fill="x")
+
         decision_bar = ttk.Frame(review_panel, style="Panel.TFrame")
         decision_bar.pack(fill="x", pady=(8, 0))
         ttk.Label(decision_bar, text="Decision", style="Muted.TLabel").pack(side="left")
@@ -1648,6 +1662,7 @@ class DesktopApp(tk.Tk):
         )
         self.report_review_choice_box.pack(side="left", padx=(0, 8))
         ttk.Button(decision_bar, text="Save Feedback", command=self._save_report_review_decision).pack(side="left")
+        ttk.Button(decision_bar, text="Mark Checklist Reviewed", command=self._save_report_review_checklist).pack(side="left", padx=(8, 0))
 
         self.report_text = ScrolledText(
             self.report_tab,
@@ -2556,6 +2571,16 @@ class DesktopApp(tk.Tk):
         )
         self.setup_readiness_tree.pack(fill="x")
 
+        recovery = self._panel(self.data_files_tab, "Fix Setup")
+        recovery.pack(fill="x", padx=16, pady=(0, 12))
+        self.setup_recovery_tree = self._make_tree(
+            recovery,
+            ["step", "status", "title", "detail", "action"],
+            [70, 100, 210, 560, 360],
+            height=5,
+        )
+        self.setup_recovery_tree.pack(fill="x")
+
         files = self._panel(self.data_files_tab, "Data Files / Workspace")
         files.pack(fill="x", padx=16, pady=(0, 12))
         self.data_files_tree = self._make_tree(
@@ -2596,8 +2621,20 @@ class DesktopApp(tk.Tk):
                 for row in setup.get("rows") or []
             ]
             self._replace_tree_rows(self.setup_readiness_tree, readiness_rows)
+            recovery_rows = [
+                [
+                    str(row.get("step") or ""),
+                    row.get("status") or "",
+                    row.get("title") or "",
+                    row.get("detail") or "",
+                    row.get("action") or "",
+                ]
+                for row in setup.get("recovery_steps") or []
+            ]
+            self._replace_tree_rows(self.setup_recovery_tree, recovery_rows, tag_index=1)
         except Exception as exc:  # noqa: BLE001
             self._replace_tree_rows(self.setup_readiness_tree, [["Setup", "FAIL", str(exc), "Open Diagnostics."]])
+            self._replace_tree_rows(self.setup_recovery_tree, [["", "FAIL", "Setup recovery failed", str(exc), "Open Diagnostics."]])
 
         candidate_rows = []
         try:
@@ -2922,6 +2959,24 @@ class DesktopApp(tk.Tk):
 
         provenance_panel = self._panel(self.diagnostics_tab, "Source Provenance")
         provenance_panel.pack(fill="x", padx=16, pady=(0, 12))
+        provenance_filter_bar = ttk.Frame(provenance_panel, style="Panel.TFrame")
+        provenance_filter_bar.pack(fill="x", pady=(0, 8))
+        self.provenance_status_filter_var = tk.StringVar(value="problem")
+        self.provenance_source_filter_var = tk.StringVar(value="all")
+        self.provenance_ticker_filter_var = tk.StringVar(value="")
+        ttk.Label(provenance_filter_bar, text="Status", style="Muted.TLabel").pack(side="left")
+        ttk.Combobox(
+            provenance_filter_bar,
+            textvariable=self.provenance_status_filter_var,
+            values=["all", "problem", "OK", "PARTIAL", "MISSING", "DEGRADED"],
+            state="readonly",
+            width=10,
+        ).pack(side="left", padx=(4, 12))
+        ttk.Label(provenance_filter_bar, text="Source", style="Muted.TLabel").pack(side="left")
+        ttk.Entry(provenance_filter_bar, textvariable=self.provenance_source_filter_var, width=16).pack(side="left", padx=(4, 12))
+        ttk.Label(provenance_filter_bar, text="Ticker", style="Muted.TLabel").pack(side="left")
+        ttk.Entry(provenance_filter_bar, textvariable=self.provenance_ticker_filter_var, width=12).pack(side="left", padx=(4, 12))
+        ttk.Button(provenance_filter_bar, text="Apply", command=self.refresh_diagnostics_tab).pack(side="left")
         self.diagnostics_source_provenance_tree = self._make_tree(
             provenance_panel,
             ["ticker", "source", "status", "provider", "timestamp_field", "action"],
@@ -3062,8 +3117,13 @@ class DesktopApp(tk.Tk):
             )
         self._replace_tree_rows(self.diagnostics_source_coverage_tree, coverage_rows, tag_index=1)
 
+        provenance = source_provenance_view(
+            status_filter=self.provenance_status_filter_var.get() or "all",
+            source_filter=self.provenance_source_filter_var.get() or "all",
+            ticker_filter=self.provenance_ticker_filter_var.get() or "",
+        )
         provenance_rows = []
-        for row in (view.get("source_provenance") or {}).get("rows") or []:
+        for row in provenance.get("rows") or []:
             provenance_rows.append(
                 [
                     row.get("ticker") or "",
@@ -4568,6 +4628,7 @@ class DesktopApp(tk.Tk):
         if not path:
             self.report_review_status.set("No report selected.")
             self._replace_tree_rows(self.report_review_tree, [])
+            self._replace_tree_rows(self.report_review_checklist_tree, [])
             self.report_review_decision_rows = []
             self.report_review_decision_box.configure(values=[])
             self.report_review_decision_var.set("")
@@ -4577,6 +4638,7 @@ class DesktopApp(tk.Tk):
         except Exception as exc:  # noqa: BLE001
             self.report_review_status.set(f"Report review failed: {exc}")
             self._replace_tree_rows(self.report_review_tree, [])
+            self._replace_tree_rows(self.report_review_checklist_tree, [])
             self.report_review_decision_rows = []
             self.report_review_decision_box.configure(values=[])
             self.report_review_decision_var.set("")
@@ -4598,6 +4660,19 @@ class DesktopApp(tk.Tk):
                 ]
             )
         self._replace_tree_rows(self.report_review_tree, rows)
+
+        checklist_rows = []
+        for row in view.get("execution_checklist_rows") or []:
+            checklist_rows.append(
+                [
+                    row.get("ticker") or "",
+                    row.get("label") or row.get("check") or "",
+                    "YES" if row.get("required") else "",
+                    row.get("status") or "",
+                    row.get("detail") or "",
+                ]
+            )
+        self._replace_tree_rows(self.report_review_checklist_tree, checklist_rows, tag_index=3)
 
         self.report_review_decision_rows = view.get("decision_rows") or []
         labels = [
@@ -4625,6 +4700,32 @@ class DesktopApp(tk.Tk):
             self.status.set(f"Could not save feedback: {exc}")
             return
         self.status.set(f"Saved feedback for {row.get('ticker')}.")
+        self._refresh_report_review(self.latest_report_path)
+
+    def _save_report_review_checklist(self) -> None:
+        selected = self.report_review_decision_var.get()
+        rows = getattr(self, "report_review_decision_rows", []) or []
+        labels = [f"{row.get('ticker')} {row.get('recommended_action')} · {row.get('user_decision')} · {row.get('id')}" for row in rows]
+        if not selected or selected not in labels:
+            self.status.set("Choose a recommendation row before marking checklist reviewed.")
+            return
+        row = rows[labels.index(selected)]
+        try:
+            save_execution_checklist_from_ui(
+                str(row.get("id")),
+                checklist={
+                    "quote_confirmed": True,
+                    "catalyst_checked": True,
+                    "sizing_checked": True,
+                    "fee_fx_checked": True,
+                    "manual_review_accepted": True,
+                },
+                notes="Marked reviewed from Desktop Report Review.",
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.status.set(f"Could not save checklist: {exc}")
+            return
+        self.status.set(f"Marked execution checklist reviewed for {row.get('ticker')}.")
         self._refresh_report_review(self.latest_report_path)
 
     def load_report(self, path: Path | None, *, select_tab: bool = False) -> None:

@@ -41,7 +41,7 @@
 - ✅ **Source Provenance Drilldown** — Reports and diagnostics show ticker-level provider, timestamp/field, evidence, and required action for quote, catalyst, analyst, fundamentals, and options data
 - ✅ **Actionability Check** — Reports now summarize Trade Ready / Review First / Blocked status near the top before the audit sections
 - ✅ **Can I Act On This?** — Reports include a compact deterministic actionability table per recommendation before detailed analysis
-- ✅ **Report Review + Feedback** — Every UI can review the latest report's gates, drift, source degradation, readiness, and pending decision-journal rows
+- ✅ **Report Review + Feedback** — Every UI can review the latest report's gates, drift, source degradation, readiness, execution checklist, and pending decision-journal rows
 - ✅ **Recommendation Outcomes** — Fixed 1/5/20-day outcome tracking with stable recommendation IDs, benchmark alpha, stop/take-profit checks, and cost-per-useful-outcome stats
 - ✅ **Outcome Lessons** — Outcomes derive compact positive/negative lessons by readiness, source coverage, catalyst verification, action, and market regime
 - ✅ **Doctor / Preflight** — `python src/main.py doctor --json` checks version, update cache, API keys, CSV Health, budget status, release assets, and demo smoke readiness
@@ -69,6 +69,23 @@
 - ✅ **Fast Parallel Fetching** — Concurrent API requests with caching and graceful degradation
 
 ---
+
+## ✨ What's New in v1.38.0 (June 24, 2026)
+
+**Setup recovery, execution checklists, and cleaner provenance triage.**
+
+- **Fix Setup guidance** — Data Files now shows ordered recovery steps and
+  quick actions before a paid run, including adding API keys, confirming the
+  Holdings CSV, fixing a swapped Activities CSV, running demo smoke, or running
+  the report.
+- **Execution checklist** — Report Review tracks quote confirmation, catalyst
+  check, sizing check, fee/FX check, and manual-review acceptance per actionable
+  recommendation in the decision journal.
+- **Filtered Source Provenance** — Diagnostics can filter ticker-level
+  provenance by problem status, source family, and ticker so stale/missing
+  evidence is easier to find.
+- **Textual parity** — the terminal UI now shows Fix Setup steps and compact
+  problem-focused provenance rows.
 
 ## ✨ What's New in v1.37.0 (June 24, 2026)
 
@@ -706,12 +723,12 @@ Tabs:
 - **Dashboard** — Shows the next action, portfolio/risk metric cards, Data Confidence, source coverage, priority action queue, quality gates, stop breaches, drift, hedge ideas, market context, watchlist signals, and Claude cost
 - **Buy Signals** — Shows source-backed BUY/ADD and add-on-dip snapshots with readiness badges, Data Confidence, filters, overview cards, consensus/targets, catalysts/risks, and source notes
 - **Run Report** — Select session/model/budgets, confirm Wealthsimple CSV paths, preview holdings, see the Ready To Run verdict, check setup, run no-spend demo smoke, and run the same report pipeline as CLI mode with live progress
-- **Report Viewer** — Opens the latest generated markdown report with styled headings, readable paragraph spacing, aligned table blocks, native word search, highlighted matches, Next/Previous controls, search paths behind **Show Search Paths**, and a Report Review panel for gates/drift/decision feedback
+- **Report Viewer** — Opens the latest generated markdown report with styled headings, readable paragraph spacing, aligned table blocks, native word search, highlighted matches, Next/Previous controls, search paths behind **Show Search Paths**, and a Report Review panel for gates, drift, execution checklist, and decision feedback
 - **History** — Browse previous markdown reports with input CSV names, action counts, warning counts, data-confidence labels, and the same styled markdown renderer
 - **Config Editor** — Edit `config/settings.json`, `config/watchlist.json`, or fallback `config/portfolio.json` with JSON validation
-- **Data Files** — Show setup readiness, recommended CSV candidates, saved holdings/activities defaults, API key file, reports folder, recommendation logs folder, uploads folder, and workspace path
+- **Data Files** — Show setup readiness, ordered Fix Setup recovery steps, recommended CSV candidates, saved holdings/activities defaults, API key file, reports folder, recommendation logs folder, uploads folder, and workspace path
 - **API Checks** — Check Anthropic, yfinance, Finnhub, Polygon, Twelve Data, FRED, CoinGecko, and Alpha Vantage connectivity; show every API-key file path and active storage mode; add/update/delete API keys from the app
-- **Diagnostics** — Shows Preflight/doctor status, no-spend app self-test, source degradation health, latest Source Coverage, recent errors, copyable diagnostics, support-bundle contents preview, and a redacted support-bundle zip export
+- **Diagnostics** — Shows Preflight/doctor status, no-spend app self-test, source degradation health, latest Source Coverage, filterable Source Provenance, recent errors, copyable diagnostics, support-bundle contents preview, and a redacted support-bundle zip export
 - **Updates** — Check GitHub Releases, force-refresh the update cache, download/apply newer versions, verify release checksums when present, and view update logs
 
 The embedded viewer is a native styled markdown reader. Use Streamlit if you specifically want browser-rendered markdown, side-by-side history comparison, and download buttons.
@@ -769,7 +786,7 @@ Then open the local URL Streamlit prints, normally `http://localhost:8501`.
 
 Tabs:
 - **Dashboard** — Shows latest JSON-log metrics for risk, priority actions, quality warnings, hedge suggestions, drift, cost/tokens, and API connectivity
-- **Today's Report** — Renders the latest markdown report with `st.markdown` and a Report Review panel for gates, drift, readiness, and decision feedback
+- **Today's Report** — Renders the latest markdown report with `st.markdown` and a Report Review panel for gates, drift, readiness, execution checklist, and decision feedback
 - **Run Report** — Select session/model/budgets, upload or point to Wealthsimple CSVs, preview holdings before spending Claude tokens, and trigger the same report pipeline as CLI mode with live progress
 - **History** — Browse previous markdown reports from `reports/`, filter/search by filename, compare two reports side by side, and review/report feedback for older sessions
 - **Backtest** — View metrics, action/conviction/ticker buckets, bar charts, and recent realized examples
@@ -798,7 +815,7 @@ Useful keyboard shortcuts:
 
 ### Decision Journal
 
-After every report, actionable BUY/ADD/TRIM/SELL recommendations are added to local `data/decision_journal.json` as pending rows. Use Report Review in Desktop/Streamlit or the Streamlit **Decision Journal** tab to record what you actually did.
+After every report, actionable BUY/ADD/TRIM/SELL recommendations are added to local `data/decision_journal.json` as pending rows. Use Report Review in Desktop/Streamlit or the Streamlit **Decision Journal** tab to record what you actually did. The same journal row can store the execution checklist: quote confirmed, catalyst checked, sizing checked, fee/FX checked, and manual review accepted.
 
 CLI helpers are also available:
 
@@ -1407,9 +1424,10 @@ For issues or questions:
 
 ---
 
-**Last updated:** June 24, 2026 — v1.37.0 recommendation explainability,
-ticker-level Source Provenance drilldowns, outcome lessons, safer paid-run
-confirmations, support-bundle release checks, v1.36.0 source-aware Buy Signals,
+**Last updated:** June 24, 2026 — v1.38.0 setup recovery steps,
+execution checklists, filterable Source Provenance, v1.37.0 recommendation
+explainability, ticker-level Source Provenance drilldowns, outcome lessons,
+safer paid-run confirmations, support-bundle release checks, v1.36.0 source-aware Buy Signals,
 per-ticker Source Confidence, source filters, report "Can I Act On This?"
 table, stronger source quality gates, release-check CI enforcement, v1.35.0
 release trust, required Linux tarball packaging, `release-check`, Source
@@ -1426,7 +1444,7 @@ paid-run blocking, v1.28.0 release-health diagnostics, updater simulation,
 v1.27.2 desktop consolidation, CI coverage stabilization, release-gate
 dependency auditing, Node 24 workflow readiness, macro-regime gates,
 concentration alerts, and v1 release-line cleanup.
-**Version:** 1.37.0
+**Version:** 1.38.0
 **Status:** Production-ready v1 line — deterministic quality gates,
 trade-readiness classifier, recommendation explainability, Source Provenance,
 Data Confidence, source-backed Buy Signals, doctor/preflight diagnostics, setup
