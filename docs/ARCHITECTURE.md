@@ -65,8 +65,10 @@ write; Claude API call).
 | `src/claude_analyst.py` | Prompt construction, two-pass Claude review, JSON parsing, recommendation normalisation |
 | `src/report_quality.py` | The 7-layer quality gate (catalyst, stale-position, thesis decay, trailing stop, VIX regime, conviction sizing, drawdown) |
 | `src/data_confidence.py` | Shared quote/source/catalyst/readiness trust summary for reports and UIs |
+| `src/source_coverage.py` | Deterministic provider-family coverage, per-ticker Source Confidence, and provenance rows for reports, diagnostics, Buy Signals, and saved logs |
 | `src/report_generator.py` | Markdown + CSV + JSON log output |
 | `src/report_review.py` | Shared report-review and feedback-loop view model for UIs |
+| `src/recommendation_explainability.py` | Deterministic "why this recommendation" rows: evidence, gaps, readiness reason, and change-my-mind text |
 | `src/recommendation_outcomes.py` | Fixed 1/5/20-day recommendation outcome tracking, benchmark alpha, stop/take-profit checks, and stable recommendation IDs |
 | `src/recommendation_sizing.py` | Deterministic share/fraction sizing for SELL/TRIM |
 | **API clients (all observability-logged)** | |
@@ -80,7 +82,7 @@ write; Claude API call).
 | **Learning loop (v1.16)** | |
 | `src/backtester.py` | Past-recommendation evaluation, `reliability_diagram`, walk-forward windows (v1.18), conviction-stratified sizing multipliers |
 | `src/decision_journal.py` | User-decision recording + scorecard with per-horizon edge (v1.16) |
-| `src/recommendation_outcomes.py` | All-recommendation fixed-window outcomes used by the Outcomes tab and future prompt calibration |
+| `src/recommendation_outcomes.py` | All-recommendation fixed-window outcomes, outcome lessons, and prompt calibration summaries |
 | `src/drift_tracker.py` | Action / conviction / thesis-text drift detection between sessions |
 | `src/thesis_tracker.py` | Thesis verdict evaluation (materialized / partial / not_yet / invalidated) |
 | `src/position_aging.py` | Position-age buckets (fresh / core / mature / aged / stale) |
@@ -94,7 +96,7 @@ write; Claude API call).
 | `src/csv_health.py` | Wealthsimple CSV schema inspection, swapped-file detection, and sample/demo guards |
 | `src/data_files.py` | Saved CSV defaults, Data Files / Workspace view model, and shared paid-run checklist |
 | `src/preflight.py` | Doctor command, update/API/CSV Health/budget/release checks, and no-spend demo smoke test |
-| `src/setup_readiness.py` | First-run/setup readiness view, paid-run readiness verdict, CSV candidate confirmation metadata, support-bundle preview, and redacted support bundle export |
+| `src/setup_readiness.py` | First-run/setup readiness view, paid-run readiness verdict, confirmation metadata, CSV candidate confirmation metadata, support-bundle preview, and redacted support bundle export |
 | `src/workspace_export.py` | Sanitised zip export of the user's workspace |
 | `src/notifications.py` | Cross-platform desktop notifications (macOS osascript / Linux notify-send / Windows BurntToast) |
 | `src/scheduling.py` | Per-user launchd / Task Scheduler / cron installer |
@@ -108,6 +110,7 @@ write; Claude API call).
 | `src/ui_theme.py` | Shared palette + HTML helpers + Streamlit CSS bundle |
 | **Release tooling** | |
 | `tools/package_smoke.py` | Source/package structure and version smoke checks for CI release builds |
+| `src/release_check.py` | Release readiness checks for workflow settings, required Linux tarball, optional AppImage, and checksums |
 | `src/ui_support.py` | UI-facing data aggregators (`learning_view`, `diagnostics_view`, `report_review_view`, `decision_scorecard_summary`, setup readiness, Data Files, pre-run checklist, history surfaces, etc.) |
 | **Infra** | |
 | `src/updater.py` | GitHub Releases auto-update + checksum verification |
@@ -149,16 +152,22 @@ write; Claude API call).
 9. **Confidence** — `data_confidence.build_data_confidence` summarizes
    quote freshness, source coverage, catalyst coverage, warning counts,
    and readiness so reports and UIs can show the same trust signal.
-10. **Render** — `report_generator.generate_markdown` writes the
+10. **Provenance** — `source_coverage.build_source_coverage` records which
+   provider families supplied quotes, catalyst/news, analyst, fundamentals,
+   options, macro, and insider context, plus required user actions for missing
+   or degraded sources. `build_ticker_source_confidence` creates the per-ticker
+   Buy Signals source filters and readiness blockers.
+11. **Render** — `report_generator.generate_markdown` writes the
    user-facing report; `save_report` puts it in `reports/`;
    `save_recommendations_csv` writes the structured CSV.
-11. **Record** — write the JSON log to
+12. **Record** — write the JSON log to
     `data/recommendations_log/`, seed new entries into the decision
     journal, append the cost record to `data/cost_log.jsonl`, fire any
     matching notification channels.
-12. **Review** — `report_review.build_report_review` joins the matching
-    report, JSON log, Data Confidence, quality warnings, source degradation,
-    drift, and decision journal rows into one post-run UI payload.
+13. **Review** — `report_review.build_report_review` joins the matching
+    report, JSON log, Data Confidence, Source Coverage, Source Provenance,
+    recommendation explainability, quality warnings, source degradation, drift,
+    and decision journal rows into one post-run UI payload.
 
 ## The 7-layer quality gate
 

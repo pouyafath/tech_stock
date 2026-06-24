@@ -140,6 +140,7 @@ def test_latest_log_summary_reads_current_dashboard_fields(monkeypatch, tmp_path
         "session_summary": "summary",
         "usage_summary": {"cost_usd": 0.5},
         "recommendations": [{"ticker": "NVDA"}],
+        "source_coverage": {"status": "PARTIAL", "rows": [{"source": "Quotes", "status": "PARTIAL"}]},
     }
     path = log_dir / "20260430_0900_morning.json"
     path.write_text(json.dumps(payload))
@@ -155,6 +156,7 @@ def test_latest_log_summary_reads_current_dashboard_fields(monkeypatch, tmp_path
     assert summary["watchlist_flags"][0]["ticker"] == "CRM"
     assert summary["sector_warnings"] == ["tech concentration"]
     assert summary["session_summary"] == "summary"
+    assert summary["source_coverage"]["status"] == "PARTIAL"
 
 
 def test_report_history_view_includes_input_files_and_signal_counts(monkeypatch, tmp_path):

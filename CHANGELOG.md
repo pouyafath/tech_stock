@@ -4,6 +4,85 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.37.0] — 2026-06-24
+
+### Added
+- Added deterministic recommendation explainability in reports and Buy Signals:
+  every recommendation can now show source-backed bullish evidence, bearish
+  evidence, missing data, readiness reason, and "what changes my mind" text.
+- Added ticker-level Source Provenance rows in generated reports, shared UI
+  support, Desktop Diagnostics, Streamlit Diagnostics, and Textual Data Files.
+  Rows show ticker, source family, provider, timestamp/field, status, evidence,
+  and required user action.
+- Added outcome-learning lessons. Outcomes now derive compact positive/negative
+  lessons by readiness, source coverage, catalyst verification, action, and
+  market regime when enough matured samples exist.
+- Added paid-run confirmation metadata to readiness payloads and UI run screens,
+  plus `--yes` / `--no-confirm` for scheduled non-interactive terminal runs.
+- Added release-check metadata to redacted support bundles so support zips show
+  packaging/checksum readiness without exposing secrets or raw user data.
+
+### Changed
+- Non-interactive scheduled paid runs now stop on warning-confirmation
+  requirements unless `--yes` is supplied after review.
+- Support bundle previews now include `support/release_check.json` by default;
+  use `support-bundle --skip-release-check` to omit it.
+
+---
+
+## [1.36.0] — 2026-06-24
+
+### Added
+- Added per-ticker Source Confidence for Buy Signals. Each candidate now shows
+  quote, catalyst/news, analyst, fundamentals, and options coverage, with
+  blockers/review reasons derived from deterministic source fields.
+- Added Buy Signals source filters for missing catalyst, missing analyst data,
+  unstamped quotes, and degraded sources across Desktop, Streamlit, and Textual.
+- Added a top-level **Can I Act On This?** report section that summarizes each
+  recommendation's deterministic verdict, reason, and next check before the
+  detailed audit sections.
+- Added release workflow enforcement for `python src/main.py release-check
+  --dist release --strict` before draft GitHub Releases are created.
+
+### Changed
+- Trade readiness now incorporates Source Confidence and is persisted onto
+  recommendations after deterministic quality gates run.
+- Report quality gates now flag high-conviction BUY/ADD recommendations that
+  lack analyst/target source coverage, near-earnings BUY/ADD recommendations
+  without options-implied move data, stale catalyst/news references, and
+  source-dependent thesis language without matching source data.
+- Recommendation outcomes now bucket historical results by Source Coverage
+  status so future calibration can compare source-backed versus partial-source
+  calls.
+- Dashboard view models now include Source Coverage status as a metric card.
+
+---
+
+## [1.35.0] — 2026-06-24
+
+### Added
+- Added `python src/main.py release-check` for local and CI release readiness
+  checks. It verifies draft-release settings, checksum publishing, Linux
+  AppImage/tarball workflow coverage, and optional flattened release assets.
+- Added deterministic Source Coverage summaries in generated reports, saved
+  recommendation logs, shared UI support, and diagnostics. New reports now show
+  quote, Claude recommendation, catalyst/news, analyst, fundamentals, options,
+  macro, and insider-data coverage with user actions for missing/degraded
+  sources.
+- Expanded recommendation outcome learning with trade-readiness, catalyst
+  verification, manual-review, and market-regime buckets, giving future prompt
+  calibration more context than action/ticker alone.
+
+### Changed
+- Linux builds now always produce
+  `tech_stock-<version>-linux-x86_64.tar.gz`. AppImage remains available when
+  `appimagetool` works, but tarball publishing is no longer a fallback-only
+  path.
+- The release workflow now treats the Linux tarball as a required artifact while
+  keeping AppImage upload best-effort.
+
+---
+
 ## [1.34.0] — 2026-06-17
 
 ### Added

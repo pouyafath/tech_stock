@@ -23,6 +23,13 @@ DEFAULT_HORIZONS = (1, 5, 20)
 DEFAULT_BENCHMARKS = ("SPY", "QQQ")
 SEMICONDUCTOR_TICKERS = {"AMD", "AVGO", "INTC", "MU", "NVDA", "QCOM", "SMH", "SOXL", "TSM"}
 LEVERAGED_QQQ_TICKERS = {"TQQQ", "SQQQ", "QLD", "QID"}
+BLOCKING_WARNING_CODES = {
+    "market_data_error",
+    "stale_or_unstamped_quote",
+    "missing_catalyst_verification",
+    "buy_add_over_position_cap",
+    "oversized_company_exposure",
+}
 
 _FILENAME_RE = re.compile(r"^(\d{8})_(\d{4})_(morning|afternoon)\.json$")
 
@@ -95,6 +102,10 @@ def load_recommendation_events(log_dir: str | Path, *, limit: int | None = None)
                 "catalyst_verified": bool(rec.get("catalyst_verified")),
                 "catalyst_source": rec.get("catalyst_source") or "",
                 "manual_review_required": bool(rec.get("manual_review_required")),
+                "trade_readiness": _trade_readiness(rec, payload, ticker),
+                "market_regime": _market_regime(payload),
+                "source_coverage_status": _source_coverage_status(payload),
+                "source_required_missing_count": _source_required_missing_count(payload),
                 "source_bucket": _source_bucket(rec, payload),
                 "quality_warning_count": _quality_warning_count(payload, ticker),
                 "log_index": index,
@@ -225,6 +236,11 @@ def summarize_outcomes(
         "by_horizon": _bucket_by(rows, "horizon_days"),
         "by_ticker": _top_bucket_by(rows, "ticker", limit=12),
         "by_source_bucket": _bucket_by(rows, "source_bucket"),
+        "by_trade_readiness": _bucket_by(rows, "trade_readiness"),
+        "by_catalyst_verified": _bucket_by(rows, "catalyst_verified"),
+        "by_manual_review_required": _bucket_by(rows, "manual_review_required"),
+        "by_market_regime": _bucket_by(rows, "market_regime"),
+        "by_source_coverage_status": _bucket_by(rows, "source_coverage_status"),
         "best_recommendations": sorted(rows, key=lambda row: safe_float(row.get("action_return_pct")) or 0.0, reverse=True)[:8],
         "worst_recommendations": sorted(rows, key=lambda row: safe_float(row.get("action_return_pct")) or 0.0)[:8],
         "best_alpha": sorted(
@@ -235,6 +251,7 @@ def summarize_outcomes(
         "stop_loss_hits": sum(1 for row in rows if row.get("stop_loss_triggered")),
         "take_profit_hits": sum(1 for row in rows if row.get("take_profit_triggered")),
     }
+    summary["lessons"] = build_outcome_lessons(summary)
     summary["prompt_summary"] = prompt_summary(summary)
     return summary
 
@@ -273,7 +290,74 @@ def build_outcomes_view(
             {"label": "Cost/useful", "value": summary.get("cost_per_useful_window_usd"), "kind": "money"},
         ],
         "recent_rows": sorted(result["rows"], key=lambda row: (row.get("session_date") or "", row.get("ticker") or ""), reverse=True)[:50],
+        "lessons": summary.get("lessons") or [],
         "prompt_summary": summary.get("prompt_summary"),
+    }
+
+
+def build_outcome_lessons(summary: dict[str, Any], *, min_n: int = 2) -> list[dict[str, Any]]:
+    """Return deterministic lessons from mature outcome buckets."""
+    lessons: list[dict[str, Any]] = []
+    lessons.extend(_bucket_lessons("Readiness", summary.get("by_trade_readiness") or {}, min_n=min_n))
+    lessons.extend(_bucket_lessons("Source coverage", summary.get("by_source_coverage_status") or {}, min_n=min_n))
+    lessons.extend(_bucket_lessons("Catalyst verified", summary.get("by_catalyst_verified") or {}, min_n=min_n))
+    lessons.extend(_bucket_lessons("Action", summary.get("by_action") or {}, min_n=min_n))
+    lessons.extend(_bucket_lessons("Market regime", summary.get("by_market_regime") or {}, min_n=min_n))
+    return sorted(lessons, key=lambda row: (-abs(safe_float(row.get("edge_pct")) or 0.0), str(row.get("dimension"))))[:8]
+
+
+def _bucket_lessons(label: str, buckets: dict[Any, dict[str, Any]], *, min_n: int) -> list[dict[str, Any]]:
+    eligible = [(key, stats) for key, stats in buckets.items() if int(stats.get("n") or 0) >= min_n]
+    if not eligible:
+        return []
+    lessons = []
+    best_key, best_stats = max(eligible, key=lambda item: safe_float(item[1].get("avg_action_return_pct")) or 0.0)
+    worst_key, worst_stats = min(eligible, key=lambda item: safe_float(item[1].get("avg_action_return_pct")) or 0.0)
+    best_return = safe_float(best_stats.get("avg_action_return_pct")) or 0.0
+    worst_return = safe_float(worst_stats.get("avg_action_return_pct")) or 0.0
+    if best_return > 0:
+        lessons.append(
+            _lesson(
+                label,
+                best_key,
+                "positive",
+                best_stats,
+                best_return,
+                f"{label} bucket '{best_key}' has produced positive average action return.",
+            )
+        )
+    if worst_return < 0:
+        lessons.append(
+            _lesson(
+                label,
+                worst_key,
+                "negative",
+                worst_stats,
+                worst_return,
+                f"{label} bucket '{worst_key}' has produced negative average action return.",
+            )
+        )
+    return lessons
+
+
+def _lesson(
+    dimension: str,
+    bucket: Any,
+    direction: str,
+    stats: dict[str, Any],
+    edge_pct: float,
+    message: str,
+) -> dict[str, Any]:
+    return {
+        "dimension": dimension,
+        "bucket": str(bucket),
+        "direction": direction,
+        "n": int(stats.get("n") or 0),
+        "hit_rate": stats.get("hit_rate"),
+        "avg_action_return_pct": stats.get("avg_action_return_pct"),
+        "avg_alpha_vs_benchmark_pct": stats.get("avg_alpha_vs_benchmark_pct"),
+        "edge_pct": round(float(edge_pct), 2),
+        "message": message,
     }
 
 
@@ -297,6 +381,25 @@ def prompt_summary(summary: dict[str, Any]) -> str:
             f"TRIM/SELL saved drawdown {summary.get('trim_sell_saved_drawdown_avg_pct', 0):+.2f}% "
             f"on {summary.get('trim_sell_saved_drawdown_count')} windows"
         )
+    readiness = summary.get("by_trade_readiness") or {}
+    if readiness:
+        ready = readiness.get("TRADE_READY", {}).get("hit_rate")
+        review = readiness.get("REVIEW_FIRST", {}).get("hit_rate")
+        blocked = readiness.get("BLOCKED", {}).get("hit_rate")
+        if ready is not None:
+            parts.append(f"trade-ready hit {ready:.0%}")
+        if review is not None:
+            parts.append(f"review-first hit {review:.0%}")
+        if blocked is not None:
+            parts.append(f"blocked hit {blocked:.0%}")
+    catalyst = summary.get("by_catalyst_verified") or {}
+    if True in catalyst and catalyst[True].get("n"):
+        parts.append(f"verified-catalyst hit {catalyst[True].get('hit_rate', 0):.0%}")
+    source_coverage = summary.get("by_source_coverage_status") or {}
+    for status in ("OK", "PARTIAL", "REVIEW_FIRST", "BLOCKED"):
+        bucket = source_coverage.get(status)
+        if bucket and bucket.get("n"):
+            parts.append(f"source-{status.lower()} hit {bucket.get('hit_rate', 0):.0%}")
     return "; ".join(parts) + "."
 
 
@@ -402,6 +505,67 @@ def _quality_warning_count(payload: dict[str, Any], ticker: str) -> int:
     return sum(1 for row in warnings if (row.get("ticker") or "").upper() == ticker)
 
 
+def _quality_warnings_for_ticker(payload: dict[str, Any], ticker: str) -> list[dict[str, Any]]:
+    warnings = payload.get("quality_warnings") or []
+    return [row for row in warnings if (row.get("ticker") or "").upper() == ticker]
+
+
+def _trade_readiness(rec: dict[str, Any], payload: dict[str, Any], ticker: str) -> str:
+    explicit = str(rec.get("trade_readiness") or rec.get("readiness") or "").upper()
+    if explicit in {"TRADE_READY", "REVIEW_FIRST", "BLOCKED"}:
+        return explicit
+    warnings = _quality_warnings_for_ticker(payload, ticker)
+    warning_codes = {row.get("code") for row in warnings}
+    if warning_codes & BLOCKING_WARNING_CODES:
+        return "BLOCKED"
+    if rec.get("manual_review_required"):
+        return "REVIEW_FIRST"
+    if warnings:
+        return "REVIEW_FIRST"
+    confidence_status = str((payload.get("data_confidence") or {}).get("status") or "").upper()
+    if confidence_status == "BLOCKED":
+        return "BLOCKED"
+    if confidence_status == "REVIEW_FIRST":
+        return "REVIEW_FIRST"
+    return "TRADE_READY"
+
+
+def _market_regime(payload: dict[str, Any]) -> str:
+    macro = payload.get("macro_regime") or {}
+    if isinstance(macro, dict):
+        for key in ("regime", "label", "risk_regime", "summary"):
+            value = macro.get(key)
+            if value:
+                return _clean_bucket(value)
+    context = payload.get("market_context_snapshot") or {}
+    if isinstance(context, dict):
+        for key in ("regime", "risk_regime", "market_regime"):
+            value = context.get(key)
+            if value:
+                return _clean_bucket(value)
+        vix = safe_float(context.get("vix") or context.get("VIX") or context.get("vix_close"))
+        if vix is not None:
+            if vix >= 25:
+                return "high_volatility"
+            if vix >= 18:
+                return "elevated_volatility"
+            return "calm_volatility"
+    drawdown = payload.get("drawdown_state") or {}
+    if isinstance(drawdown, dict) and drawdown.get("risk_regime"):
+        return _clean_bucket(drawdown.get("risk_regime"))
+    return "unknown"
+
+
+def _source_coverage_status(payload: dict[str, Any]) -> str:
+    status = str((payload.get("source_coverage") or {}).get("status") or "").upper()
+    return status or "UNKNOWN"
+
+
+def _source_required_missing_count(payload: dict[str, Any]) -> int:
+    value = safe_float((payload.get("source_coverage") or {}).get("required_missing_count"))
+    return int(value or 0)
+
+
 def _source_bucket(rec: dict[str, Any], payload: dict[str, Any]) -> str:
     if rec.get("manual_review_required"):
         return "manual_review"
@@ -410,3 +574,9 @@ def _source_bucket(rec: dict[str, Any], payload: dict[str, Any]) -> str:
     if _quality_warning_count(payload, (rec.get("ticker") or "").upper()):
         return "quality_warning"
     return "thesis_only"
+
+
+def _clean_bucket(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    text = re.sub(r"[^a-z0-9]+", "_", text)
+    return text.strip("_") or "unknown"

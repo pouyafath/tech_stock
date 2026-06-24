@@ -50,6 +50,8 @@ from src.ui_support import (  # noqa: E402
     run_report_from_ui,
     save_selected_data_files,
     setup_readiness_view,
+    source_coverage_view,
+    source_provenance_view,
     support_bundle_preview,
     validate_json_text,
     write_editable_json,
@@ -266,6 +268,17 @@ class TechStockTUI(App):
                         ],
                         value="all",
                         id="buy_readiness_filter",
+                    )
+                    yield Select(
+                        [
+                            ("All sources", "all"),
+                            ("Missing catalyst", "missing_catalyst"),
+                            ("Missing analyst", "missing_analyst"),
+                            ("Quote not timestamped", "quote_not_timestamped"),
+                            ("Source degraded", "source_degraded"),
+                        ],
+                        value="all",
+                        id="buy_source_filter",
                     )
                 yield RichLog(id="buy_signals_log", wrap=True, highlight=True)
             with TabPane("Run Report", id="run"):
@@ -521,6 +534,12 @@ class TechStockTUI(App):
         console.write(readiness_table)
         if readiness.get("summary"):
             console.write(Text(readiness.get("summary", ""), style="bold #f59e0b" if readiness.get("status") != "READY" else "#22c55e"))
+        self._write_rows_table(
+            console,
+            "Confirmations Before Paid Run",
+            readiness.get("confirmations_required") or [],
+            ["code", "required", "label", "detail", "accepted_by"],
+        )
         table = Table(title="Pre-run Checklist")
         table.add_column("Check")
         table.add_column("Status")
@@ -601,6 +620,46 @@ class TechStockTUI(App):
             style = "bold #ef4444" if status == "FAIL" else "#f59e0b" if status == "WARN" else "#22c55e"
             table.add_row(row.get("resource", ""), Text(status, style=style), row.get("path", ""), row.get("detail", ""))
         log.write(table)
+
+        coverage = source_coverage_view()
+        coverage_table = Table(title=f"Source Coverage — {coverage.get('status') or 'UNKNOWN'}")
+        coverage_table.add_column("Source")
+        coverage_table.add_column("Status")
+        coverage_table.add_column("Evidence")
+        coverage_table.add_column("Action")
+        for row in coverage.get("rows") or []:
+            status = row.get("status") or ""
+            style = (
+                "bold #ef4444" if status in {"MISSING", "DEGRADED"} and row.get("required") else "#f59e0b" if status != "OK" else "#22c55e"
+            )
+            coverage_table.add_row(
+                row.get("source") or "",
+                Text(status, style=style),
+                row.get("evidence") or "",
+                row.get("action") or "",
+            )
+        log.write(coverage_table)
+
+        provenance = source_provenance_view()
+        provenance_table = Table(title=f"Source Provenance — {provenance.get('status') or 'UNKNOWN'}")
+        provenance_table.add_column("Ticker")
+        provenance_table.add_column("Source")
+        provenance_table.add_column("Status")
+        provenance_table.add_column("Provider")
+        provenance_table.add_column("Timestamp / Field")
+        provenance_table.add_column("Action")
+        for row in (provenance.get("rows") or [])[:40]:
+            status = row.get("status") or ""
+            style = "bold #ef4444" if status in {"MISSING", "DEGRADED"} else "#f59e0b" if status == "PARTIAL" else "#22c55e"
+            provenance_table.add_row(
+                row.get("ticker") or "",
+                row.get("source") or "",
+                Text(status, style=style),
+                row.get("provider") or "",
+                row.get("timestamp") or row.get("field") or "",
+                row.get("action") or "",
+            )
+        log.write(provenance_table)
 
         for kind in ("holdings", "activities"):
             candidates = Table(title=f"{kind.title()} CSV Candidates")
@@ -755,7 +814,7 @@ class TechStockTUI(App):
         log.clear()
         log.write(Text("🎯 Buy Signals", style="bold #22c55e"))
         log.write(Text("Press Refresh buy signals to load source-backed BUY/ADD and add-on-dip candidates.", style="dim"))
-        log.write(Text("Filter by action or readiness using the dropdowns above.", style="dim italic"))
+        log.write(Text("Filter by action, readiness, or source coverage using the dropdowns above.", style="dim italic"))
 
     async def _load_buy_signals_async(self) -> None:
         log = self.query_one("#buy_signals_log", RichLog)
@@ -763,10 +822,12 @@ class TechStockTUI(App):
         log.write("Refreshing buy signals...")
         action_filter = self.query_one("#buy_action_filter", Select).value
         readiness_filter = self.query_one("#buy_readiness_filter", Select).value
+        source_filter = self.query_one("#buy_source_filter", Select).value
         data = await asyncio.to_thread(
             buy_signal_view,
             action_filter=str(action_filter or "all"),
             readiness_filter=str(readiness_filter or "all"),
+            source_filter=str(source_filter or "all"),
         )
         log.clear()
         if data.get("error"):
@@ -781,12 +842,33 @@ class TechStockTUI(App):
             log,
             "Buy Signal Overview",
             data.get("overview_rows") or [],
-            ["readiness", "ticker", "action", "conviction", "price", "consensus", "mean_upside_pct", "warnings"],
+            [
+                "readiness",
+                "ticker",
+                "action",
+                "conviction",
+                "price",
+                "source_confidence",
+                "quote_status",
+                "catalyst_status",
+                "why",
+                "change_mind",
+                "warnings",
+            ],
         )
         for item in data.get("cards") or []:
             readiness = item.get("readiness") or {}
             log.write(f"\n{item.get('ticker')} — {readiness.get('label')} — catalyst: {item.get('catalyst_source') or 'N/A'}")
             log.write(f"Readiness reasons: {'; '.join(readiness.get('reasons') or [])}")
+            source_confidence = item.get("source_confidence") or {}
+            if source_confidence:
+                log.write(f"Source confidence: {source_confidence.get('label')} — {source_confidence.get('overall_status')}")
+                for name, component in (source_confidence.get("components") or {}).items():
+                    log.write(f"  {name}: {component.get('status')} — {component.get('evidence')}")
+            explainability = item.get("explainability") or {}
+            if explainability:
+                log.write(f"Why: {'; '.join((explainability.get('bullish_evidence') or [])[:2]) or explainability.get('readiness_reason')}")
+                log.write(f"What changes my mind: {explainability.get('change_mind') or 'N/A'}")
             log.write(
                 f"Quote: {item.get('current_price')} | {item.get('quote_source') or 'unavailable'} | {item.get('quote_timestamp_utc') or 'missing timestamp'}"
             )
@@ -961,6 +1043,12 @@ class TechStockTUI(App):
         if view.get("prompt_summary"):
             log.write(Text(view["prompt_summary"], style="dim"))
 
+        self._write_rows_table(
+            log,
+            "Outcome Lessons",
+            view.get("lessons") or summary.get("lessons") or [],
+            ["dimension", "bucket", "direction", "n", "hit_rate", "avg_action_return_pct", "message"],
+        )
         self._write_outcome_bucket_table(log, "By Action", summary.get("by_action") or {})
         self._write_outcome_bucket_table(log, "By Horizon", summary.get("by_horizon") or {})
         self._write_outcome_bucket_table(log, "By Source Bucket", summary.get("by_source_bucket") or {})

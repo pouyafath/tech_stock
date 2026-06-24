@@ -20,7 +20,9 @@ from src.activity_loader import holding_days_by_ticker
 from src.constants import LEVERAGED_ETF_LEVERAGE, LEVERAGED_ETFS
 from src.data_confidence import build_data_confidence
 from src.portfolio_analytics import aggregate_company_exposure, aggregate_positions
+from src.recommendation_explainability import build_explainability
 from src.recommendation_sizing import apply_trade_sizes
+from src.source_coverage import build_source_coverage, build_source_provenance
 
 ACTION_EMOJI = {
     "BUY": "🟢",
@@ -561,6 +563,130 @@ def _render_data_confidence_section(recommendation: dict, market_data: dict, enr
     return lines
 
 
+def _render_source_coverage_section(recommendation: dict, market_data: dict, enriched: dict, news_by_ticker: dict) -> list[str]:
+    coverage = recommendation.get("source_coverage") or build_source_coverage(
+        recommendation=recommendation,
+        market_data=market_data or {},
+        enriched=enriched or {},
+        news_by_ticker=news_by_ticker or {},
+    )
+    rows = coverage.get("rows") or []
+    if not rows:
+        return []
+
+    lines = [
+        "## Source Coverage",
+        "",
+        f"_{coverage.get('summary') or 'Deterministic provider coverage summary.'}_",
+        "",
+        "| Source | Status | Required | Evidence | User Action |",
+        "|---|---|---:|---|---|",
+    ]
+    for row in rows:
+        lines.append(
+            "| "
+            + " | ".join(
+                _table_cell(value)
+                for value in [
+                    row.get("source") or "",
+                    row.get("status") or "",
+                    "Yes" if row.get("required") else "No",
+                    row.get("evidence") or "",
+                    row.get("action") or "",
+                ]
+            )
+            + " |"
+        )
+    lines += ["", "---", ""]
+    return lines
+
+
+def _render_source_provenance_section(recommendation: dict, market_data: dict, enriched: dict, news_by_ticker: dict) -> list[str]:
+    provenance = recommendation.get("source_provenance") or build_source_provenance(
+        recommendation=recommendation,
+        market_data=market_data or {},
+        enriched=enriched or {},
+        news_by_ticker=news_by_ticker or {},
+    )
+    rows = provenance.get("rows") or []
+    if not rows:
+        return []
+
+    lines = [
+        "## Source Provenance",
+        "",
+        f"_{provenance.get('summary') or 'Ticker-level source provenance.'}_",
+        "",
+        "| Ticker | Source | Status | Provider | Timestamp / Field | Evidence | User Action |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for row in rows[:30]:
+        timestamp_or_field = row.get("timestamp") or row.get("field") or ""
+        lines.append(
+            "| "
+            + " | ".join(
+                _table_cell(value)
+                for value in [
+                    row.get("ticker") or "",
+                    row.get("source") or "",
+                    row.get("status") or "",
+                    row.get("provider") or "",
+                    timestamp_or_field,
+                    row.get("evidence") or "",
+                    row.get("action") or "",
+                ]
+            )
+            + " |"
+        )
+    if len(rows) > 30:
+        lines.append(f"| ... | ... | ... | ... | ... | {len(rows) - 30} additional provenance row(s) omitted | ... |")
+    lines += ["", "---", ""]
+    return lines
+
+
+def _render_explainability_section(recommendation: dict, market_data: dict, enriched: dict, news_by_ticker: dict) -> list[str]:
+    explainability = recommendation.get("explainability") or build_explainability(
+        recommendation,
+        market_data=market_data or {},
+        enriched=enriched or {},
+        news_by_ticker=news_by_ticker or {},
+    )
+    rows = explainability.get("rows") or []
+    if not rows:
+        return []
+    lines = [
+        "## Why These Recommendations?",
+        "",
+        f"_{explainability.get('summary') or 'Deterministic explanation of recommendation evidence and missing data.'}_",
+        "",
+        "| Ticker | Action | Readiness | Why | Risk / Missing Data | What Changes My Mind |",
+        "|---|---|---|---|---|---|",
+    ]
+    for row in rows[:12]:
+        why = "; ".join((row.get("bullish_evidence") or [])[:2]) or row.get("readiness_reason") or "No deterministic reason captured."
+        risk_bits = []
+        risk_bits.extend((row.get("bearish_evidence") or [])[:2])
+        risk_bits.extend((row.get("missing_data") or [])[:2])
+        risk = "; ".join(risk_bits) or "No deterministic data gap captured."
+        lines.append(
+            "| "
+            + " | ".join(
+                _table_cell(value)
+                for value in [
+                    row.get("ticker") or "",
+                    row.get("action") or "",
+                    row.get("readiness") or "",
+                    why,
+                    risk,
+                    row.get("change_mind") or "",
+                ]
+            )
+            + " |"
+        )
+    lines += ["", "---", ""]
+    return lines
+
+
 def _render_actionability_check_section(recommendation: dict, market_data: dict, enriched: dict) -> list[str]:
     confidence = recommendation.get("data_confidence") or build_data_confidence(
         recommendations=recommendation.get("recommendations") or [],
@@ -614,6 +740,62 @@ def _render_actionability_check_section(recommendation: dict, market_data: dict,
     ]
     for label, value in rows:
         lines.append(f"| {label} | {_table_cell(value)} |")
+    lines += ["", "---", ""]
+    return lines
+
+
+def _render_can_act_now_section(recommendation: dict) -> list[str]:
+    recs = recommendation.get("recommendations") or []
+    if not recs:
+        return []
+    warnings = recommendation.get("quality_warnings") or []
+    warnings_by_ticker: dict[str, list[dict]] = {}
+    for warning in warnings:
+        ticker = warning.get("ticker") or "Portfolio"
+        warnings_by_ticker.setdefault(str(ticker).upper(), []).append(warning)
+    blocking_codes = {
+        "market_data_error",
+        "stale_or_unstamped_quote",
+        "missing_catalyst_verification",
+        "buy_add_over_position_cap",
+        "oversized_company_exposure",
+    }
+
+    lines = [
+        "## Can I Act On This?",
+        "",
+        "| Ticker | Action | Verdict | Why | Next Check |",
+        "|---|---|---|---|---|",
+    ]
+    for rec in recs[:12]:
+        ticker = str(rec.get("ticker") or "").upper()
+        action = str(rec.get("action") or rec.get("hold_tier") or "").upper()
+        rec_warnings = warnings_by_ticker.get(ticker, [])
+        warning_codes = {row.get("code") for row in rec_warnings}
+        if warning_codes & blocking_codes:
+            verdict = "BLOCKED"
+        elif rec.get("manual_review_required") or rec_warnings:
+            verdict = "REVIEW FIRST"
+        else:
+            verdict = "TRADE READY"
+        reason = rec_warnings[0].get("message") if rec_warnings else "No deterministic blockers detected."
+        next_check = (
+            rec_warnings[0].get("action_required") if rec_warnings else "Confirm broker quote, order size, and account fee/FX assumptions."
+        )
+        lines.append(
+            "| "
+            + " | ".join(
+                _table_cell(value)
+                for value in [
+                    ticker or "Portfolio",
+                    action or "N/A",
+                    verdict,
+                    reason,
+                    next_check,
+                ]
+            )
+            + " |"
+        )
     lines += ["", "---", ""]
     return lines
 
@@ -1156,6 +1338,7 @@ def generate_markdown(
         ]
     lines += ["", "---", ""]
     lines += _render_actionability_check_section(recommendation, market_data or {}, enriched or {})
+    lines += _render_can_act_now_section(recommendation)
 
     quality_warnings = recommendation.get("quality_warnings") or []
     drift_rows = drift or recommendation.get("drift_vs_previous") or []
@@ -1201,6 +1384,9 @@ def generate_markdown(
 
     # ── Data quality and cost assumptions ─────────────────────────────────
     lines += _render_data_confidence_section(recommendation, market_data or {}, enriched or {})
+    lines += _render_source_coverage_section(recommendation, market_data or {}, enriched or {}, news_by_ticker or {})
+    lines += _render_explainability_section(recommendation, market_data or {}, enriched or {}, news_by_ticker or {})
+    lines += _render_source_provenance_section(recommendation, market_data or {}, enriched or {}, news_by_ticker or {})
     lines += _render_data_quality_section(market_data or {})
     lines += _render_data_coverage_section(enriched or {})
     lines += _render_fee_assumptions_section(settings)

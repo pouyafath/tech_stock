@@ -3,19 +3,21 @@ from datetime import datetime
 
 from src.recommendation_outcomes import (
     benchmark_for_ticker,
+    build_outcome_lessons,
     build_outcomes_view,
     load_recommendation_events,
     stable_recommendation_id,
 )
 
 
-def _write_log(path, recommendations, *, cost=0.22):
+def _write_log(path, recommendations, *, cost=0.22, extra=None):
     path.write_text(
         json.dumps(
             {
                 "recommendations": recommendations,
                 "quality_warnings": [{"ticker": "AMD", "code": "missing_decision_tree"}],
                 "usage_summary": {"cost_usd": cost},
+                **(extra or {}),
             }
         ),
         encoding="utf-8",
@@ -59,14 +61,20 @@ def test_outcomes_view_scores_fixed_windows_and_benchmark_alpha(tmp_path):
                 "net_expected_pct": 4.5,
                 "risk_controls": {"stop_loss_pct": -5, "take_profit_pct": 10},
                 "catalyst_verified": True,
+                "trade_readiness": "REVIEW_FIRST",
             },
             {
                 "ticker": "GOOG",
                 "action": "TRIM",
                 "conviction": 7,
                 "risk_controls": {"stop_loss_pct": -5, "take_profit_pct": 8},
+                "manual_review_required": True,
             },
         ],
+        extra={
+            "market_context_snapshot": {"vix": 27.0},
+            "source_coverage": {"status": "PARTIAL", "required_missing_count": 0},
+        },
     )
 
     prices = {
@@ -96,6 +104,13 @@ def test_outcomes_view_scores_fixed_windows_and_benchmark_alpha(tmp_path):
     assert view["summary"]["buy_add_success_rate"] == 1.0
     assert view["summary"]["trim_sell_saved_drawdown_count"] == 1
     assert view["summary"]["estimated_claude_cost_usd"] == 0.22
+    assert view["summary"]["by_trade_readiness"]["REVIEW_FIRST"]["n"] == 2
+    assert view["summary"]["by_catalyst_verified"][True]["n"] == 1
+    assert view["summary"]["by_manual_review_required"][True]["n"] == 1
+    assert view["summary"]["by_market_regime"]["high_volatility"]["n"] == 2
+    assert view["summary"]["by_source_coverage_status"]["PARTIAL"]["n"] == 2
+    assert view["lessons"]
+    assert any(row["dimension"] == "Readiness" for row in view["lessons"])
 
     amd = next(row for row in view["rows"] if row["ticker"] == "AMD")
     assert amd["id"] == "20260601_morning_AMD_ADD_001"
@@ -104,6 +119,9 @@ def test_outcomes_view_scores_fixed_windows_and_benchmark_alpha(tmp_path):
     assert amd["alpha_vs_benchmark_pct"] == 7.0
     assert amd["take_profit_triggered"] is True
     assert amd["source_bucket"] == "verified_catalyst"
+    assert amd["trade_readiness"] == "REVIEW_FIRST"
+    assert amd["market_regime"] == "high_volatility"
+    assert amd["source_coverage_status"] == "PARTIAL"
 
     goog = next(row for row in view["rows"] if row["ticker"] == "GOOG")
     assert goog["action_return_pct"] == 5.0
@@ -134,3 +152,17 @@ def test_outcomes_view_reports_pending_and_missing_prices(tmp_path):
     assert view["summary"]["error_count"] == 1
     assert view["pending"][0]["ticker"] == "NVDA"
     assert view["errors"][0]["ticker"] == "MSFT"
+
+
+def test_build_outcome_lessons_flags_positive_and_negative_buckets():
+    lessons = build_outcome_lessons(
+        {
+            "by_action": {
+                "ADD": {"n": 2, "avg_action_return_pct": 4.0, "hit_rate": 1.0},
+                "SELL": {"n": 2, "avg_action_return_pct": -2.5, "hit_rate": 0.0},
+            }
+        }
+    )
+
+    assert any(row["bucket"] == "ADD" and row["direction"] == "positive" for row in lessons)
+    assert any(row["bucket"] == "SELL" and row["direction"] == "negative" for row in lessons)

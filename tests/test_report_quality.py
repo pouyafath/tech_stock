@@ -76,6 +76,7 @@ def test_quality_gate_downgrades_unverified_large_move_buy():
     assert rec["hold_tier"] == "watch"
     assert rec["invest_amount_usd"] is None
     assert rec["manual_review_required"] is True
+    assert rec["trade_readiness"] == "BLOCKED"
     assert gated["priority_actions"] == []
 
 
@@ -184,6 +185,55 @@ def test_quality_flags_missing_enrichment_citations():
     codes = _codes(warnings)
     assert "missing_analyst_citation" in codes
     assert "missing_insider_citation" in codes
+
+
+def test_quality_flags_high_conviction_missing_analyst_and_target_sources():
+    recommendation = _recommendation("BUY")
+    rec = recommendation["recommendations"][0]
+    rec["conviction"] = 9
+    rec["risk_controls"] = {"entry_zone_low_pct": -2, "entry_zone_high_pct": 1}
+
+    warnings = evaluate(
+        recommendation,
+        {"MSFT": {"current_price": 100, "currency": "USD", "change_pct_1d": 0, "quote_timestamp_utc": "2026-04-30T20:00:00Z"}},
+        settings={"high_conviction_source_threshold": 8},
+    )
+
+    codes = _codes(warnings)
+    assert "missing_analyst_source" in codes
+    assert "missing_price_target_source" in codes
+
+
+def test_quality_flags_near_earnings_missing_options_implied_move():
+    recommendation = _recommendation("BUY")
+    recommendation["recommendations"][0]["risk_controls"] = {"entry_zone_low_pct": -2, "entry_zone_high_pct": 1}
+
+    warnings = evaluate(
+        recommendation,
+        {"MSFT": {"current_price": 100, "currency": "USD", "change_pct_1d": 0, "quote_timestamp_utc": "2026-04-30T20:00:00Z"}},
+        enriched={"per_ticker": {"MSFT": {"upcoming_earnings": {"date": (datetime.now().date() + timedelta(days=2)).isoformat()}}}},
+        news_by_ticker={"MSFT": [{"title": "Fresh catalyst", "published_at": datetime.now().strftime("%Y-%m-%d %H:%M")}]},
+    )
+
+    assert "missing_options_implied_move" in _codes(warnings)
+
+
+def test_quality_flags_stale_catalyst_source():
+    recommendation = _recommendation("BUY")
+    rec = recommendation["recommendations"][0]
+    rec["catalyst_verified"] = True
+    rec["catalyst_source"] = "Yahoo Finance"
+    rec["risk_controls"] = {"entry_zone_low_pct": -2, "entry_zone_high_pct": 1}
+    old = (datetime.now().date() - timedelta(days=14)).strftime("%Y-%m-%d %H:%M")
+
+    warnings = evaluate(
+        recommendation,
+        {"MSFT": {"current_price": 100, "currency": "USD", "change_pct_1d": 8, "quote_timestamp_utc": "2026-04-30T20:00:00Z"}},
+        news_by_ticker={"MSFT": [{"title": "Old catalyst", "published_at": old}]},
+        settings={"catalyst_max_age_days": 7},
+    )
+
+    assert "stale_catalyst_source" in _codes(warnings)
 
 
 def test_quality_flags_market_data_error():

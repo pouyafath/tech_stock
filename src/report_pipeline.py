@@ -26,6 +26,8 @@ class ReportArtifacts:
     model_name: str | None = None
     quality_warnings: list[dict[str, Any]] | None = None
     source_degradation: list[dict[str, Any]] | None = None
+    source_coverage: dict[str, Any] | None = None
+    source_provenance: dict[str, Any] | None = None
     data_confidence: dict[str, Any] | None = None
     timings: dict[str, Any] | None = None
     errors: list[dict[str, Any]] | None = None
@@ -51,6 +53,8 @@ class ReportArtifacts:
             or enriched.get("degradation")
             or recommendation.get("source_degradation")
             or [],
+            source_coverage=payload.get("source_coverage") or recommendation.get("source_coverage") or {},
+            source_provenance=payload.get("source_provenance") or recommendation.get("source_provenance") or {},
             data_confidence=payload.get("data_confidence") or recommendation.get("data_confidence") or {},
             timings=payload.get("timings") or {},
             errors=payload.get("errors") or [],
@@ -68,6 +72,8 @@ class ReportArtifacts:
             "model_name": self.model_name,
             "quality_warnings": self.quality_warnings or [],
             "source_degradation": self.source_degradation or [],
+            "source_coverage": self.source_coverage or {},
+            "source_provenance": self.source_provenance or {},
             "data_confidence": self.data_confidence or {},
             "timings": self.timings or {},
             "errors": self.errors or [],

@@ -59,6 +59,20 @@ def test_classify_trade_readiness_review_first_for_manual_review_or_optional_sou
     assert any("Manual review" in reason for reason in result["reasons"])
 
 
+def test_classify_trade_readiness_blocks_source_confidence_blocker():
+    result = classify_trade_readiness(
+        _candidate(
+            source_confidence={
+                "overall_status": "BLOCKED",
+                "blockers": ["Verify catalyst manually before buying/adding."],
+            }
+        )
+    )
+
+    assert result["status"] == BLOCKED
+    assert any("Verify catalyst" in reason for reason in result["reasons"])
+
+
 def test_build_buy_signals_view_filters_action_and_readiness():
     raw = {
         "session_file": "latest.json",
@@ -82,6 +96,35 @@ def test_build_buy_signals_view_filters_action_and_readiness():
     assert view["counts"][BLOCKED] == 1
     assert [row["ticker"] for row in view["overview_rows"]] == ["MSFT"]
     assert view["data_confidence"]["readiness_counts"][BLOCKED] == 1
+
+
+def test_build_buy_signals_view_filters_source_confidence():
+    raw = {
+        "session_file": "latest.json",
+        "candidates": [
+            _candidate(ticker="NVDA"),
+            _candidate(
+                ticker="AMD",
+                source_confidence={
+                    "overall_status": "REVIEW_FIRST",
+                    "label": "Review First",
+                    "filters": ["missing_analyst"],
+                    "review_reasons": ["Do not treat analyst consensus/targets as sourced."],
+                    "components": {
+                        "quote": {"status": "OK"},
+                        "catalyst": {"status": "OK"},
+                        "analyst": {"status": "MISSING"},
+                    },
+                },
+            ),
+        ],
+    }
+
+    view = build_buy_signals_view(raw, source_filter="missing_analyst")
+
+    assert [row["ticker"] for row in view["overview_rows"]] == ["AMD"]
+    assert view["overview_rows"][0]["source_confidence"] == "Review First"
+    assert view["counts"]["missing_analyst"] == 1
 
 
 def test_api_and_decision_journal_view_models():

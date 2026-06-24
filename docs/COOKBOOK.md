@@ -102,10 +102,11 @@ When a run is blocked or the UI is behaving unexpectedly, export a support zip:
 ```
 
 Use `--preview` first to list included files and exclusions without writing a
-zip. The bundle includes doctor output, setup readiness, CSV metadata, and
-recent diagnostics. It intentionally excludes raw CSV contents, generated
-reports, API keys, `.env`, `.env.zip`, `API_KEYS.txt`, caches, and temporary
-uploads.
+zip. The bundle includes doctor output, setup readiness, CSV metadata, release
+check metadata, and recent diagnostics. It intentionally excludes raw CSV
+contents, generated reports, API keys, `.env`, `.env.zip`, `API_KEYS.txt`,
+caches, and temporary uploads. Use `--skip-release-check` only when you want to
+omit packaging/checksum-readiness metadata from the bundle.
 
 ## Run a single CLI report
 
@@ -275,7 +276,7 @@ The release CI uses this to populate the GitHub Release body.
 
 ```
 ./build_macos.sh        # → dist/tech_stock.dmg
-./build_linux.sh        # → dist/tech_stock-x86_64.AppImage (or tarball)
+./build_linux.sh        # → dist/tech_stock-<version>-linux-x86_64.tar.gz (+ AppImage when available)
 build_windows.bat       # → dist/tech_stock_setup.exe (Windows only)
 ```
 

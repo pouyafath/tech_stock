@@ -27,11 +27,15 @@ def classify_trade_readiness(candidate: dict[str, Any]) -> dict[str, Any]:
     warnings = candidate.get("quality_warnings") or []
     warning_codes = {str(row.get("code") or "") for row in warnings}
     high_warnings = [row for row in warnings if str(row.get("severity") or "").lower() == "high"]
+    source_confidence = candidate.get("source_confidence") or {}
+    source_status = source_confidence.get("overall_status")
 
     if candidate.get("market_data_error"):
         reasons.append(f"Market data error: {candidate.get('market_data_error')}")
     if candidate.get("price_basis") in BLOCKING_PRICE_BASIS or not candidate.get("quote_timestamp_utc"):
         reasons.append("Quote is stale, close-only, or missing a provider timestamp.")
+    if source_status == BLOCKED:
+        reasons.extend(source_confidence.get("blockers") or ["Required source coverage is missing or degraded."])
     for code in sorted(warning_codes & BLOCKING_WARNING_CODES):
         reasons.append(f"Blocking quality warning: {code}")
     for warning in high_warnings:
@@ -50,6 +54,8 @@ def classify_trade_readiness(candidate: dict[str, Any]) -> dict[str, Any]:
     review_reasons: list[str] = []
     if candidate.get("manual_review_required"):
         review_reasons.append("Manual review required by the recommendation.")
+    if source_status == REVIEW_FIRST:
+        review_reasons.extend(source_confidence.get("review_reasons") or ["Source coverage needs review."])
     if warnings:
         review_reasons.append("Quality warnings are present.")
     if not (candidate.get("analyst_consensus") or {}).get("total_analysts"):
@@ -85,17 +91,22 @@ def _candidate_action_group(candidate: dict[str, Any]) -> str:
     return "OTHER"
 
 
-def _matches_filter(candidate: dict[str, Any], action_filter: str, readiness_filter: str) -> bool:
+def _matches_filter(candidate: dict[str, Any], action_filter: str, readiness_filter: str, source_filter: str = "all") -> bool:
     action_group = candidate.get("action_group") or _candidate_action_group(candidate)
     readiness = (candidate.get("readiness") or {}).get("status")
     action_filter = (action_filter or "all").lower()
     readiness_filter = (readiness_filter or "all").upper()
+    source_filter = (source_filter or "all").lower()
+    source_confidence = candidate.get("source_confidence") or {}
+    source_filters = set(source_confidence.get("filters") or [])
 
     if action_filter == "buy_add" and action_group != "BUY_ADD":
         return False
     if action_filter == "add_on_dip" and action_group != "ADD_ON_DIP":
         return False
     if readiness_filter != "ALL" and readiness != readiness_filter:
+        return False
+    if source_filter != "all" and source_filter not in source_filters:
         return False
     return True
 
@@ -105,6 +116,7 @@ def build_buy_signals_view(
     *,
     action_filter: str = "all",
     readiness_filter: str = "all",
+    source_filter: str = "all",
 ) -> dict[str, Any]:
     """Return a UI-ready buy-signal payload with readiness badges and filters."""
     if raw.get("error"):
@@ -120,7 +132,7 @@ def build_buy_signals_view(
     cards.sort(
         key=lambda item: ((item.get("readiness") or {}).get("rank", 9), -(float(item.get("conviction") or 0)), item.get("ticker") or "")
     )
-    filtered = [item for item in cards if _matches_filter(item, action_filter, readiness_filter)]
+    filtered = [item for item in cards if _matches_filter(item, action_filter, readiness_filter, source_filter)]
 
     counts = {
         "total": len(cards),
@@ -129,6 +141,12 @@ def build_buy_signals_view(
         BLOCKED: sum(1 for item in cards if (item.get("readiness") or {}).get("status") == BLOCKED),
         "BUY_ADD": sum(1 for item in cards if item.get("action_group") == "BUY_ADD"),
         "ADD_ON_DIP": sum(1 for item in cards if item.get("action_group") == "ADD_ON_DIP"),
+        "missing_catalyst": sum(1 for item in cards if "missing_catalyst" in ((item.get("source_confidence") or {}).get("filters") or [])),
+        "missing_analyst": sum(1 for item in cards if "missing_analyst" in ((item.get("source_confidence") or {}).get("filters") or [])),
+        "quote_not_timestamped": sum(
+            1 for item in cards if "quote_not_timestamped" in ((item.get("source_confidence") or {}).get("filters") or [])
+        ),
+        "source_degraded": sum(1 for item in cards if "source_degraded" in ((item.get("source_confidence") or {}).get("filters") or [])),
     }
 
     data_confidence = build_data_confidence(
@@ -145,6 +163,11 @@ def build_buy_signals_view(
         analyst = item.get("analyst_consensus") or {}
         readiness = item.get("readiness") or {}
         warnings = item.get("quality_warnings") or []
+        source_confidence = item.get("source_confidence") or {}
+        source_components = source_confidence.get("components") or {}
+        explainability = item.get("explainability") or {}
+        why_bits = explainability.get("bullish_evidence") or []
+        risk_bits = (explainability.get("bearish_evidence") or []) + (explainability.get("missing_data") or [])
         overview_rows.append(
             {
                 "readiness": readiness.get("label"),
@@ -158,6 +181,13 @@ def build_buy_signals_view(
                 "consensus": analyst.get("consensus_label") or "N/A",
                 "mean_upside_pct": targets.get("mean_upside_pct"),
                 "catalyst": item.get("catalyst_source") or "N/A",
+                "source_confidence": source_confidence.get("label") or "N/A",
+                "quote_status": (source_components.get("quote") or {}).get("status") or "N/A",
+                "catalyst_status": (source_components.get("catalyst") or {}).get("status") or "N/A",
+                "analyst_status": (source_components.get("analyst") or {}).get("status") or "N/A",
+                "why": "; ".join(why_bits[:2]) or explainability.get("readiness_reason") or "N/A",
+                "risk_or_missing": "; ".join(risk_bits[:2]) or "N/A",
+                "change_mind": explainability.get("change_mind") or "N/A",
                 "warnings": ", ".join(row.get("code", "") for row in warnings) or "none",
             }
         )
@@ -189,6 +219,7 @@ def build_buy_signals_view(
         "active_filters": {
             "action": action_filter,
             "readiness": readiness_filter,
+            "source": source_filter,
         },
     }
 
@@ -199,6 +230,7 @@ def build_dashboard_view(summary: dict[str, Any]) -> dict[str, Any]:
     health = summary.get("portfolio_health") or {}
     usage = summary.get("usage") or {}
     warnings = summary.get("quality_warnings") or []
+    source_coverage = summary.get("source_coverage") or {}
     data_confidence = summary.get("data_confidence") or build_data_confidence(
         recommendations=summary.get("recommendations") or [],
         quality_warnings=warnings,
@@ -214,11 +246,13 @@ def build_dashboard_view(summary: dict[str, Any]) -> dict[str, Any]:
             {"label": "Annual Vol", "value": risk.get("annualized_volatility_pct"), "kind": "pct"},
             {"label": "Top-3 Conc.", "value": risk.get("top3_concentration_pct"), "kind": "pct"},
             {"label": "Warnings", "value": len(warnings)},
+            {"label": "Source Cover", "value": source_coverage.get("status") or "N/A"},
             {"label": "Claude Cost", "value": usage.get("cost_usd"), "kind": "money"},
         ],
         "priority_actions": summary.get("priority_actions") or [],
         "quality_warnings": warnings,
         "data_confidence": data_confidence,
+        "source_coverage": source_coverage,
         "hedge_suggestions": summary.get("hedge_suggestions") or [],
         "drift": summary.get("drift") or [],
         "market_context_snapshot": summary.get("market_context_snapshot") or {},

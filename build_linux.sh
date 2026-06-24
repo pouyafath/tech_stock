@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # build_linux.sh — Build a portable Linux artefact for tech_stock (v1.19).
 #
-# Default output: ./dist/tech_stock-x86_64.AppImage (single file, no install).
-# Falls back to ./dist/tech_stock/ + tarball when appimagetool is unavailable.
+# Default outputs:
+#   - ./dist/tech_stock-x.y.z-linux-x86_64.tar.gz (always produced)
+#   - ./dist/tech_stock-x86_64.AppImage (when appimagetool is available)
 #
 # Requirements (best-effort — script self-detects what's missing):
 #   - Linux x86_64
@@ -93,12 +94,15 @@ if command -v appimagetool >/dev/null 2>&1; then
     ARCH=x86_64 appimagetool "$APPDIR" "$APPIMAGE"
     green "  ✓ $APPIMAGE"
 else
-    blue "  appimagetool not found — packaging tarball instead."
+    blue "  appimagetool not found — skipping AppImage."
     blue "  Install AppImage builder: https://appimage.github.io/appimagetool/"
-    TARBALL="$DIST/${APP_NAME}-${APP_VERSION}-linux-x86_64.tar.gz"
-    tar -C "$DIST" -czf "$TARBALL" "$APP_NAME/"
-    green "  ✓ $TARBALL"
 fi
+
+# ── 7. Portable tarball (required) ─────────────────────────────────────────
+TARBALL="$DIST/${APP_NAME}-${APP_VERSION}-linux-x86_64.tar.gz"
+blue "→ Packaging Linux tarball …"
+tar -C "$DIST" -czf "$TARBALL" "$APP_NAME/"
+green "  ✓ $TARBALL"
 
 green "════════════════════════════════════════"
 green "  Build complete!"

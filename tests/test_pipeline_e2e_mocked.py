@@ -157,5 +157,6 @@ def test_mocked_report_pipeline_creates_artifacts_and_view_model(tmp_path, monke
     assert artifacts["csv_path"].exists()
     assert artifacts["log_path"].exists()
     saved = json.loads(artifacts["log_path"].read_text())
+    assert saved["source_coverage"]["rows"]
     view = build_buy_signals_view({"candidates": saved["recommendations"]})
     assert view["overview_rows"][0]["ticker"] == "AAPL"

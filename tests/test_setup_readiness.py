@@ -154,12 +154,27 @@ def test_paid_run_readiness_requires_warning_confirmation(monkeypatch):
     assert view["status"] == "REVIEW_FIRST"
     assert view["can_run"] is True
     assert view["requires_warning_confirmation"] is True
+    assert view["confirmation_required_count"] == 2
+    assert any(row["code"] == "warning_acceptance" for row in view["confirmations_required"])
 
 
 def test_support_bundle_preview_lists_included_and_excluded_files():
     preview = setup_readiness.support_bundle_preview()
 
     assert preview["safe_to_share"] is True
-    assert preview["file_count"] == 5
+    assert preview["file_count"] == 6
     assert "support/doctor.json" in {row["path"] for row in preview["files"]}
+    assert "support/release_check.json" in {row["path"] for row in preview["files"]}
     assert "API_KEYS.txt" in preview["excluded"]
+
+
+def test_support_bundle_payload_includes_release_check(monkeypatch):
+    monkeypatch.setattr(setup_readiness, "setup_readiness_view", lambda **_kwargs: {"status": "READY"})
+    monkeypatch.setattr(setup_readiness, "build_preflight", lambda **_kwargs: {"summary_rows": []})
+    monkeypatch.setattr(setup_readiness, "data_files_view", lambda: {"rows": []})
+    monkeypatch.setattr(setup_readiness, "csv_search_dirs", lambda: [])
+    monkeypatch.setattr(setup_readiness, "run_demo_smoke_test", lambda: {"ok": True})
+
+    payload = setup_readiness.support_bundle_payload(include_release_check=True)
+
+    assert payload["release_check"]["tag"].startswith("v")

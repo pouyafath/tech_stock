@@ -76,6 +76,7 @@ from src.setup_readiness import (
 from src.setup_readiness import (
     support_bundle_summary_text,
 )
+from src.source_coverage import build_source_coverage, build_source_provenance, build_ticker_source_confidence
 from src.updater import UpdateInfo, UpdateResult, apply_update, check_for_update
 from src.version import APP_VERSION
 from src.view_models import (
@@ -545,12 +546,46 @@ def latest_log_summary() -> dict[str, Any]:
         "recommendations": data.get("recommendations") or [],
         "portfolio_health": portfolio_health,
         "source_degradation": data.get("source_degradation") or data.get("degradation") or [],
+        "source_coverage": data.get("source_coverage") or build_source_coverage(recommendation=data),
+        "source_provenance": data.get("source_provenance") or build_source_provenance(recommendation=data),
         "data_confidence": data.get("data_confidence") or {},
     }
 
 
 def dashboard_view() -> dict[str, Any]:
     return build_dashboard_view(latest_log_summary())
+
+
+def source_coverage_view(log_path: str | Path | None = None) -> dict[str, Any]:
+    """Return source coverage for the selected/latest recommendation log."""
+    resolved = normalize_optional_path(log_path) if log_path else None
+    if not resolved:
+        resolved, payload = _load_latest_log_payload()
+    else:
+        try:
+            payload = json.loads(resolved.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            return {"status": "ERROR", "summary": str(exc), "rows": [], "session_file": resolved.name}
+    if not resolved:
+        return {"status": "MISSING", "summary": "No recommendation JSON logs found.", "rows": [], "session_file": ""}
+    coverage = payload.get("source_coverage") or build_source_coverage(recommendation=payload)
+    return {**coverage, "session_file": resolved.name, "session_path": resolved}
+
+
+def source_provenance_view(log_path: str | Path | None = None) -> dict[str, Any]:
+    """Return ticker-level source provenance for the selected/latest log."""
+    resolved = normalize_optional_path(log_path) if log_path else None
+    if not resolved:
+        resolved, payload = _load_latest_log_payload()
+    else:
+        try:
+            payload = json.loads(resolved.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            return {"status": "ERROR", "summary": str(exc), "rows": [], "session_file": resolved.name}
+    if not resolved:
+        return {"status": "MISSING", "summary": "No recommendation JSON logs found.", "rows": [], "session_file": ""}
+    provenance = payload.get("source_provenance") or build_source_provenance(recommendation=payload)
+    return {**provenance, "session_file": resolved.name, "session_path": resolved}
 
 
 BUY_SIGNAL_ACTIONS = {"BUY", "ADD"}
@@ -618,6 +653,9 @@ def buy_signal_insights(limit: int = 8) -> dict[str, Any]:
         ticker = warning.get("ticker")
         if ticker:
             quality_by_ticker.setdefault(ticker, []).append(warning)
+    explainability_by_ticker = {
+        str(row.get("ticker") or "").upper(): row for row in (payload.get("explainability") or {}).get("rows") or []
+    }
 
     candidates = []
     for rec in recs:
@@ -639,6 +677,14 @@ def buy_signal_insights(limit: int = 8) -> dict[str, Any]:
         price_targets["low_upside_pct"] = target_upside_pct(price_targets["low"], price)
         indicators = md.get("indicators") or {}
         news = news_by_ticker.get(ticker) or []
+        source_confidence = build_ticker_source_confidence(
+            recommendation=rec,
+            market_data=md,
+            enriched=per_ticker,
+            news=news,
+            quality_warnings=quality_by_ticker.get(ticker, []),
+            degradation=enriched.get("degradation") or [],
+        )
         source_notes = [
             f"Quote: {md.get('quote_source') or 'unavailable'}",
             "Analyst consensus: Finnhub /stock/recommendation" if analyst else "Analyst consensus: unavailable",
@@ -685,6 +731,8 @@ def buy_signal_insights(limit: int = 8) -> dict[str, Any]:
                 "catalyst_source": rec.get("catalyst_source"),
                 "manual_review_required": rec.get("manual_review_required"),
                 "quality_warnings": quality_by_ticker.get(ticker, []),
+                "source_confidence": source_confidence,
+                "explainability": explainability_by_ticker.get(str(ticker or "").upper()) or {},
                 "news": news[:3],
                 "news_summary": aggregate_sentiment(news),
                 "thesis": rec.get("thesis") or "",
@@ -709,11 +757,13 @@ def buy_signal_view(
     *,
     action_filter: str = "all",
     readiness_filter: str = "all",
+    source_filter: str = "all",
 ) -> dict[str, Any]:
     return build_buy_signals_view(
         buy_signal_insights(limit=limit),
         action_filter=action_filter,
         readiness_filter=readiness_filter,
+        source_filter=source_filter,
     )
 
 
@@ -844,6 +894,8 @@ def diagnostics_view(*, hours: int = 24) -> dict[str, Any]:
     try:
         summary["preflight"] = build_preflight(force_update=False, live_api_checks=False, include_demo_smoke=False, timeout=4.0)
         summary["csv_health"] = summary["preflight"].get("csv_freshness") or {}
+        summary["source_coverage"] = source_coverage_view()
+        summary["source_provenance"] = source_provenance_view()
     except Exception as exc:  # noqa: BLE001
         summary["preflight"] = {
             "summary_rows": [

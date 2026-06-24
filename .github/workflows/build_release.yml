@@ -1,6 +1,6 @@
 name: Build & Release
 
-# v1.20 — Three-platform tag-triggered release pipeline.
+# v1.36 — Three-platform tag-triggered release pipeline.
 #
 # Push a `vX.Y.Z` tag to ship:
 #   git tag v1.20.0 && git push --tags
@@ -217,7 +217,7 @@ jobs:
           path: dist/tech_stock_setup.exe
           retention-days: 30
 
-  # ── Linux AppImage ─────────────────────────────────────────────────────────
+  # ── Linux AppImage + required tarball ──────────────────────────────────────
   build-linux:
     needs: test-gate
     runs-on: ubuntu-22.04
@@ -258,16 +258,17 @@ jobs:
         with:
           name: tech_stock-linux
           path: dist/tech_stock-*.AppImage
+          if-no-files-found: warn
           retention-days: 30
         continue-on-error: true
 
-      - name: Upload tarball fallback artifact
+      - name: Upload Linux tarball artifact
         uses: actions/upload-artifact@v4
         with:
           name: tech_stock-linux-tarball
           path: dist/tech_stock-*-linux-x86_64.tar.gz
+          if-no-files-found: error
           retention-days: 30
-        continue-on-error: true
 
   # ── GitHub Release with parsed CHANGELOG body ──────────────────────────────
   release:
@@ -332,6 +333,9 @@ jobs:
           ls -la
           find . -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.tar.gz' \) -print0 | xargs -0 sha256sum > SHA256SUMS.txt
           cat SHA256SUMS.txt
+
+      - name: Verify release assets
+        run: python src/main.py release-check --dist release --strict
 
       - name: Create draft GitHub Release
         uses: softprops/action-gh-release@v2
