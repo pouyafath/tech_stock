@@ -65,8 +65,10 @@ from src.ui_support import (
     run_report_from_ui,
     save_api_key,
     save_decision_from_ui,
+    save_execution_checklist_from_ui,
     save_selected_data_files,
     setup_readiness_view,
+    source_provenance_view,
     support_bundle_preview,
     validate_json_text,
     write_editable_json,
@@ -1563,6 +1565,7 @@ class DesktopApp(tk.Tk):
         self._tip(self.buy_signal_button, "Refresh buy and add signals from the latest report and live market data")
         self.buy_action_filter = tk.StringVar(value="All actions")
         self.buy_readiness_filter = tk.StringVar(value="All readiness")
+        self.buy_source_filter = tk.StringVar(value="All sources")
         ttk.Combobox(
             top,
             textvariable=self.buy_action_filter,
@@ -1576,6 +1579,13 @@ class DesktopApp(tk.Tk):
             values=["All readiness", "Trade Ready", "Review First", "Blocked"],
             state="readonly",
             width=15,
+        ).pack(side="left", padx=(8, 0))
+        ttk.Combobox(
+            top,
+            textvariable=self.buy_source_filter,
+            values=["All sources", "Missing catalyst", "Missing analyst", "Quote not timestamped", "Source degraded"],
+            state="readonly",
+            width=20,
         ).pack(side="left", padx=(8, 0))
         self.buy_signal_status = tk.StringVar(value="Uses latest report plus refreshed source data.")
         ttk.Label(top, textvariable=self.buy_signal_status, style="Muted.TLabel").pack(side="left", padx=12)
@@ -1594,8 +1604,22 @@ class DesktopApp(tk.Tk):
 
         self.buy_overview_tree = self._make_tree(
             overview,
-            ["readiness", "ticker", "action", "conviction", "amount", "price", "consensus", "mean_upside", "catalyst", "warnings"],
-            [120, 80, 90, 90, 120, 110, 140, 120, 260, 260],
+            [
+                "readiness",
+                "ticker",
+                "action",
+                "conviction",
+                "amount",
+                "price",
+                "source_conf",
+                "quote",
+                "catalyst",
+                "analyst",
+                "why",
+                "change_mind",
+                "warnings",
+            ],
+            [120, 80, 90, 90, 120, 110, 120, 90, 90, 90, 360, 360, 240],
         )
         self.buy_overview_tree.pack(fill="both", expand=True)
 
@@ -1760,6 +1784,18 @@ class DesktopApp(tk.Tk):
             height=6,
         )
         self.report_review_tree.pack(fill="x")
+
+        checklist_panel = ttk.Frame(review_panel, style="Panel.TFrame")
+        checklist_panel.pack(fill="x", pady=(10, 0))
+        ttk.Label(checklist_panel, text="Execution checklist", style="Subheading.TLabel").pack(anchor="w", pady=(0, 6))
+        self.report_review_checklist_tree = self._make_tree(
+            checklist_panel,
+            ["ticker", "check", "required", "status", "detail"],
+            [90, 190, 90, 100, 720],
+            height=5,
+        )
+        self.report_review_checklist_tree.pack(fill="x")
+
         decision_bar = ttk.Frame(review_panel, style="Panel.TFrame")
         decision_bar.pack(fill="x", pady=(8, 0))
         ttk.Label(decision_bar, text="Decision", style="Muted.TLabel").pack(side="left")
@@ -1782,6 +1818,7 @@ class DesktopApp(tk.Tk):
         )
         self.report_review_choice_box.pack(side="left", padx=(0, 8))
         ttk.Button(decision_bar, text="Save Feedback", command=self._save_report_review_decision).pack(side="left")
+        ttk.Button(decision_bar, text="Mark Checklist Reviewed", command=self._save_report_review_checklist).pack(side="left", padx=(8, 0))
 
         self.report_text = ScrolledText(
             self.report_tab,
@@ -2320,6 +2357,16 @@ class DesktopApp(tk.Tk):
         self.outcomes_summary_text = self._readonly_text(self.outcomes_tab, height=4)
         self.outcomes_summary_text.pack(fill="x", padx=16, pady=(0, 12))
 
+        lessons_panel = self._panel(self.outcomes_tab, "Outcome lessons")
+        lessons_panel.pack(fill="x", padx=16, pady=(0, 12))
+        self.outcomes_lessons_tree = self._make_tree(
+            lessons_panel,
+            ["dimension", "bucket", "direction", "n", "hit_rate", "avg_action", "message"],
+            [150, 150, 100, 60, 90, 110, 620],
+            height=5,
+        )
+        self.outcomes_lessons_tree.pack(fill="x")
+
         body = ttk.PanedWindow(self.outcomes_tab, orient="vertical")
         body.pack(fill="both", expand=True, padx=16, pady=(0, 16))
         top = ttk.Frame(body)
@@ -2416,6 +2463,20 @@ class DesktopApp(tk.Tk):
 
         self._replace_tree_rows(self.outcomes_action_tree, self._outcome_bucket_rows(summary.get("by_action") or {}))
         self._replace_tree_rows(self.outcomes_horizon_tree, self._outcome_bucket_rows(summary.get("by_horizon") or {}))
+        lessons = []
+        for row in view.get("lessons") or summary.get("lessons") or []:
+            lessons.append(
+                [
+                    row.get("dimension") or "",
+                    row.get("bucket") or "",
+                    row.get("direction") or "",
+                    row.get("n") or 0,
+                    _pct(row.get("hit_rate"), ratio=True),
+                    _pct(row.get("avg_action_return_pct")),
+                    row.get("message") or "",
+                ]
+            )
+        self._replace_tree_rows(self.outcomes_lessons_tree, lessons, tag_index=2)
         self._replace_tree_rows(self.outcomes_best_tree, self._outcome_example_rows(summary.get("best_recommendations") or []), tag_index=1)
         self._replace_tree_rows(
             self.outcomes_worst_tree,
@@ -2700,6 +2761,16 @@ class DesktopApp(tk.Tk):
         )
         self.setup_readiness_tree.pack(fill="x")
 
+        recovery = self._panel(self.data_files_tab, "Fix Setup")
+        recovery.pack(fill="x", padx=16, pady=(0, 12))
+        self.setup_recovery_tree = self._make_tree(
+            recovery,
+            ["step", "status", "title", "detail", "action"],
+            [70, 100, 210, 560, 360],
+            height=5,
+        )
+        self.setup_recovery_tree.pack(fill="x")
+
         files = self._panel(self.data_files_tab, "Data Files / Workspace")
         files.pack(fill="x", padx=16, pady=(0, 12))
         self.data_files_tree = self._make_tree(
@@ -2740,8 +2811,20 @@ class DesktopApp(tk.Tk):
                 for row in setup.get("rows") or []
             ]
             self._replace_tree_rows(self.setup_readiness_tree, readiness_rows)
+            recovery_rows = [
+                [
+                    str(row.get("step") or ""),
+                    row.get("status") or "",
+                    row.get("title") or "",
+                    row.get("detail") or "",
+                    row.get("action") or "",
+                ]
+                for row in setup.get("recovery_steps") or []
+            ]
+            self._replace_tree_rows(self.setup_recovery_tree, recovery_rows, tag_index=1)
         except Exception as exc:  # noqa: BLE001
             self._replace_tree_rows(self.setup_readiness_tree, [["Setup", "FAIL", str(exc), "Open Diagnostics."]])
+            self._replace_tree_rows(self.setup_recovery_tree, [["", "FAIL", "Setup recovery failed", str(exc), "Open Diagnostics."]])
 
         candidate_rows = []
         try:
@@ -3096,6 +3179,44 @@ class DesktopApp(tk.Tk):
         )
         self.diagnostics_csv_tree.pack(fill="x")
 
+        coverage_panel = self._panel(self.diagnostics_tab, "Source Coverage")
+        coverage_panel.pack(fill="x", padx=16, pady=(0, 12))
+        self.diagnostics_source_coverage_tree = self._make_tree(
+            coverage_panel,
+            ["source", "status", "evidence", "action"],
+            [170, 100, 460, 500],
+            height=8,
+        )
+        self.diagnostics_source_coverage_tree.pack(fill="x")
+
+        provenance_panel = self._panel(self.diagnostics_tab, "Source Provenance")
+        provenance_panel.pack(fill="x", padx=16, pady=(0, 12))
+        provenance_filter_bar = ttk.Frame(provenance_panel, style="Panel.TFrame")
+        provenance_filter_bar.pack(fill="x", pady=(0, 8))
+        self.provenance_status_filter_var = tk.StringVar(value="problem")
+        self.provenance_source_filter_var = tk.StringVar(value="all")
+        self.provenance_ticker_filter_var = tk.StringVar(value="")
+        ttk.Label(provenance_filter_bar, text="Status", style="Muted.TLabel").pack(side="left")
+        ttk.Combobox(
+            provenance_filter_bar,
+            textvariable=self.provenance_status_filter_var,
+            values=["all", "problem", "OK", "PARTIAL", "MISSING", "DEGRADED"],
+            state="readonly",
+            width=10,
+        ).pack(side="left", padx=(4, 12))
+        ttk.Label(provenance_filter_bar, text="Source", style="Muted.TLabel").pack(side="left")
+        ttk.Entry(provenance_filter_bar, textvariable=self.provenance_source_filter_var, width=16).pack(side="left", padx=(4, 12))
+        ttk.Label(provenance_filter_bar, text="Ticker", style="Muted.TLabel").pack(side="left")
+        ttk.Entry(provenance_filter_bar, textvariable=self.provenance_ticker_filter_var, width=12).pack(side="left", padx=(4, 12))
+        ttk.Button(provenance_filter_bar, text="Apply", command=self.refresh_diagnostics_tab).pack(side="left")
+        self.diagnostics_source_provenance_tree = self._make_tree(
+            provenance_panel,
+            ["ticker", "source", "status", "provider", "timestamp_field", "action"],
+            [90, 120, 90, 180, 260, 420],
+            height=8,
+        )
+        self.diagnostics_source_provenance_tree.pack(fill="x")
+
         # Per-source table
         sources_panel = self._panel(self.diagnostics_tab, "Sources")
         sources_panel.pack(fill="x", padx=16, pady=(0, 12))
@@ -3234,6 +3355,37 @@ class DesktopApp(tk.Tk):
                 ]
             )
         self._replace_tree_rows(self.diagnostics_csv_tree, csv_rows)
+
+        coverage_rows = []
+        for row in (view.get("source_coverage") or {}).get("rows") or []:
+            coverage_rows.append(
+                [
+                    row.get("source") or "",
+                    row.get("status") or "",
+                    row.get("evidence") or "",
+                    row.get("action") or "",
+                ]
+            )
+        self._replace_tree_rows(self.diagnostics_source_coverage_tree, coverage_rows, tag_index=1)
+
+        provenance = source_provenance_view(
+            status_filter=self.provenance_status_filter_var.get() or "all",
+            source_filter=self.provenance_source_filter_var.get() or "all",
+            ticker_filter=self.provenance_ticker_filter_var.get() or "",
+        )
+        provenance_rows = []
+        for row in provenance.get("rows") or []:
+            provenance_rows.append(
+                [
+                    row.get("ticker") or "",
+                    row.get("source") or "",
+                    row.get("status") or "",
+                    row.get("provider") or "",
+                    row.get("timestamp") or row.get("field") or "",
+                    row.get("action") or "",
+                ]
+            )
+        self._replace_tree_rows(self.diagnostics_source_provenance_tree, provenance_rows[:40], tag_index=2)
 
         # — Sources table —
         source_rows = []
@@ -4002,6 +4154,15 @@ class DesktopApp(tk.Tk):
             ]
             for row in readiness.get("steps") or []
         ]
+        for row in readiness.get("confirmations_required") or []:
+            readiness_rows.append(
+                [
+                    row.get("label") or row.get("code") or "Confirmation",
+                    "CONFIRM" if row.get("required") else "INFO",
+                    row.get("detail") or "",
+                    row.get("accepted_by") or "",
+                ]
+            )
         self._replace_tree_rows(self.run_readiness_tree, readiness_rows, tag_index=1)
         self.run_readiness_summary.set(f"{readiness.get('status')}: {readiness.get('summary') or readiness.get('next_action')}")
 
@@ -4381,12 +4542,13 @@ class DesktopApp(tk.Tk):
         self.buy_signal_status.set("Checking real-time market data for buy opportunities...")
         action_filter = self._buy_action_filter_value()
         readiness_filter = self._buy_readiness_filter_value()
+        source_filter = self._buy_source_filter_value()
 
         def worker() -> None:
             self.progress_queue.put(
                 (
                     "buy_signals_done",
-                    buy_signal_view(action_filter=action_filter, readiness_filter=readiness_filter),
+                    buy_signal_view(action_filter=action_filter, readiness_filter=readiness_filter, source_filter=source_filter),
                 )
             )
 
@@ -4405,6 +4567,15 @@ class DesktopApp(tk.Tk):
             "Trade Ready": "TRADE_READY",
             "Review First": "REVIEW_FIRST",
             "Blocked": "BLOCKED",
+        }.get(value, "all")
+
+    def _buy_source_filter_value(self) -> str:
+        value = getattr(self, "buy_source_filter", tk.StringVar(value="All sources")).get()
+        return {
+            "Missing catalyst": "missing_catalyst",
+            "Missing analyst": "missing_analyst",
+            "Quote not timestamped": "quote_not_timestamped",
+            "Source degraded": "source_degraded",
         }.get(value, "all")
 
     def _buy_signals_done(self, payload: dict[str, Any]) -> None:
@@ -4441,10 +4612,14 @@ class DesktopApp(tk.Tk):
             targets = item.get("price_targets") or {}
             analyst = item.get("analyst_consensus") or {}
             readiness = item.get("readiness") or {}
+            source_confidence = item.get("source_confidence") or {}
+            explainability = item.get("explainability") or {}
+            components = source_confidence.get("components") or {}
             warnings = item.get("quality_warnings") or []
             amount = item.get("action_amount")
             amount_currency = item.get("action_amount_currency") or "USD"
             amount_text = f"{self._fmt_money(amount)} {amount_currency}" if amount else ""
+            why = "; ".join((explainability.get("bullish_evidence") or [])[:2]) or explainability.get("readiness_reason") or ""
             overview_rows.append(
                 [
                     readiness.get("label") or "N/A",
@@ -4453,9 +4628,12 @@ class DesktopApp(tk.Tk):
                     item.get("conviction"),
                     amount_text,
                     self._fmt_price(item.get("current_price")),
-                    analyst.get("consensus_label") or "N/A",
-                    self._fmt_pct(targets.get("mean_upside_pct"), signed=True),
-                    self._trim_text(item.get("catalyst_source") or "N/A", 80),
+                    source_confidence.get("label") or "N/A",
+                    (components.get("quote") or {}).get("status") or "N/A",
+                    (components.get("catalyst") or {}).get("status") or "N/A",
+                    (components.get("analyst") or {}).get("status") or "N/A",
+                    why,
+                    explainability.get("change_mind") or item.get("risk_or_invalidation") or "N/A",
                     "; ".join(w.get("code", "") for w in warnings[:3]) or "none",
                 ]
             )
@@ -4476,6 +4654,10 @@ class DesktopApp(tk.Tk):
             )
             catalyst_lines.extend(self._format_buy_signal_detail(item))
             source_lines.append(f"{ticker}:")
+            if source_confidence:
+                source_lines.append(f"  confidence: {source_confidence.get('label')} ({source_confidence.get('overall_status')})")
+                for name, component in (source_confidence.get("components") or {}).items():
+                    source_lines.append(f"  - {name}: {component.get('status')} — {component.get('evidence')}")
             for note in item.get("source_notes") or []:
                 source_lines.append(f"  - {note}")
         degradation = payload.get("degradation") or []
@@ -4496,6 +4678,12 @@ class DesktopApp(tk.Tk):
         readiness = item.get("readiness") or {}
         if readiness:
             lines.append(f"Readiness: {readiness.get('label')} — {'; '.join(readiness.get('reasons') or [])}")
+        source_confidence = item.get("source_confidence") or {}
+        if source_confidence:
+            lines.append(
+                f"Source confidence: {source_confidence.get('label')} — "
+                f"{'; '.join(source_confidence.get('blockers') or source_confidence.get('review_reasons') or ['clear'])}"
+            )
         catalyst = item.get("catalyst_source") or "No catalyst source recorded in latest report."
         lines.append(f"Catalyst: {catalyst}")
         lines.append(f"Verified: {item.get('catalyst_verified')} | Manual review: {item.get('manual_review_required')}")
@@ -4900,6 +5088,7 @@ class DesktopApp(tk.Tk):
         if not path:
             self.report_review_status.set("No report selected.")
             self._replace_tree_rows(self.report_review_tree, [])
+            self._replace_tree_rows(self.report_review_checklist_tree, [])
             self.report_review_decision_rows = []
             self.report_review_decision_box.configure(values=[])
             self.report_review_decision_var.set("")
@@ -4909,6 +5098,7 @@ class DesktopApp(tk.Tk):
         except Exception as exc:  # noqa: BLE001
             self.report_review_status.set(f"Report review failed: {exc}")
             self._replace_tree_rows(self.report_review_tree, [])
+            self._replace_tree_rows(self.report_review_checklist_tree, [])
             self.report_review_decision_rows = []
             self.report_review_decision_box.configure(values=[])
             self.report_review_decision_var.set("")
@@ -4930,6 +5120,19 @@ class DesktopApp(tk.Tk):
                 ]
             )
         self._replace_tree_rows(self.report_review_tree, rows)
+
+        checklist_rows = []
+        for row in view.get("execution_checklist_rows") or []:
+            checklist_rows.append(
+                [
+                    row.get("ticker") or "",
+                    row.get("label") or row.get("check") or "",
+                    "YES" if row.get("required") else "",
+                    row.get("status") or "",
+                    row.get("detail") or "",
+                ]
+            )
+        self._replace_tree_rows(self.report_review_checklist_tree, checklist_rows, tag_index=3)
 
         self.report_review_decision_rows = view.get("decision_rows") or []
         labels = [
@@ -4957,6 +5160,32 @@ class DesktopApp(tk.Tk):
             self.status.set(f"Could not save feedback: {exc}")
             return
         self.status.set(f"Saved feedback for {row.get('ticker')}.")
+        self._refresh_report_review(self.latest_report_path)
+
+    def _save_report_review_checklist(self) -> None:
+        selected = self.report_review_decision_var.get()
+        rows = getattr(self, "report_review_decision_rows", []) or []
+        labels = [f"{row.get('ticker')} {row.get('recommended_action')} · {row.get('user_decision')} · {row.get('id')}" for row in rows]
+        if not selected or selected not in labels:
+            self.status.set("Choose a recommendation row before marking checklist reviewed.")
+            return
+        row = rows[labels.index(selected)]
+        try:
+            save_execution_checklist_from_ui(
+                str(row.get("id")),
+                checklist={
+                    "quote_confirmed": True,
+                    "catalyst_checked": True,
+                    "sizing_checked": True,
+                    "fee_fx_checked": True,
+                    "manual_review_accepted": True,
+                },
+                notes="Marked reviewed from Desktop Report Review.",
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.status.set(f"Could not save checklist: {exc}")
+            return
+        self.status.set(f"Marked execution checklist reviewed for {row.get('ticker')}.")
         self._refresh_report_review(self.latest_report_path)
 
     def load_report(self, path: Path | None, *, select_tab: bool = False) -> None:

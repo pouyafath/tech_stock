@@ -58,6 +58,12 @@ def test_help_advertises_force_flag():
     assert "budget" in body.lower()
 
 
+def test_help_advertises_yes_no_confirm_flag():
+    body = _run_help()
+    assert "--yes" in body
+    assert "--no-confirm" in body
+
+
 def test_help_still_advertises_pre_existing_flags():
     """Regression: the original v1.14 flags must survive the v1.19.1 additions."""
     body = _run_help()

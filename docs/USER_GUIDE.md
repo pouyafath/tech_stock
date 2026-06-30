@@ -25,7 +25,7 @@ It does not:
 |---|---|---|
 | macOS | `.dmg` containing `tech_stock.app` | Supported |
 | Windows | Inno Setup installer and zipped application | Supported |
-| Linux | AppImage where the release build succeeds | Supported |
+| Linux | Portable `.tar.gz`; AppImage when the release build succeeds | Supported |
 
 | Interface | Description |
 |---|---|
@@ -44,7 +44,7 @@ All interfaces use the same analysis pipeline and output files.
 |---|---|---|
 | macOS | Install `tech_stock.dmg`, then open the embedded Desktop App | Clone the source and run `./run.sh` or `python src/main.py` |
 | Windows | Install `tech_stock_setup.exe` or extract `tech_stock-windows.zip` | Clone the source and run `python src\main.py` |
-| Linux | Run `tech_stock-x86_64.AppImage` when available | Clone the source and run `./run.sh` or `python src/main.py` |
+| Linux | Extract `tech_stock-<version>-linux-x86_64.tar.gz`, or run `tech_stock-x86_64.AppImage` when available | Clone the source and run `./run.sh` or `python src/main.py` |
 
 ### Packaged application
 
@@ -309,28 +309,31 @@ Direct launcher choices:
 The Desktop App is the primary browser-free experience. Its available views
 include:
 
-- **Dashboard**: next action, risk metrics, Data Confidence, action queue,
+- **Dashboard**: next action, risk metrics, Data Confidence, Source Coverage, action queue,
   quality warnings, stops, drift, hedge ideas, and market context.
 - **Buy Signals**: source-backed BUY/ADD and add-on-dip ideas with readiness
-  filters, quote details, targets, catalysts, warnings, and risk controls.
+  filters, Source Confidence filters, quote details, targets, catalysts,
+  warnings, risk controls, explanation text, and "what changes my mind" checks.
 - **Run Report**: model, budget, CSV selection, preview, Ready To Run verdict,
-  and report execution.
-- **Data Files**: setup readiness, recommended CSV candidates, current
-  holdings/activities CSV defaults, API-key file, reports folder,
+  paid-run confirmations, and report execution.
+- **Data Files**: setup readiness, ordered Fix Setup recovery steps,
+  recommended CSV candidates, current holdings/activities CSV defaults, API-key file, reports folder,
   recommendation logs folder, uploads folder, and workspace status.
 - **Report Viewer**: styled markdown display, search, latest report loading,
-  Report Review gates, drift/source-degradation summary, and decision feedback.
+  Report Review gates, execution checklist, drift/source-degradation summary,
+  and decision feedback.
 - **History**: previous report browsing with input CSV names, warning counts,
   action counts, data-confidence labels, rendering, and per-report review.
 - **Outcomes**: fixed 1/5/20-day recommendation outcome scoring with stable
-  IDs, benchmark alpha, BUY/ADD success rate, TRIM/SELL saved drawdown, and
-  stop/take-profit trigger checks.
+  IDs, benchmark alpha, BUY/ADD success rate, TRIM/SELL saved drawdown,
+  stop/take-profit trigger checks, and outcome lessons by readiness/source/action.
 - **Config Editor**: validated editing for settings, watchlist, and fallback
   portfolio JSON.
 - **API Checks**: key management, discovery paths, and connectivity checks.
-- **Diagnostics**: preflight status, no-spend app self-test, source degradation,
-  recent errors, spend, copyable diagnostics, support-bundle contents preview,
-  and redacted support-bundle zip export.
+- **Diagnostics**: preflight status, no-spend app self-test, latest Source Coverage,
+  filterable Source Provenance, source degradation, recent errors, spend, copyable
+  diagnostics, support-bundle contents preview, and redacted support-bundle zip
+  export.
 - **Updates**: release checks, cache force-refresh, checksum status, update
   actions, and logs.
 
@@ -376,14 +379,23 @@ Read the report in this order:
 1. **Actionability Check**: shows the top-level trade-ready/review/blocked
    verdict, quote freshness, source coverage, catalyst coverage, warning count,
    and the first reason to review.
-2. **Data Confidence**: summarizes whether the available data is suitable for
+2. **Can I Act On This?**: shows a compact per-recommendation verdict, reason,
+   and required next check.
+3. **Data Confidence**: summarizes whether the available data is suitable for
    action.
-3. **Report Quality Warnings**: lists deterministic issues and required review.
-4. **Trader Action Plan**: prioritizes actions and sizes.
-5. **Portfolio Health and Risk Dashboard**: shows exposure and concentration.
-6. **Recommendation details**: explains thesis, catalyst, risk controls,
+4. **Source Coverage**: shows which provider families supplied quotes,
+   catalysts/news, analyst data, fundamentals, options, macro, and insider
+   context, plus what to verify when a source is missing or degraded.
+5. **Why These Recommendations?**: shows deterministic evidence, missing data,
+   readiness reason, and what would change the recommendation.
+6. **Source Provenance**: shows ticker-level provider, timestamp/field, status,
+   evidence, and required action for quote/catalyst/analyst/fundamental/options
+   rows.
+7. **Report Quality Warnings**: lists deterministic issues and required review.
+8. **Trader Action Plan**: prioritizes actions and sizes.
+9. **Portfolio Health and Risk Dashboard**: shows exposure and concentration.
+10. **Recommendation details**: explains thesis, catalyst, risk controls,
    expected range, and invalidation.
-7. **Sources and degradation**: shows what data was available or missing.
 
 When the Track Record section includes **Fixed-window outcomes**, those rows
 come from historical recommendation logs and show whether prior calls worked
@@ -506,7 +518,12 @@ The underlying checklist verifies:
 - Update status is visible.
 
 Blocking issues stop the paid run before Claude is called. Non-blocking warnings
-can be reviewed and accepted from the UI.
+can be reviewed and accepted from the UI. Scheduled terminal runs with warnings
+must be run with `--yes` after review:
+
+```bash
+python src/main.py morning --holdings ~/Downloads/holdings-report.csv --activities ~/Downloads/activities-export.csv --non-interactive --yes
+```
 
 ## Diagnostics
 
@@ -543,7 +560,8 @@ python src/main.py setup --json
 
 This reports onboarding stage, workspace writability, API key status, paid-run
 blockers, recommended CSV candidates, demo availability, and the next setup
-action.
+action. The same payload includes **Fix Setup** recovery steps and quick
+actions. Follow those steps in order before a paid run.
 
 To create a redacted support zip:
 
@@ -575,14 +593,21 @@ Desktop and Streamlit Diagnostics show the same CSV Health data in a table so
 you can verify the app is using the right export before spending on a report.
 
 Diagnostics also includes a no-spend **App Self-Test**. It checks version
-metadata, setup readiness, bundled demo smoke, Report Review loading, and
-support-bundle availability without calling Claude. Copy its summary when
-reporting an issue.
+metadata, setup readiness, bundled demo smoke, Report Review loading, release
+check availability, and support-bundle availability without calling Claude.
+Copy its summary when reporting an issue.
 
 The **Data Files** view is the faster place to check exactly which paths will be
 used. Use it before a paid run when you have multiple Wealthsimple exports in
 Downloads or the workspace upload folder. The recommended candidate row is the
-file the app would ask you to confirm.
+file the app would ask you to confirm. If setup is blocked, the **Fix Setup**
+section lists the ordered recovery path: add missing required API keys, confirm
+the Holdings CSV, fix a swapped Activities CSV, run demo smoke, or run the
+report once every required input is ready.
+
+Source Provenance in Diagnostics can be filtered by status, source family, and
+ticker. Use the default problem filter to find missing, degraded, or partial
+evidence before acting on a recommendation.
 
 ## Updates
 

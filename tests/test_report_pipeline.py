@@ -19,6 +19,7 @@ def test_report_pipeline_returns_structured_artifacts(tmp_path):
             "session_type": "morning",
             "model_name": "Sonnet 4.6",
             "source_degradation": [{"source": "Finnhub"}],
+            "source_provenance": {"status": "OK"},
             "data_confidence": {"overall": "review_first"},
             "errors": [{"code": "optional_source"}],
         }
@@ -31,6 +32,7 @@ def test_report_pipeline_returns_structured_artifacts(tmp_path):
     assert artifacts.usage["cost_usd"] == 0.2
     assert artifacts.quality_warnings == [{"code": "x"}]
     assert artifacts.source_degradation == [{"source": "Finnhub"}]
+    assert artifacts.source_provenance == {"status": "OK"}
     assert artifacts.data_confidence == {"overall": "review_first"}
     assert artifacts.errors == [{"code": "optional_source"}]
     assert artifacts.timings["elapsed_seconds"] >= 0
@@ -52,5 +54,6 @@ def test_report_pipeline_legacy_mapping_includes_additive_metadata(tmp_path):
 
     assert mapping["report_path"] == report
     assert mapping["data_confidence"] == {"quote_freshness": "fresh"}
+    assert mapping["source_provenance"] == {}
     assert "elapsed_seconds" in mapping["timings"]
     assert mapping["errors"] == []

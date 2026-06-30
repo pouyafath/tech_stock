@@ -51,7 +51,12 @@ Claude. A blocked paid run means one of these checks failed:
 
 Fix the action shown in the checklist, then run again. Non-blocking warnings
 such as stale optional activities data or missing optional APIs can be accepted
-from the UI.
+from the UI. For scheduled terminal runs, review the warnings first and pass
+`--yes` to accept non-blocking confirmation rows:
+
+```bash
+python src/main.py morning --holdings ~/Downloads/holdings-report.csv --activities ~/Downloads/activities-export.csv --non-interactive --yes
+```
 
 Recent versions also show a **Ready To Run** verdict above the raw checklist:
 
@@ -64,8 +69,10 @@ Recent versions also show a **Ready To Run** verdict above the raw checklist:
 
 Open **Data Files** in Desktop, Streamlit, or Textual and check the Setup
 Readiness and CSV Candidates sections. The row marked **recommended** is the file
-the app would use automatically; confirm it before a paid run. Save the correct
-paths as defaults. The app writes only those paths to:
+the app would use automatically; confirm it before a paid run. The **Fix Setup**
+section lists the ordered recovery path when the app detects a missing Holdings
+CSV, a swapped Activities CSV, missing API keys, or demo-only data. Save the
+correct paths as defaults. The app writes only those paths to:
 
 ```text
 config/data_files.json
@@ -87,6 +94,13 @@ table for Holdings and Activities. It reports:
 `FAIL` means fix the Holdings CSV before running a paid report. `WARN` means
 the app can usually run, but the data may be stale or the optional activities
 file is missing.
+
+## Source Provenance Is Noisy
+
+Open **Diagnostics** and leave Source Provenance on the default `problem`
+filter. This shows missing, degraded, or partial evidence first. Narrow further
+by source family, such as `Quote`, `Catalyst`, or `Analyst`, or by ticker when
+you need to audit one recommendation.
 
 ## The App Says The Holdings CSV Is Missing Required Columns
 
@@ -409,7 +423,9 @@ chmod +x tech_stock-x86_64.AppImage
 
 Some Linux distributions require FUSE compatibility packages. If the AppImage
 still fails, run from source using the instructions in
-[USER_GUIDE.md](USER_GUIDE.md).
+[USER_GUIDE.md](USER_GUIDE.md), or use the release tarball
+`tech_stock-<version>-linux-x86_64.tar.gz`, which is produced for every Linux
+release.
 
 ## Outcomes Tab Shows No Matured Results
 
@@ -435,6 +451,11 @@ python src/main.py --version
 Open **Outcomes** and refresh again. Pricing issues appear in the table as
 `missing_start_price` or `missing_end_price`. Those are source-data gaps, not
 Claude spend failures.
+
+When enough windows mature, the Outcomes tab also shows **Outcome Lessons**.
+Those are deterministic positive/negative buckets by readiness, source
+coverage, catalyst verification, action, and market regime. If no lessons are
+shown, there are not enough scored samples in any bucket yet.
 
 ## Tests Fail In A Development Checkout
 

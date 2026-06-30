@@ -140,6 +140,7 @@ def test_latest_log_summary_reads_current_dashboard_fields(monkeypatch, tmp_path
         "session_summary": "summary",
         "usage_summary": {"cost_usd": 0.5},
         "recommendations": [{"ticker": "NVDA"}],
+        "source_coverage": {"status": "PARTIAL", "rows": [{"source": "Quotes", "status": "PARTIAL"}]},
     }
     path = log_dir / "20260430_0900_morning.json"
     path.write_text(json.dumps(payload))
@@ -155,6 +156,7 @@ def test_latest_log_summary_reads_current_dashboard_fields(monkeypatch, tmp_path
     assert summary["watchlist_flags"][0]["ticker"] == "CRM"
     assert summary["sector_warnings"] == ["tech concentration"]
     assert summary["session_summary"] == "summary"
+    assert summary["source_coverage"]["status"] == "PARTIAL"
 
 
 def test_report_history_view_includes_input_files_and_signal_counts(monkeypatch, tmp_path):
@@ -220,6 +222,37 @@ def test_report_review_view_matches_report_to_log_and_seeds_journal(monkeypatch,
     assert view["log_path"] == log
     assert view["decision_rows"][0]["ticker"] == "AMD"
     assert (data_dir / "decision_journal.json").exists()
+
+
+def test_source_provenance_view_filters_status_source_and_ticker(monkeypatch, tmp_path):
+    log_dir = tmp_path / "recommendations_log"
+    log_dir.mkdir()
+    log = log_dir / "20260624_0900_morning.json"
+    log.write_text(
+        json.dumps(
+            {
+                "source_provenance": {
+                    "status": "PARTIAL",
+                    "rows": [
+                        {"ticker": "NVDA", "source": "Quote", "status": "OK", "provider": "yfinance"},
+                        {"ticker": "AMD", "source": "Catalyst", "status": "MISSING", "provider": ""},
+                        {"ticker": "AMD", "source": "Analyst", "status": "PARTIAL", "provider": "finnhub"},
+                    ],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ui_support, "RECS_LOG_DIR", log_dir)
+
+    problem = ui_support.source_provenance_view(status_filter="problem")
+    analyst = ui_support.source_provenance_view(status_filter="all", source_filter="Analyst", ticker_filter="am")
+
+    assert problem["unfiltered_count"] == 3
+    assert problem["filtered_count"] == 2
+    assert {row["source"] for row in problem["rows"]} == {"Catalyst", "Analyst"}
+    assert analyst["filtered_count"] == 1
+    assert analyst["rows"][0]["provider"] == "finnhub"
 
 
 def test_outcomes_view_uses_shared_recommendation_outcome_model(monkeypatch, tmp_path):

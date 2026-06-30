@@ -1145,8 +1145,28 @@ def _run_impl(
     # market or enrichment fetches.
     try:
         from src.data_confidence import build_data_confidence
+        from src.recommendation_explainability import build_explainability
+        from src.source_coverage import build_source_coverage, build_source_provenance
 
         recommendation["source_degradation"] = enriched.get("degradation") or []
+        recommendation["source_coverage"] = build_source_coverage(
+            recommendation=recommendation,
+            market_data=market_data,
+            enriched=enriched,
+            news_by_ticker=news_by_ticker,
+        )
+        recommendation["source_provenance"] = build_source_provenance(
+            recommendation=recommendation,
+            market_data=market_data,
+            enriched=enriched,
+            news_by_ticker=news_by_ticker,
+        )
+        recommendation["explainability"] = build_explainability(
+            recommendation,
+            market_data=market_data,
+            enriched=enriched,
+            news_by_ticker=news_by_ticker,
+        )
         recommendation["data_confidence"] = build_data_confidence(
             recommendations=recommendation.get("recommendations") or [],
             market_data=market_data,
@@ -1267,6 +1287,8 @@ def _run_impl(
         "model_name": display_model,
         "quality_warnings": recommendation.get("quality_warnings") or [],
         "source_degradation": enriched.get("degradation") or [],
+        "source_coverage": recommendation.get("source_coverage") or {},
+        "source_provenance": recommendation.get("source_provenance") or {},
         "data_confidence": recommendation.get("data_confidence") or {},
         "timings": {},
         "errors": [],
@@ -1345,6 +1367,11 @@ def main():
 
         raise SystemExit(cli_support_bundle(sys.argv[2:]))
 
+    if len(sys.argv) > 1 and sys.argv[1] == "release-check":
+        from src.release_check import cli_release_check
+
+        raise SystemExit(cli_release_check(sys.argv[2:]))
+
     if len(sys.argv) > 1 and sys.argv[1] in {"update", "check-update"}:
         raise SystemExit(cli_update_check(apply=sys.argv[1] == "update"))
 
@@ -1360,6 +1387,7 @@ CLI examples:
   python src/main.py doctor --json
   python src/main.py setup --json
   python src/main.py support-bundle
+  python src/main.py release-check --json
   python src/main.py check-update
   python src/main.py update
         """,
@@ -1397,6 +1425,13 @@ CLI examples:
         "--non-interactive",
         action="store_true",
         help="Skip all interactive prompts. Required for scheduled / cron / launchd runs.",
+    )
+    parser.add_argument(
+        "--yes",
+        "--no-confirm",
+        dest="assume_yes",
+        action="store_true",
+        help="Accept non-blocking preflight warnings for scheduled/non-interactive paid runs.",
     )
     parser.add_argument(
         "--force",
@@ -1500,6 +1535,31 @@ CLI examples:
 
     model_map = {"sonnet": ("claude-sonnet-4-6", "Sonnet 4.6"), "opus": ("claude-opus-4-7", "Opus 4.7")}
     model_id, model_name = model_map.get(args.model, (None, None))
+
+    if args.non_interactive:
+        try:
+            from src.setup_readiness import paid_run_readiness_view
+
+            readiness = paid_run_readiness_view(
+                holdings_csv=args.holdings,
+                activities_csv=args.activities,
+                use_fallback_config=args.holdings is None,
+                model_choice=args.model or "sonnet",
+                timeout=3.0,
+            )
+            if not readiness.get("can_run"):
+                print(f"{C.RED}[ERROR]{C.RESET} Paid run blocked: {readiness.get('primary_action') or readiness.get('summary')}")
+                sys.exit(2)
+            if readiness.get("requires_warning_confirmation") and not args.assume_yes:
+                print(f"{C.YELLOW}[CONFIRMATION REQUIRED]{C.RESET} {readiness.get('summary')}")
+                print(f"  Re-run with {C.CYAN}--yes{C.RESET} after reviewing warnings, or fix the warnings first.")
+                for row in readiness.get("confirmations_required") or []:
+                    print(f"  - {row.get('label')}: {row.get('detail')}")
+                sys.exit(2)
+        except SystemExit:
+            raise
+        except Exception as exc:
+            print(f"{C.DIM}[tech_stock] Non-interactive paid-run readiness check skipped: {exc}{C.RESET}")
 
     run(
         session_type=args.session,

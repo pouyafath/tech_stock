@@ -63,6 +63,17 @@ def _days_until_earnings(enrich: dict) -> int | None:
     return (earnings_date - datetime.now().date()).days
 
 
+def _latest_news_age_days(news_by_ticker: dict, ticker: str) -> int | None:
+    latest = None
+    for article in (news_by_ticker or {}).get(ticker) or []:
+        parsed = _parse_iso_date(article.get("published_at") or article.get("published") or article.get("date"))
+        if parsed and (latest is None or parsed > latest):
+            latest = parsed
+    if not latest:
+        return None
+    return (datetime.now().date() - latest).days
+
+
 def _has_decision_tree(rec: dict) -> bool:
     text = " ".join(
         [
@@ -252,6 +263,13 @@ def evaluate(
         enrich = _enrichment_for(enriched or {}, ticker)
         days_to_earnings = _days_until_earnings(enrich)
         near_earnings = days_to_earnings is not None and 0 <= days_to_earnings <= 7
+        analyst_present = bool(enrich.get("analyst_consensus") or md.get("number_of_analyst_opinions"))
+        target_present = bool(md.get("analyst_target_mean") or md.get("analyst_target_median"))
+        options_present = bool(md.get("options_implied_move_pct") or md.get("earnings_implied_move_pct"))
+        try:
+            conviction = float(rec.get("conviction") or 0)
+        except (TypeError, ValueError):
+            conviction = 0.0
         large_move = move is not None and abs(move) >= threshold
         catalyst_required = action in {"BUY", "ADD"} and (large_move or rec.get("earnings_alert") or near_earnings)
         if catalyst_required:
@@ -267,8 +285,71 @@ def evaluate(
                         "Downgrade to HOLD or mark manual_review_required until catalyst is verified.",
                     )
                 )
+            max_catalyst_age = int(settings.get("catalyst_max_age_days", 7))
+            latest_age = _latest_news_age_days(news_by_ticker or {}, ticker)
+            if has_source and latest_age is not None and latest_age > max_catalyst_age:
+                warnings.append(
+                    _warn(
+                        "medium",
+                        "stale_catalyst_source",
+                        ticker,
+                        f"Latest catalyst/news item is {latest_age} day(s) old, above the {max_catalyst_age}-day freshness window.",
+                        "Refresh/verify the catalyst manually before buying or adding.",
+                    )
+                )
+
+        if action in {"BUY", "ADD"} and conviction >= float(settings.get("high_conviction_source_threshold", 8)):
+            if not analyst_present:
+                warnings.append(
+                    _warn(
+                        "medium",
+                        "missing_analyst_source",
+                        ticker,
+                        "High-conviction BUY/ADD lacks sourced analyst consensus coverage.",
+                        "Review analyst coverage manually or lower conviction before execution.",
+                    )
+                )
+            if not target_present:
+                warnings.append(
+                    _warn(
+                        "medium",
+                        "missing_price_target_source",
+                        ticker,
+                        "High-conviction BUY/ADD lacks a sourced analyst price target.",
+                        "Verify valuation/target context manually before execution.",
+                    )
+                )
+
+        if action in {"BUY", "ADD"} and near_earnings and not options_present:
+            warnings.append(
+                _warn(
+                    "medium",
+                    "missing_options_implied_move",
+                    ticker,
+                    "BUY/ADD is near earnings but lacks options-implied move data.",
+                    "Use ATR/volatility fallback or verify options-implied move manually before trading.",
+                )
+            )
 
         thesis = (rec.get("thesis") or "").lower()
+        optional_dependencies = [
+            ("analyst", analyst_present, "Analyst commentary is cited but analyst source data is unavailable."),
+            ("price target", target_present, "Price-target language is used but target source data is unavailable."),
+            ("insider", bool(enrich.get("insider_activity")), "Insider activity is cited but insider source data is unavailable."),
+            ("option", options_present, "Options/implied-move language is used but options source data is unavailable."),
+        ]
+        for keyword, present, message in optional_dependencies:
+            if keyword in thesis and not present:
+                warnings.append(
+                    _warn(
+                        "low",
+                        "stale_optional_source",
+                        ticker,
+                        message,
+                        "Remove the source-dependent claim or verify it manually before execution.",
+                    )
+                )
+
         if enrich.get("analyst_consensus") and "analyst" not in thesis:
             warnings.append(
                 _warn(
@@ -622,4 +703,34 @@ def apply_quality_gates(
 
     out["priority_actions"] = [action for action in out.get("priority_actions", []) or [] if action.get("ticker") not in blocked]
     out["quality_warnings"] = warnings or []
+    _annotate_trade_readiness(out)
     return out
+
+
+def _annotate_trade_readiness(recommendation: dict) -> None:
+    warnings = recommendation.get("quality_warnings") or []
+    warnings_by_ticker: dict[str, list[dict]] = {}
+    for warning in warnings:
+        ticker = str(warning.get("ticker") or "").upper()
+        if ticker:
+            warnings_by_ticker.setdefault(ticker, []).append(warning)
+    blocking_codes = {
+        "market_data_error",
+        "stale_or_unstamped_quote",
+        "missing_catalyst_verification",
+        "buy_add_over_position_cap",
+        "oversized_company_exposure",
+    }
+    for rec in recommendation.get("recommendations", []) or []:
+        ticker = str(rec.get("ticker") or "").upper()
+        rec_warnings = warnings_by_ticker.get(ticker, [])
+        codes = {row.get("code") for row in rec_warnings}
+        if codes & blocking_codes:
+            rec["trade_readiness"] = "BLOCKED"
+        elif rec.get("manual_review_required") or rec_warnings:
+            rec["trade_readiness"] = "REVIEW_FIRST"
+        else:
+            rec["trade_readiness"] = "TRADE_READY"
+        rec["trade_readiness_reasons"] = [
+            row.get("action_required") or row.get("message") or row.get("code", "") for row in rec_warnings[:4]
+        ] or (["Manual review required."] if rec.get("manual_review_required") else ["Deterministic gates are clear."])

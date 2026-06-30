@@ -112,6 +112,9 @@ def seed_from_recommendation_log(
             "execution_date": "",
             "reason": "",
             "notes": "",
+            "execution_checklist": _empty_execution_checklist(),
+            "execution_checklist_updated_at": "",
+            "execution_checklist_notes": "",
             "created_at": datetime.now().isoformat(timespec="seconds"),
             "updated_at": datetime.now().isoformat(timespec="seconds"),
         }
@@ -162,6 +165,50 @@ def record_decision(
     return row
 
 
+def record_execution_checklist(
+    journal_path: str | Path,
+    row_id: str,
+    *,
+    checklist: dict[str, bool],
+    notes: str = "",
+) -> dict:
+    """Persist the manual execution checklist for one journal row."""
+    journal = load_journal(journal_path)
+    row = next((item for item in journal.get("decisions", []) if item.get("id") == row_id), None)
+    if row is None:
+        raise ValueError(f"Decision row not found: {row_id}")
+    current = _empty_execution_checklist()
+    existing = row.get("execution_checklist")
+    if isinstance(existing, dict):
+        current.update({key: bool(existing.get(key)) for key in current})
+    for key in current:
+        if key in checklist:
+            current[key] = bool(checklist[key])
+    row["execution_checklist"] = current
+    row["execution_checklist_updated_at"] = datetime.now().isoformat(timespec="seconds")
+    row["execution_checklist_notes"] = notes or row.get("execution_checklist_notes") or ""
+    row["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    save_journal(journal_path, journal)
+    return row
+
+
+def execution_checklist_status(row: dict) -> dict:
+    checklist = _empty_execution_checklist()
+    existing = row.get("execution_checklist")
+    if isinstance(existing, dict):
+        checklist.update({key: bool(existing.get(key)) for key in checklist})
+    done = sum(1 for value in checklist.values() if value)
+    total = len(checklist)
+    return {
+        "done": done,
+        "total": total,
+        "status": "DONE" if done == total else "PENDING" if done else "NOT_STARTED",
+        "checklist": checklist,
+        "updated_at": row.get("execution_checklist_updated_at") or "",
+        "notes": row.get("execution_checklist_notes") or "",
+    }
+
+
 def journal_status(journal: dict) -> dict:
     rows = journal.get("decisions", []) or []
     counts = {key: 0 for key in sorted(ALL_DECISIONS)}
@@ -178,6 +225,16 @@ def journal_status(journal: dict) -> dict:
             key=lambda row: (row.get("session_date") or "", row.get("ticker") or ""),
             reverse=True,
         )[:20],
+    }
+
+
+def _empty_execution_checklist() -> dict[str, bool]:
+    return {
+        "quote_confirmed": False,
+        "catalyst_checked": False,
+        "sizing_checked": False,
+        "fee_fx_checked": False,
+        "manual_review_accepted": False,
     }
 
 

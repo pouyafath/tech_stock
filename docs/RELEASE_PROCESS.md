@@ -111,12 +111,12 @@ release is silently aborted — there's no draft to publish.
 ### build-linux
 
 - Installs `appimagetool` from upstream
-- Runs `build_linux.sh` which composes the AppDir layout and produces
-  `dist/tech_stock-x86_64.AppImage`
+- Runs `build_linux.sh` which composes the AppDir layout and always produces
+  `dist/tech_stock-<version>-linux-x86_64.tar.gz`
+- Also produces `dist/tech_stock-x86_64.AppImage` when `appimagetool` succeeds
 - `python tools/package_smoke.py --platform linux --dist dist`
   verifies the Linux app folder/artifact and bundled support/UI modules
-- Falls back to a tarball when `appimagetool` is missing
-- Both potential artefacts uploaded with `continue-on-error: true`
+- The tarball artifact is required; AppImage upload remains best-effort
 
 ### release
 
@@ -126,6 +126,8 @@ release is silently aborted — there's no draft to publish.
   version isn't in the file yet
 - Downloads every artefact
 - Generates `SHA256SUMS.txt` with `sha256sum *.dmg *.exe *.zip *.AppImage *.tar.gz`
+- Required CI validation: `python src/main.py release-check --dist release --strict`
+  after `SHA256SUMS.txt` is generated and before draft release creation
 - Publishes a **draft** GitHub Release with:
   - Title: `tech_stock vX.Y.Z`
   - Body: the parsed CHANGELOG section
@@ -139,7 +141,7 @@ and any attached binaries before publishing.
 Do not publish a draft release until these checks pass:
 
 1. Download every attached artifact: macOS `.dmg`, Windows installer/zip,
-   Linux AppImage or tarball, and `SHA256SUMS.txt`.
+   Linux tarball, optional Linux AppImage, and `SHA256SUMS.txt`.
 2. Verify checksums:
    ```
    shasum -a 256 -c SHA256SUMS.txt

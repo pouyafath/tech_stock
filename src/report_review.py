@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from src.data_confidence import build_data_confidence
-from src.decision_journal import ACTIONABLE_ACTIONS, decision_id, load_journal
+from src.decision_journal import ACTIONABLE_ACTIONS, decision_id, execution_checklist_status, load_journal
 from src.view_models import BLOCKED, REVIEW_FIRST, TRADE_READY
 
 BLOCKING_REVIEW_CODES = {
@@ -235,6 +235,7 @@ def build_report_review(
     readiness_counts: Counter = Counter()
     recommendation_rows: list[dict[str, Any]] = []
     decision_rows: list[dict[str, Any]] = []
+    execution_checklist_rows: list[dict[str, Any]] = []
     session_file = log.name if log else str(payload.get("session_file") or "")
     for rec in recommendations:
         ticker = str(rec.get("ticker") or "").upper()
@@ -274,11 +275,21 @@ def build_report_review(
                     "can_record": bool(row_id),
                 }
             )
+            execution_checklist_rows.extend(
+                _execution_checklist_rows(
+                    rec=rec,
+                    journal_row=journal_row,
+                    row_id=row_id,
+                    ticker=ticker,
+                    warnings=ticker_warnings,
+                )
+            )
 
     quote_warning_count = sum(count for code, count in codes.items() if code in QUOTE_REVIEW_CODES)
     catalyst_warning_count = sum(count for code, count in codes.items() if code in CATALYST_REVIEW_CODES)
     manual_review_count = sum(1 for rec in recommendations if rec.get("manual_review_required"))
     pending_decisions = sum(1 for row in decision_rows if row.get("user_decision") == "pending")
+    pending_checklist = sum(1 for row in execution_checklist_rows if row.get("status") == "PENDING")
 
     metric_rows = [
         {
@@ -329,6 +340,15 @@ def build_report_review(
             if pending_decisions
             else "Feedback loop is up to date for this report.",
         },
+        {
+            "metric": "Execution checklist",
+            "status": "WARN" if pending_checklist else "OK",
+            "value": f"{pending_checklist} pending",
+            "detail": f"{len(execution_checklist_rows)} checklist item(s)",
+            "next_action": "Confirm quote, catalyst, sizing, fee/FX, and manual-review items before trading."
+            if pending_checklist
+            else "Execution checklist is fully reviewed.",
+        },
     ]
 
     top_reasons = list(confidence.get("reasons") or [])
@@ -367,10 +387,74 @@ def build_report_review(
         "readiness_counts": dict(readiness_counts),
         "recommendation_rows": recommendation_rows,
         "decision_rows": decision_rows,
+        "execution_checklist_rows": execution_checklist_rows,
         "change_rows": _change_rows(payload.get("drift_vs_previous") or []),
         "source_rows": source_degradation,
         "support_summary": support_summary,
     }
+
+
+def _execution_checklist_rows(
+    *,
+    rec: dict[str, Any],
+    journal_row: dict[str, Any],
+    row_id: str,
+    ticker: str,
+    warnings: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    status = execution_checklist_status(journal_row)
+    checklist = status.get("checklist") or {}
+    warnings_text = ", ".join(str(row.get("code") or "") for row in warnings)
+    manual_review = bool(rec.get("manual_review_required") or warnings)
+    definitions = [
+        (
+            "quote_confirmed",
+            "Quote confirmed",
+            "Required",
+            "Confirm live broker quote, previous close, currency, and timestamp.",
+        ),
+        (
+            "catalyst_checked",
+            "Catalyst checked",
+            "Required" if rec.get("catalyst_source") or rec.get("catalyst_verified") or warnings else "Recommended",
+            rec.get("catalyst_source") or warnings_text or "Check recent news before execution.",
+        ),
+        (
+            "sizing_checked",
+            "Sizing checked",
+            "Required",
+            _action_size(rec) or "Confirm shares, position percent, and cash impact.",
+        ),
+        (
+            "fee_fx_checked",
+            "Fee/FX checked",
+            "Required",
+            "Confirm Wealthsimple account type, USD/CAD cash, bid/ask, and fee hurdle.",
+        ),
+        (
+            "manual_review_accepted",
+            "Manual review accepted",
+            "Required" if manual_review else "Optional",
+            "Accept manual-review warnings before trading." if manual_review else "No manual-review blocker detected.",
+        ),
+    ]
+    rows = []
+    for key, label, required, detail in definitions:
+        done = bool(checklist.get(key))
+        rows.append(
+            {
+                "id": row_id,
+                "ticker": ticker,
+                "check": key,
+                "label": label,
+                "required": required,
+                "status": "DONE" if done else "PENDING",
+                "detail": detail,
+                "updated_at": status.get("updated_at") or "",
+                "notes": status.get("notes") or "",
+            }
+        )
+    return rows
 
 
 def _support_summary(

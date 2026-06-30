@@ -69,6 +69,11 @@ SUPPORT_BUNDLE_FILES = [
         "privacy": "Secret-like tokens are redacted before writing.",
     },
     {
+        "path": "support/release_check.json",
+        "description": "Release packaging and checksum-readiness checks for the installed project version.",
+        "privacy": "Build-script and artifact metadata only.",
+    },
+    {
         "path": "support/README.txt",
         "description": "Plain-language privacy notes for the support bundle.",
         "privacy": "No app data.",
@@ -215,6 +220,9 @@ def setup_readiness_view(
             }
         )
 
+    holdings_choices = csv_choice_rows("holdings")
+    activities_choices = csv_choice_rows("activities")
+    recovery_steps = _setup_recovery_steps(rows, holdings_choices, activities_choices, selected)
     status = (
         "READY"
         if all(row["status"] in {"OK", "SKIP"} for row in rows)
@@ -238,9 +246,11 @@ def setup_readiness_view(
             "selected_files": selected,
             "rows": rows,
             "csv_choices": {
-                "holdings": csv_choice_rows("holdings"),
-                "activities": csv_choice_rows("activities"),
+                "holdings": holdings_choices,
+                "activities": activities_choices,
             },
+            "recovery_steps": recovery_steps,
+            "quick_actions": _setup_quick_actions(recovery_steps),
             "pre_run_checklist": checklist,
             "preflight_summary": preflight.get("summary_rows") or [],
         }
@@ -295,6 +305,14 @@ def paid_run_readiness_view(
         },
         *_readiness_steps(rows),
     ]
+    confirmations_required = _confirmation_rows(
+        warning_rows=warning_rows,
+        blocking_rows=blocking_rows,
+        dry_run=dry_run,
+        model_choice=model_choice,
+        budget_usd=budget_usd,
+        budget_cad=budget_cad,
+    )
     return _jsonable(
         {
             "app_version": APP_VERSION,
@@ -302,6 +320,8 @@ def paid_run_readiness_view(
             "status": status,
             "can_run": bool(checklist.get("can_run")),
             "requires_warning_confirmation": bool(checklist.get("can_run") and warning_rows and not dry_run),
+            "confirmations_required": confirmations_required,
+            "confirmation_required_count": len(confirmations_required),
             "blocking_count": len(blocking_rows),
             "warning_count": len(warning_rows),
             "summary": summary,
@@ -313,7 +333,12 @@ def paid_run_readiness_view(
     )
 
 
-def support_bundle_payload(*, include_demo_smoke: bool = False, force_update: bool = True) -> dict[str, Any]:
+def support_bundle_payload(
+    *,
+    include_demo_smoke: bool = False,
+    force_update: bool = True,
+    include_release_check: bool = True,
+) -> dict[str, Any]:
     """Return a redacted JSON payload suitable for support tickets."""
     from src.observability import support_bundle as diagnostics_jsonl
 
@@ -321,12 +346,21 @@ def support_bundle_payload(*, include_demo_smoke: bool = False, force_update: bo
     doctor = build_preflight(force_update=force_update, live_api_checks=False, include_demo_smoke=include_demo_smoke)
     files = data_files_view()
     diagnostics_text = diagnostics_jsonl(limit=500)
+    release_check: dict[str, Any] | None = None
+    if include_release_check:
+        try:
+            from src.release_check import build_release_check
+
+            release_check = build_release_check()
+        except Exception as exc:  # noqa: BLE001
+            release_check = {"ok": False, "error": str(exc), "next_action": "Run python src/main.py release-check --json."}
     payload = {
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "app_version": APP_VERSION,
         "doctor": doctor,
         "setup_readiness": setup,
         "data_files": files,
+        "release_check": release_check,
         "csv_search_dirs": [str(path) for path in csv_search_dirs()],
         "diagnostics_jsonl": diagnostics_text,
         "notes": [
@@ -337,9 +371,11 @@ def support_bundle_payload(*, include_demo_smoke: bool = False, force_update: bo
     return _redact(_jsonable(payload))
 
 
-def support_bundle_preview(*, include_demo_smoke: bool = False) -> dict[str, Any]:
+def support_bundle_preview(*, include_demo_smoke: bool = False, include_release_check: bool = True) -> dict[str, Any]:
     """Describe support-bundle contents before writing a zip file."""
     files = [dict(row) for row in SUPPORT_BUNDLE_FILES]
+    if not include_release_check:
+        files = [row for row in files if row.get("path") != "support/release_check.json"]
     if include_demo_smoke:
         files[1]["description"] += " Includes bundled demo-smoke results."
     return _jsonable(
@@ -355,7 +391,12 @@ def support_bundle_preview(*, include_demo_smoke: bool = False) -> dict[str, Any
     )
 
 
-def export_support_bundle(*, output_dir: str | Path | None = None, include_demo_smoke: bool = False) -> SupportBundleResult:
+def export_support_bundle(
+    *,
+    output_dir: str | Path | None = None,
+    include_demo_smoke: bool = False,
+    include_release_check: bool = True,
+) -> SupportBundleResult:
     """Write a redacted setup/support zip and return its path."""
     from src import main
 
@@ -367,7 +408,10 @@ def export_support_bundle(*, output_dir: str | Path | None = None, include_demo_
 
     stamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     output = dest / f"tech_stock_support_{stamp}.zip"
-    payload = support_bundle_payload(include_demo_smoke=include_demo_smoke)
+    try:
+        payload = support_bundle_payload(include_demo_smoke=include_demo_smoke, include_release_check=include_release_check)
+    except TypeError:
+        payload = support_bundle_payload(include_demo_smoke=include_demo_smoke)
     files = {
         "support/doctor.json": json.dumps(payload.get("doctor") or {}, indent=2, sort_keys=True),
         "support/setup_readiness.json": json.dumps(payload.get("setup_readiness") or {}, indent=2, sort_keys=True),
@@ -375,6 +419,8 @@ def export_support_bundle(*, output_dir: str | Path | None = None, include_demo_
         "support/diagnostics.jsonl": str(payload.get("diagnostics_jsonl") or ""),
         "support/README.txt": "\n".join(payload.get("notes") or []),
     }
+    if include_release_check and payload.get("release_check") is not None:
+        files["support/release_check.json"] = json.dumps(payload.get("release_check") or {}, indent=2, sort_keys=True)
     try:
         with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:
             for arcname, text in files.items():
@@ -432,13 +478,24 @@ def cli_support_bundle(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     parser.add_argument("--output-dir", type=Path, help="Directory for the support zip. Defaults to <workspace>/exports.")
     parser.add_argument("--demo-smoke", action="store_true", help="Include no-spend demo smoke output in the support payload.")
+    parser.add_argument(
+        "--include-release-check",
+        action="store_true",
+        default=True,
+        help="Include release packaging/checksum-readiness metadata. This is enabled by default.",
+    )
+    parser.add_argument("--skip-release-check", action="store_false", dest="include_release_check", help="Exclude release-check metadata.")
     parser.add_argument("--preview", action="store_true", help="Show the redacted bundle contents without writing a zip.")
     args = parser.parse_args(argv)
     if args.preview:
-        preview = support_bundle_preview(include_demo_smoke=args.demo_smoke)
+        preview = support_bundle_preview(include_demo_smoke=args.demo_smoke, include_release_check=args.include_release_check)
         print(json.dumps(preview, indent=2, sort_keys=True) if args.json else support_bundle_preview_text(preview))
         return 0
-    result = export_support_bundle(output_dir=args.output_dir, include_demo_smoke=args.demo_smoke)
+    result = export_support_bundle(
+        output_dir=args.output_dir,
+        include_demo_smoke=args.demo_smoke,
+        include_release_check=args.include_release_check,
+    )
     print(json.dumps(result.to_dict(), indent=2, sort_keys=True) if args.json else support_bundle_summary_text(result))
     return 0 if result.ok else 1
 
@@ -456,6 +513,49 @@ def _readiness_steps(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             }
         )
     return steps
+
+
+def _confirmation_rows(
+    *,
+    warning_rows: list[dict[str, Any]],
+    blocking_rows: list[dict[str, Any]],
+    dry_run: bool,
+    model_choice: str | None,
+    budget_usd: float | None,
+    budget_cad: float | None,
+) -> list[dict[str, Any]]:
+    if dry_run or blocking_rows:
+        return []
+    rows = [
+        {
+            "code": "paid_claude_spend",
+            "required": True,
+            "label": "Anthropic paid run",
+            "detail": f"Running the report uses Anthropic credits with model={model_choice or 'default'}.",
+            "accepted_by": "--yes/--no-confirm, Desktop/Streamlit confirmation, or manual CLI run.",
+        }
+    ]
+    if budget_usd is not None or budget_cad is not None:
+        rows.append(
+            {
+                "code": "budget_context",
+                "required": False,
+                "label": "Budget context",
+                "detail": f"User-entered budget: ${float(budget_usd or 0):,.0f} USD / ${float(budget_cad or 0):,.0f} CAD.",
+                "accepted_by": "Review before running.",
+            }
+        )
+    for warning in warning_rows:
+        rows.append(
+            {
+                "code": "warning_acceptance",
+                "required": True,
+                "label": warning.get("check") or "Preflight warning",
+                "detail": warning.get("detail") or "",
+                "accepted_by": warning.get("action") or "Review warning and accept reduced coverage/stale-data risk.",
+            }
+        )
+    return rows
 
 
 def _checklist_rows(checklist: dict[str, Any]) -> list[dict[str, str]]:
@@ -509,6 +609,157 @@ def _setup_next_action(rows: list[dict[str, Any]], fallback: str) -> str:
         if row.get("status") == "WARN" and row.get("action"):
             return row["action"]
     return fallback or "Ready for a report run."
+
+
+def _setup_recovery_steps(
+    rows: list[dict[str, Any]],
+    holdings_choices: list[dict[str, Any]],
+    activities_choices: list[dict[str, Any]],
+    selected: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Return first-run recovery steps in the order a user should fix them."""
+    steps: list[dict[str, Any]] = []
+    by_check = {str(row.get("check") or ""): row for row in rows}
+    api_row = by_check.get("API keys") or {}
+    if api_row.get("status") == "FAIL":
+        steps.append(
+            _recovery_step(
+                1,
+                "Add Anthropic API key",
+                "BLOCKED",
+                api_row.get("detail") or "ANTHROPIC_API_KEY is missing.",
+                "Open API Checks, paste ANTHROPIC_API_KEY, then run Check APIs.",
+                "api_keys",
+                "~/Documents/tech_stock/API_KEYS.txt or the project API_KEYS.txt/.env",
+            )
+        )
+
+    holdings_ready = _recommended_ready(holdings_choices)
+    if not selected.get("holdings") and holdings_ready:
+        steps.append(
+            _recovery_step(
+                2,
+                "Confirm Holdings CSV",
+                "ACTION",
+                f"Recommended file: {holdings_ready.get('filename')}",
+                "Click Use this CSV or save the recommended Holdings path as default.",
+                "holdings_csv",
+                holdings_ready.get("path") or "",
+            )
+        )
+    elif not holdings_ready:
+        holdings_row = by_check.get("Holdings CSV") or {}
+        steps.append(
+            _recovery_step(
+                2,
+                "Choose a fresh Holdings CSV",
+                "BLOCKED" if holdings_row.get("status") == "FAIL" else "REVIEW",
+                holdings_row.get("detail") or "No valid holdings export was found.",
+                "Export Wealthsimple Holdings CSV and save it in Downloads or the workspace.",
+                "holdings_csv",
+                "",
+            )
+        )
+
+    activities_ready = _recommended_ready(activities_choices)
+    activities_bad = any(row.get("status") == "BLOCKED" for row in activities_choices)
+    if activities_bad:
+        steps.append(
+            _recovery_step(
+                3,
+                "Fix Activities CSV field",
+                "REVIEW",
+                "One candidate looks swapped or invalid.",
+                "Move the activities export into the Activities field, or clear it if unavailable.",
+                "activities_csv",
+                activities_ready.get("path") if activities_ready else "",
+            )
+        )
+    elif activities_ready and not selected.get("activities"):
+        steps.append(
+            _recovery_step(
+                3,
+                "Optional: confirm Activities CSV",
+                "OPTIONAL",
+                f"Recommended file: {activities_ready.get('filename')}",
+                "Save this path to improve holding-days and trade-history context.",
+                "activities_csv",
+                activities_ready.get("path") or "",
+            )
+        )
+
+    demo_row = by_check.get("Demo smoke") or {}
+    if demo_row.get("status") == "OK":
+        steps.append(
+            _recovery_step(
+                4,
+                "Run demo smoke test",
+                "OPTIONAL",
+                "Validates the installed app without Claude spend.",
+                "Use this before troubleshooting paid runs.",
+                "demo_smoke",
+                "",
+            )
+        )
+    if not steps:
+        steps.append(
+            _recovery_step(
+                1,
+                "Run report",
+                "READY",
+                "Setup is ready.",
+                "Open Run Report, confirm paid-run warnings if any, then generate the report.",
+                "run_report",
+                "",
+            )
+        )
+    return steps
+
+
+def _setup_quick_actions(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    actions = []
+    for step in steps:
+        kind = step.get("kind")
+        if kind == "api_keys":
+            target = step.get("path_hint") or ""
+            actions.append({"label": "Open API Checks", "action": "open_api_checks", "target": target, "path": target})
+        elif kind in {"holdings_csv", "activities_csv"} and step.get("path_hint"):
+            target = step.get("path_hint") or ""
+            actions.append({"label": "Use this CSV", "action": f"use_{kind}", "target": target, "path": target})
+        elif kind == "demo_smoke":
+            actions.append({"label": "Run demo smoke test", "action": "run_demo_smoke", "target": "", "path": ""})
+        elif kind == "run_report":
+            actions.append({"label": "Run report", "action": "run_report", "target": "", "path": ""})
+    return actions
+
+
+def _recommended_ready(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    for row in rows:
+        if row.get("recommended") and row.get("status") == "READY":
+            return row
+    return {}
+
+
+def _recovery_step(
+    order: int,
+    step: str,
+    status: str,
+    detail: str,
+    action: str,
+    kind: str,
+    path_hint: str,
+) -> dict[str, Any]:
+    return {
+        "order": order,
+        "step": step,
+        "title": step,
+        "status": status,
+        "detail": detail,
+        "action": action,
+        "kind": kind,
+        "path_hint": path_hint,
+        "path": path_hint,
+    }
 
 
 def _workspace_status(preflight: dict[str, Any]) -> str:

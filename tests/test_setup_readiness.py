@@ -74,6 +74,69 @@ def test_setup_readiness_view_reports_blocking_next_action(monkeypatch, tmp_path
     assert view["status"] == "BLOCKED"
     assert view["next_action"] == "Add ANTHROPIC_API_KEY in API_KEYS.txt or .env."
     assert any(row["check"] == "Anthropic API key" and row["status"] == "FAIL" for row in view["rows"])
+    assert view["recovery_steps"][0]["title"] == "Add Anthropic API key"
+    assert any(action["action"] == "open_api_checks" for action in view["quick_actions"])
+
+
+def test_setup_readiness_view_guides_csv_recovery(monkeypatch, tmp_path):
+    from src.onboarding import OnboardingState
+
+    fresh_holdings = tmp_path / "holdings-report-2026-06-24.csv"
+    fresh_holdings.write_text(f"{HOLDINGS_HEADER}\nNVDA,1,100,USD,90,100,10\n", encoding="utf-8")
+    monkeypatch.setattr(setup_readiness, "current_state", lambda: OnboardingState(stage="data_files"))
+    monkeypatch.setattr(setup_readiness, "selected_data_files", lambda: {"holdings": None, "activities": None})
+    monkeypatch.setattr(
+        setup_readiness,
+        "csv_choice_rows",
+        lambda kind: (
+            [
+                {
+                    "kind": kind,
+                    "recommended": True,
+                    "status": "READY",
+                    "filename": fresh_holdings.name,
+                    "path": str(fresh_holdings),
+                    "reason": "Fresh valid holdings export.",
+                }
+            ]
+            if kind == "holdings"
+            else []
+        ),
+    )
+    monkeypatch.setattr(setup_readiness, "demo_snapshot", lambda: SimpleNamespace(available=True))
+    monkeypatch.setattr(
+        setup_readiness,
+        "build_pre_run_checklist",
+        lambda **_kwargs: {
+            "can_run": False,
+            "rows": [
+                {
+                    "check": "Holdings CSV",
+                    "status": "BLOCKED",
+                    "blocking": True,
+                    "detail": "No holdings file selected.",
+                    "action": "Select a holdings CSV.",
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        setup_readiness,
+        "build_preflight",
+        lambda **_kwargs: {
+            "api_keys": {"required_missing": 0, "optional_missing": 0, "configured_count": 1},
+            "workspace": {"locations": {"workspace": str(tmp_path)}, "writable": {"workspace": True}},
+            "summary_rows": [],
+            "next_action": "Select a holdings CSV.",
+        },
+    )
+
+    view = setup_readiness.setup_readiness_view()
+
+    assert view["status"] == "BLOCKED"
+    assert view["recovery_steps"][0]["title"] == "Confirm Holdings CSV"
+    assert view["recovery_steps"][0]["path"] == str(fresh_holdings)
+    assert any(action["action"] == "use_holdings_csv" and action["path"] == str(fresh_holdings) for action in view["quick_actions"])
 
 
 def test_export_support_bundle_redacts_secret_text(monkeypatch, tmp_path):
@@ -154,12 +217,27 @@ def test_paid_run_readiness_requires_warning_confirmation(monkeypatch):
     assert view["status"] == "REVIEW_FIRST"
     assert view["can_run"] is True
     assert view["requires_warning_confirmation"] is True
+    assert view["confirmation_required_count"] == 2
+    assert any(row["code"] == "warning_acceptance" for row in view["confirmations_required"])
 
 
 def test_support_bundle_preview_lists_included_and_excluded_files():
     preview = setup_readiness.support_bundle_preview()
 
     assert preview["safe_to_share"] is True
-    assert preview["file_count"] == 5
+    assert preview["file_count"] == 6
     assert "support/doctor.json" in {row["path"] for row in preview["files"]}
+    assert "support/release_check.json" in {row["path"] for row in preview["files"]}
     assert "API_KEYS.txt" in preview["excluded"]
+
+
+def test_support_bundle_payload_includes_release_check(monkeypatch):
+    monkeypatch.setattr(setup_readiness, "setup_readiness_view", lambda **_kwargs: {"status": "READY"})
+    monkeypatch.setattr(setup_readiness, "build_preflight", lambda **_kwargs: {"summary_rows": []})
+    monkeypatch.setattr(setup_readiness, "data_files_view", lambda: {"rows": []})
+    monkeypatch.setattr(setup_readiness, "csv_search_dirs", lambda: [])
+    monkeypatch.setattr(setup_readiness, "run_demo_smoke_test", lambda: {"ok": True})
+
+    payload = setup_readiness.support_bundle_payload(include_release_check=True)
+
+    assert payload["release_check"]["tag"].startswith("v")

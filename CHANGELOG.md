@@ -4,10 +4,13 @@ All notable changes to this project are documented here.
 
 ---
 
-## [1.36.0] — 2026-06-23
+## [1.39.0] — 2026-06-30
 
-Desktop UI production-readiness pass. All changes land on the canonical
-`src/desktop/app.py`; pure helpers are covered by headless tests.
+Desktop UI production-readiness, merged on top of main's v1.38. Everything this
+branch added (the desktop work below plus the security/resilience hardening that
+follows) ships as 1.39.0. All desktop changes land on the canonical
+`src/desktop/app.py`; pure helpers have headless tests and the GUI is exercised
+by a real xvfb test suite.
 
 ### Desktop app
 - **Mouse-wheel / trackpad scrolling** now works in the Home dashboard and
@@ -60,12 +63,9 @@ Desktop UI production-readiness pass. All changes land on the canonical
 
 ---
 
-## [1.35.0] — 2026-06-18
+### Security, data-integrity & resilience hardening (also new in 1.39.0)
 
-Merge of the parallel hardening/coverage line into the v1.34 feature line.
-Brings the security, data-integrity, resilience, and test-coverage work that
-had developed on a separate branch into the mainline, on top of main's
-`src/desktop/`-canonical architecture.
+Brought across from the parallel hardening/coverage line.
 
 ### Security
 - **Auto-updater refuses to install unverified binaries.** When a release
@@ -118,6 +118,107 @@ had developed on a separate branch into the mainline, on top of main's
   (`parents[1]`) instead of the real repo-root `config/settings.json`, so
   saved settings were never read back. All three sites now use the module
   `ROOT`.
+
+---
+
+## [1.38.0] — 2026-06-24
+
+### Added
+- Added ordered setup recovery steps and quick actions to the shared setup
+  readiness payload. Desktop, Streamlit, and Textual now show the next concrete
+  fix before a paid run: add API key, confirm Holdings CSV, fix swapped
+  Activities CSV, run demo smoke, or run the report.
+- Added an execution checklist to Report Review. Each actionable
+  recommendation can now track quote confirmation, catalyst check, sizing
+  check, fee/FX check, and manual review acceptance in the decision journal.
+- Added source-provenance filters for status, source, and ticker in shared UI
+  support and Streamlit Diagnostics. Desktop Diagnostics now exposes equivalent
+  filters and defaults to problem rows.
+
+### Changed
+- Textual Data Files now shows setup recovery steps and defaults Source
+  Provenance to problem rows to reduce noise.
+- Report Review now includes an execution-checklist metric so pending manual
+  checks are visible before acting on a recommendation.
+
+---
+
+## [1.37.0] — 2026-06-24
+
+### Added
+- Added deterministic recommendation explainability in reports and Buy Signals:
+  every recommendation can now show source-backed bullish evidence, bearish
+  evidence, missing data, readiness reason, and "what changes my mind" text.
+- Added ticker-level Source Provenance rows in generated reports, shared UI
+  support, Desktop Diagnostics, Streamlit Diagnostics, and Textual Data Files.
+  Rows show ticker, source family, provider, timestamp/field, status, evidence,
+  and required user action.
+- Added outcome-learning lessons. Outcomes now derive compact positive/negative
+  lessons by readiness, source coverage, catalyst verification, action, and
+  market regime when enough matured samples exist.
+- Added paid-run confirmation metadata to readiness payloads and UI run screens,
+  plus `--yes` / `--no-confirm` for scheduled non-interactive terminal runs.
+- Added release-check metadata to redacted support bundles so support zips show
+  packaging/checksum readiness without exposing secrets or raw user data.
+
+### Changed
+- Non-interactive scheduled paid runs now stop on warning-confirmation
+  requirements unless `--yes` is supplied after review.
+- Support bundle previews now include `support/release_check.json` by default;
+  use `support-bundle --skip-release-check` to omit it.
+
+---
+
+## [1.36.0] — 2026-06-24
+
+### Added
+- Added per-ticker Source Confidence for Buy Signals. Each candidate now shows
+  quote, catalyst/news, analyst, fundamentals, and options coverage, with
+  blockers/review reasons derived from deterministic source fields.
+- Added Buy Signals source filters for missing catalyst, missing analyst data,
+  unstamped quotes, and degraded sources across Desktop, Streamlit, and Textual.
+- Added a top-level **Can I Act On This?** report section that summarizes each
+  recommendation's deterministic verdict, reason, and next check before the
+  detailed audit sections.
+- Added release workflow enforcement for `python src/main.py release-check
+  --dist release --strict` before draft GitHub Releases are created.
+
+### Changed
+- Trade readiness now incorporates Source Confidence and is persisted onto
+  recommendations after deterministic quality gates run.
+- Report quality gates now flag high-conviction BUY/ADD recommendations that
+  lack analyst/target source coverage, near-earnings BUY/ADD recommendations
+  without options-implied move data, stale catalyst/news references, and
+  source-dependent thesis language without matching source data.
+- Recommendation outcomes now bucket historical results by Source Coverage
+  status so future calibration can compare source-backed versus partial-source
+  calls.
+- Dashboard view models now include Source Coverage status as a metric card.
+
+---
+
+## [1.35.0] — 2026-06-24
+
+### Added
+- Added `python src/main.py release-check` for local and CI release readiness
+  checks. It verifies draft-release settings, checksum publishing, Linux
+  AppImage/tarball workflow coverage, and optional flattened release assets.
+- Added deterministic Source Coverage summaries in generated reports, saved
+  recommendation logs, shared UI support, and diagnostics. New reports now show
+  quote, Claude recommendation, catalyst/news, analyst, fundamentals, options,
+  macro, and insider-data coverage with user actions for missing/degraded
+  sources.
+- Expanded recommendation outcome learning with trade-readiness, catalyst
+  verification, manual-review, and market-regime buckets, giving future prompt
+  calibration more context than action/ticker alone.
+
+### Changed
+- Linux builds now always produce
+  `tech_stock-<version>-linux-x86_64.tar.gz`. AppImage remains available when
+  `appimagetool` works, but tarball publishing is no longer a fallback-only
+  path.
+- The release workflow now treats the Linux tarball as a required artifact while
+  keeping AppImage upload best-effort.
 
 ---
 

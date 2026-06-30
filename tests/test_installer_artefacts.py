@@ -101,20 +101,30 @@ def test_build_linux_script_reads_version_py():
     assert "APP_VERSION" in body
 
 
-def test_build_linux_script_emits_appimage_or_tarball():
+def test_build_linux_script_emits_appimage_and_required_tarball():
     body = (ROOT / "build_linux.sh").read_text(encoding="utf-8")
     # AppImage path
     assert "appimagetool" in body
     assert ".AppImage" in body
-    # Tarball fallback path
+    # Tarball is a required output, not only an appimagetool fallback.
+    assert "Packaging Linux tarball" in body
     assert "tar -C" in body
     assert ".tar.gz" in body
+    assert "packaging tarball instead" not in body
 
 
 def test_build_linux_script_emits_desktop_entry():
     body = (ROOT / "build_linux.sh").read_text(encoding="utf-8")
     assert "[Desktop Entry]" in body
     assert "Categories=Finance" in body
+
+
+def test_release_workflow_requires_linux_tarball_upload():
+    workflow = (ROOT / ".github" / "workflows" / "build_release.yml").read_text(encoding="utf-8")
+    assert "name: tech_stock-linux-tarball" in workflow
+    assert "dist/tech_stock-*-linux-x86_64.tar.gz" in workflow
+    assert "if-no-files-found: error" in workflow
+    assert "python src/main.py release-check --dist release --strict" in workflow
 
 
 def test_macos_spec_appversion_still_injected():

@@ -69,9 +69,11 @@ from src.ui_support import (  # noqa: E402
     run_report_from_ui,
     save_api_key,
     save_decision_from_ui,
+    save_execution_checklist_from_ui,
     save_selected_data_files,
     save_uploaded_bytes,
     setup_readiness_view,
+    source_provenance_view,
     support_bundle_preview,
     validate_json_text,
     write_editable_json,
@@ -797,7 +799,7 @@ with tab_dashboard:
 
 def _render_buy_signals() -> None:
     st.caption("Source-backed snapshots from the latest log plus refreshed yfinance, Finnhub, and quality-gate data.")
-    col_a, col_b, col_c = st.columns([2, 2, 1])
+    col_a, col_b, col_c, col_d = st.columns([2, 2, 2, 1])
     with col_a:
         action_filter_label = st.selectbox(
             "Action filter",
@@ -811,6 +813,12 @@ def _render_buy_signals() -> None:
             key="buy_readiness_filter",
         )
     with col_c:
+        source_filter_label = st.selectbox(
+            "Source filter",
+            ["All sources", "Missing catalyst", "Missing analyst", "Quote not timestamped", "Source degraded"],
+            key="buy_source_filter",
+        )
+    with col_d:
         st.markdown("&nbsp;")  # spacing
         refresh = st.button("🔄 Refresh", type="primary", width="stretch", key="buy_refresh")
 
@@ -820,10 +828,20 @@ def _render_buy_signals() -> None:
         "Review First": "REVIEW_FIRST",
         "Blocked": "BLOCKED",
     }.get(readiness_filter_label, "all")
+    source_filter = {
+        "Missing catalyst": "missing_catalyst",
+        "Missing analyst": "missing_analyst",
+        "Quote not timestamped": "quote_not_timestamped",
+        "Source degraded": "source_degraded",
+    }.get(source_filter_label, "all")
 
     if refresh:
         with st.spinner("Re-pulling source data and quality gates..."):
-            st.session_state["buy_signal_insights"] = buy_signal_view(action_filter=action_filter, readiness_filter=readiness_filter)
+            st.session_state["buy_signal_insights"] = buy_signal_view(
+                action_filter=action_filter,
+                readiness_filter=readiness_filter,
+                source_filter=source_filter,
+            )
         _toast("Buy signals refreshed", icon="🎯")
 
     buy_data = st.session_state.get("buy_signal_insights")
@@ -841,10 +859,11 @@ def _render_buy_signals() -> None:
 
     counts = buy_data.get("counts") or {}
     confidence = buy_data.get("data_confidence") or {}
-    col_ready, col_review, col_blocked, col_total = st.columns(4)
+    col_ready, col_review, col_blocked, col_missing, col_total = st.columns(5)
     col_ready.metric("✅ Trade Ready", counts.get("TRADE_READY", 0))
     col_review.metric("⚠️ Review First", counts.get("REVIEW_FIRST", 0))
     col_blocked.metric("🛑 Blocked", counts.get("BLOCKED", 0))
+    col_missing.metric("Missing Analyst", counts.get("missing_analyst", 0))
     col_total.metric("Total", counts.get("total", len(buy_data.get("cards") or [])))
 
     st.caption(
@@ -884,6 +903,12 @@ def _render_buy_signals() -> None:
                     st.write(item["thesis"])
                 if readiness.get("reasons"):
                     st.caption("· ".join(readiness["reasons"]))
+                source_confidence = item.get("source_confidence") or {}
+                if source_confidence:
+                    st.caption(
+                        f"Source confidence: **{source_confidence.get('label')}** · "
+                        + " · ".join(source_confidence.get("blockers") or source_confidence.get("review_reasons") or ["clear"])
+                    )
 
     with sub_consensus:
         if buy_data.get("consensus_rows"):
@@ -898,6 +923,16 @@ def _render_buy_signals() -> None:
                 st.markdown(f"**Readiness:** {readiness.get('label')}")
                 if readiness.get("reasons"):
                     st.caption("· ".join(readiness["reasons"]))
+                source_confidence = item.get("source_confidence") or {}
+                if source_confidence:
+                    st.markdown(f"**Source confidence:** {source_confidence.get('label')}")
+                    st.dataframe(
+                        pd.DataFrame(
+                            [{"source": name, **component} for name, component in (source_confidence.get("components") or {}).items()]
+                        ),
+                        hide_index=True,
+                        width="stretch",
+                    )
                 st.markdown(
                     f"**Quote:** {item.get('current_price')} · "
                     f"{item.get('quote_source') or 'unavailable'} · "
@@ -960,6 +995,35 @@ def _render_report_review_panel(report_path: Path | str | None, key_prefix: str)
         st.markdown("**Why this needs attention**")
         for reason in reasons[:5]:
             st.caption(f"- {reason}")
+
+    checklist_rows = view.get("execution_checklist_rows") or []
+    if checklist_rows:
+        with st.expander("Execution checklist", expanded=True):
+            st.dataframe(pd.DataFrame(checklist_rows), hide_index=True, width="stretch")
+            ids = sorted({row.get("id") for row in checklist_rows if row.get("id")})
+            if ids:
+                selected_id = st.selectbox("Checklist row", ids, key=f"{key_prefix}_checklist_id")
+                selected_rows = [row for row in checklist_rows if row.get("id") == selected_id]
+                existing = {row.get("check"): row.get("status") == "DONE" for row in selected_rows}
+                col_a, col_b, col_c, col_d, col_e = st.columns(5)
+                checklist = {
+                    "quote_confirmed": col_a.checkbox("Quote", value=existing.get("quote_confirmed", False), key=f"{key_prefix}_quote_ok"),
+                    "catalyst_checked": col_b.checkbox(
+                        "Catalyst", value=existing.get("catalyst_checked", False), key=f"{key_prefix}_catalyst_ok"
+                    ),
+                    "sizing_checked": col_c.checkbox("Sizing", value=existing.get("sizing_checked", False), key=f"{key_prefix}_sizing_ok"),
+                    "fee_fx_checked": col_d.checkbox("Fee/FX", value=existing.get("fee_fx_checked", False), key=f"{key_prefix}_fees_ok"),
+                    "manual_review_accepted": col_e.checkbox(
+                        "Review", value=existing.get("manual_review_accepted", False), key=f"{key_prefix}_review_ok"
+                    ),
+                }
+                notes = st.text_input("Checklist notes", key=f"{key_prefix}_checklist_notes")
+                if st.button("Save execution checklist", key=f"{key_prefix}_save_checklist"):
+                    try:
+                        save_execution_checklist_from_ui(str(selected_id), checklist=checklist, notes=notes)
+                        st.success("Execution checklist saved.")
+                    except Exception as exc:  # noqa: BLE001
+                        st.error(f"Could not save checklist: {exc}")
 
     rec_rows = view.get("recommendation_rows") or []
     if rec_rows:
@@ -1147,6 +1211,9 @@ def _render_run_tab() -> None:
         st.warning(readiness.get("summary") or readiness.get("next_action") or "Review before running.")
     if readiness.get("steps"):
         st.dataframe(pd.DataFrame(readiness["steps"]), hide_index=True, width="stretch")
+    if readiness.get("confirmations_required"):
+        st.markdown("### Confirmations before paid run")
+        st.dataframe(pd.DataFrame(readiness["confirmations_required"]), hide_index=True, width="stretch")
     st.markdown("### Pre-run checklist")
     if checklist.get("rows"):
         st.dataframe(pd.DataFrame(checklist["rows"]), hide_index=True, width="stretch")
@@ -1295,6 +1362,15 @@ with tab_data_files:
     if setup_rows:
         st.markdown("### Setup readiness")
         st.dataframe(pd.DataFrame(setup_rows), hide_index=True, width="stretch")
+    recovery_steps = setup.get("recovery_steps") or []
+    if recovery_steps:
+        st.markdown("### Fix Setup")
+        st.caption("Follow these steps in order before a paid run.")
+        st.dataframe(pd.DataFrame(recovery_steps), hide_index=True, width="stretch")
+    quick_actions = setup.get("quick_actions") or []
+    if quick_actions:
+        st.markdown("### Setup quick actions")
+        st.dataframe(pd.DataFrame(quick_actions), hide_index=True, width="stretch")
 
     view = data_files_view()
     rows = view.get("rows") or []
@@ -1748,6 +1824,10 @@ def _render_outcomes() -> None:
 
     sub_summary, sub_examples, sub_sources, sub_raw = st.tabs(["Summary", "Examples", "Source Buckets", "Raw"])
     with sub_summary:
+        lessons = view.get("lessons") or summary.get("lessons") or []
+        if lessons:
+            st.markdown("### Outcome Lessons")
+            st.dataframe(pd.DataFrame(lessons), hide_index=True, width="stretch")
         col_a, col_b = st.columns(2)
         with col_a:
             rows = _outcome_bucket_rows(summary.get("by_action") or {}, "action")
@@ -2341,6 +2421,37 @@ def _render_diagnostics() -> None:
                 }
             )
         st.dataframe(pd.DataFrame(csv_rows), hide_index=True, width="stretch")
+
+    coverage = view.get("source_coverage") or {}
+    if coverage:
+        st.markdown("### Source Coverage")
+        st.caption(coverage.get("summary") or "Latest recommendation-log provider coverage.")
+        st.dataframe(pd.DataFrame(coverage.get("rows") or []), hide_index=True, width="stretch")
+
+    provenance = view.get("source_provenance") or {}
+    if provenance:
+        st.markdown("### Source Provenance")
+        st.caption(provenance.get("summary") or "Ticker-level source provenance for the latest recommendation log.")
+        prov_col_a, prov_col_b, prov_col_c = st.columns([1, 1, 1])
+        with prov_col_a:
+            status_filter = st.selectbox(
+                "Provenance status",
+                ["problem", "all", "OK", "PARTIAL", "MISSING", "DEGRADED"],
+                key="diag_provenance_status",
+            )
+        with prov_col_b:
+            source_filter = st.text_input("Source filter", value="all", key="diag_provenance_source")
+        with prov_col_c:
+            ticker_filter = st.text_input("Ticker filter", value="", key="diag_provenance_ticker")
+        filtered_provenance = source_provenance_view(
+            status_filter=status_filter,
+            source_filter=source_filter or "all",
+            ticker_filter=ticker_filter or "",
+        )
+        st.caption(
+            f"Showing {filtered_provenance.get('filtered_count', 0)} of {filtered_provenance.get('unfiltered_count', 0)} source rows."
+        )
+        st.dataframe(pd.DataFrame((filtered_provenance.get("rows") or [])[:60]), hide_index=True, width="stretch")
 
     sources = view.get("sources") or {}
     if not sources:
