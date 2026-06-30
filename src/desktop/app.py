@@ -565,6 +565,7 @@ class DesktopApp(tk.Tk):
         self.search_state: dict[str, dict[str, Any]] = {}
         self._warmed_tabs: set[str] = set()
         self._async_generation: dict[str, int] = {}
+        self._refresh_buttons: dict[str, Any] = {}
         self._report_elapsed_id: str | None = None
         self._report_start_time: float | None = None
         self._drain_id: str | None = None
@@ -1863,7 +1864,9 @@ class DesktopApp(tk.Tk):
         """
         toolbar = ttk.Frame(self.learning_tab)
         toolbar.pack(fill="x", padx=16, pady=(16, 8))
-        ttk.Button(toolbar, text="Refresh learning view", command=self.refresh_learning_tab).pack(side="left")
+        _learning_refresh = ttk.Button(toolbar, text="Refresh learning view", command=self.refresh_learning_tab)
+        _learning_refresh.pack(side="left")
+        self._refresh_buttons["learning"] = _learning_refresh
         self.learning_status = tk.StringVar(value="Open this tab to load the learning view.")
         ttk.Label(toolbar, textvariable=self.learning_status, style="Muted.TLabel").pack(side="left", padx=14)
 
@@ -2075,7 +2078,9 @@ class DesktopApp(tk.Tk):
         """
         toolbar = ttk.Frame(self.performance_tab)
         toolbar.pack(fill="x", padx=16, pady=(16, 8))
-        ttk.Button(toolbar, text="Refresh", command=self.refresh_performance_tab).pack(side="left")
+        _perf_refresh = ttk.Button(toolbar, text="Refresh", command=self.refresh_performance_tab)
+        _perf_refresh.pack(side="left")
+        self._refresh_buttons["performance"] = _perf_refresh
         self.performance_lookback_var = tk.StringVar(value="All time")
         ttk.Label(toolbar, text="Lookback", style="Muted.TLabel").pack(side="left", padx=(14, 4))
         lookback_box = ttk.Combobox(
@@ -2282,7 +2287,9 @@ class DesktopApp(tk.Tk):
     def _build_outcomes_tab(self) -> None:
         toolbar = ttk.Frame(self.outcomes_tab)
         toolbar.pack(fill="x", padx=16, pady=(16, 8))
-        ttk.Button(toolbar, text="Refresh", command=self.refresh_outcomes_tab).pack(side="left")
+        _outcomes_refresh = ttk.Button(toolbar, text="Refresh", command=self.refresh_outcomes_tab)
+        _outcomes_refresh.pack(side="left")
+        self._refresh_buttons["outcomes"] = _outcomes_refresh
         self.outcomes_status = tk.StringVar(value="Open this tab to score recommendation outcomes.")
         ttk.Label(toolbar, textvariable=self.outcomes_status, style="Muted.TLabel").pack(side="left", padx=14)
 
@@ -3025,7 +3032,9 @@ class DesktopApp(tk.Tk):
         """
         toolbar = ttk.Frame(self.diagnostics_tab)
         toolbar.pack(fill="x", padx=16, pady=(16, 8))
-        ttk.Button(toolbar, text="Refresh", command=self.refresh_diagnostics_tab).pack(side="left")
+        _diag_refresh = ttk.Button(toolbar, text="Refresh", command=self.refresh_diagnostics_tab)
+        _diag_refresh.pack(side="left")
+        self._refresh_buttons["diagnostics"] = _diag_refresh
         ttk.Button(toolbar, text="Run App Self-Test", command=self.refresh_app_self_test).pack(side="left", padx=(8, 0))
         self.diagnostics_window_var = tk.StringVar(value="24")
         ttk.Label(toolbar, text="Window", style="Muted.TLabel").pack(side="left", padx=(14, 4))
@@ -4278,6 +4287,12 @@ class DesktopApp(tk.Tk):
         generation = self._async_generation.get(key, 0) + 1
         self._async_generation[key] = generation
 
+        # Busy state: disable the tab's Refresh button while its work is in
+        # flight so rapid clicks don't pile up, and re-enable it when the latest
+        # request settles (stale requests leave it alone — the newer one owns it).
+        button = self._refresh_buttons.get(key)
+        self._set_button_state(button, "disabled")
+
         def _is_current() -> bool:
             return self._async_generation.get(key) == generation
 
@@ -4290,6 +4305,7 @@ class DesktopApp(tk.Tk):
         def _success(result) -> None:
             if not _is_current():
                 return
+            self._set_button_state(button, "normal")
             try:
                 on_success(result)
             except Exception as exc:  # noqa: BLE001 — render failed on the UI thread
@@ -4299,9 +4315,19 @@ class DesktopApp(tk.Tk):
         def _error(exc: Exception) -> None:
             if not _is_current():
                 return
+            self._set_button_state(button, "normal")
             _report(exc)
 
         return _success, _error
+
+    @staticmethod
+    def _set_button_state(button, state: str) -> None:
+        """Best-effort widget state toggle — a destroyed/None button is a no-op."""
+        if button is not None:
+            try:
+                button.configure(state=state)
+            except Exception:
+                pass
 
     def _on_close(self) -> None:
         """Stop the self-rescheduling ``after()`` loops before tearing the

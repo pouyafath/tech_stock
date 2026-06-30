@@ -149,6 +149,26 @@ def test_guarded_callbacks_latest_wins_on_real_instance(app):
     assert rendered == [("new", "fresh")]
 
 
+def test_refresh_button_disables_during_load_and_reenables_after(app, monkeypatch):
+    """The busy-state guard must always return the button to 'normal' — a
+    stuck-disabled Refresh button would be a real regression."""
+    import src.desktop.app as desktop_mod
+
+    monkeypatch.setattr(
+        desktop_mod,
+        "portfolio_performance_summary",
+        lambda **_kw: {"ready": False, "reason": "stubbed"},
+    )
+    button = app._refresh_buttons.get("performance")
+    assert button is not None
+    app.refresh_performance_tab()
+    # Disabled synchronously as the request starts.
+    assert str(button.cget("state")) == "disabled"
+    # Re-enabled once the async render completes.
+    assert _pump_until(app, lambda: "stubbed" in app.performance_status.get())
+    assert str(button.cget("state")) == "normal"
+
+
 def test_on_close_cancels_after_loops(app, monkeypatch):
     """Closing cancels the repeating after() loops so they can't fire against a
     destroyed window."""

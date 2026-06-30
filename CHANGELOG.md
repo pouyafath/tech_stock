@@ -25,6 +25,11 @@ Desktop UI production-readiness pass. All changes land on the canonical
   size saved on a now-disconnected monitor can't reopen off-screen. Only the
   size is restored — never the position — to avoid the multi-monitor
   off-screen trap. Stored in `config/window_state.json` (git-ignored).
+- **Busy state on Refresh buttons.** Now that the Performance/Learning/Outcomes/
+  Diagnostics tabs load asynchronously, their Refresh button disables while work
+  is in flight and re-enables when the latest request settles, so rapid clicks
+  don't pile up redundant loads. A real GUI test guarantees the button never
+  gets stuck disabled.
 - **Monthly spend-cap guardrail.** New installs now seed a $25/month Claude
   spend cap (existing users keep whatever they saved — no surprise blocks). The
   Run tab surfaces month-to-date spend vs. the cap, and a run that would exceed

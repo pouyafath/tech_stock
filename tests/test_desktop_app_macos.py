@@ -391,6 +391,18 @@ def test_remaining_blocking_handlers_are_async():
     assert "def _render_api_key_manager(self" in src
 
 
+def test_refresh_buttons_show_busy_state_during_async_loads():
+    """Each async tab disables its Refresh button while work is in flight and
+    re-enables it on completion (both success and error paths)."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    guard = src[src.index("def _guarded_callbacks(self") : src.index("def _set_button_state(")]
+    assert 'self._set_button_state(button, "disabled")' in guard
+    # Re-enabled on both the success and error completion paths.
+    assert guard.count('self._set_button_state(button, "normal")') >= 2
+    for key in ("performance", "learning", "outcomes", "diagnostics"):
+        assert f'self._refresh_buttons["{key}"]' in src, f"no Refresh button registered for {key}"
+
+
 def test_run_flow_enforces_monthly_spend_cap():
     """Before spending ~90s and Claude $, the Run flow gates on the monthly cap,
     and an explicit override is scoped to that single run."""
