@@ -38,7 +38,15 @@ Desktop UI production-readiness pass. All changes land on the canonical
   stale "Failed…" status over it. A render that hits malformed data is surfaced
   on the tab's status line instead of being silently swallowed, and the
   progress-queue drain loop is hardened so one failing handler can't stop it
-  (it also pumps report-run completion).
+  (it also pumps report-run completion). The schedule install/uninstall (which
+  shell out to launchctl/schtasks), the test-notification send, the holdings-CSV
+  preview, and the API-key inventory scan run off the UI thread for the same
+  reason.
+- **Real headless GUI tests.** A new xvfb-backed test suite actually
+  instantiates `DesktopApp` and exercises construction, the background
+  worker → queue → main-thread render round-trip, an async refresh, and clean
+  shutdown — so desktop changes are verified by running the app, not just by
+  inspecting source. Skips cleanly where no display is available.
 
 ---
 

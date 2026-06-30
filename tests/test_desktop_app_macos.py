@@ -368,6 +368,29 @@ def test_heavy_refresh_handlers_run_off_the_ui_thread():
         assert "_replace_tree_rows(" in rd_body, f"{render} should populate the tables"
 
 
+def test_remaining_blocking_handlers_are_async():
+    """Subprocess- and disk-bound handlers (schedule install/uninstall, test
+    notification, holdings preview, API-key inventory) must offload to a worker
+    so a slow launchctl/notify/keyring call can't freeze the window."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    for handler in (
+        "_install_schedule_clicked",
+        "_uninstall_schedule_clicked",
+        "_send_test_notification",
+        "preview_holdings",
+        "refresh_api_key_manager",
+    ):
+        start = src.index(f"def {handler}(self")
+        body = src[start : src.index("\n    def ", start + 10)]
+        assert "self._run_in_background(" in body, f"{handler} must offload to a worker thread"
+    # The API-key refresh is re-triggerable (tab warm + after save/delete), so it
+    # also uses the latest-wins guard and renders from a dedicated method.
+    akm_start = src.index("def refresh_api_key_manager(self")
+    akm_body = src[akm_start : src.index("\n    def ", akm_start + 10)]
+    assert "self._guarded_callbacks(" in akm_body
+    assert "def _render_api_key_manager(self" in src
+
+
 def test_background_helper_marshals_results_through_the_queue():
     """Worker threads must never touch Tk directly — results come back through
     the single progress queue the drain loop already pumps on the UI thread."""

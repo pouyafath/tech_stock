@@ -2958,7 +2958,15 @@ class DesktopApp(tk.Tk):
         if not times:
             messagebox.showwarning("No slots selected", "Enable at least one slot before installing.")
             return
-        result = install_schedule(times)
+        # install_schedule shells out to launchctl/schtasks — run it off the UI thread.
+        self.schedule_status.set("Installing schedule…")
+        self._run_in_background(
+            lambda: install_schedule(times),
+            self._schedule_install_done,
+            on_error=lambda exc: messagebox.showerror("Install failed", str(exc)),
+        )
+
+    def _schedule_install_done(self, result) -> None:
         if result.ok:
             messagebox.showinfo("Schedule installed", f"{result.message}\n\nBackend: {result.backend}\n{result.path}")
         else:
@@ -2968,7 +2976,14 @@ class DesktopApp(tk.Tk):
     def _uninstall_schedule_clicked(self) -> None:
         from src.scheduling import uninstall_schedule
 
-        result = uninstall_schedule()
+        self.schedule_status.set("Removing schedule…")
+        self._run_in_background(
+            uninstall_schedule,
+            self._schedule_uninstall_done,
+            on_error=lambda exc: messagebox.showerror("Uninstall failed", str(exc)),
+        )
+
+    def _schedule_uninstall_done(self, result) -> None:
         if result.ok:
             messagebox.showinfo("Schedule removed", result.message)
         else:
@@ -2978,11 +2993,19 @@ class DesktopApp(tk.Tk):
     def _send_test_notification(self) -> None:
         from src.notifications import send
 
-        result = send(
-            "tech_stock test",
-            "If you see this, native notifications are working.",
-            channel="general",
+        # The notification backend can shell out to osascript/notify-send.
+        self.schedule_status.set("Sending test notification…")
+        self._run_in_background(
+            lambda: send(
+                "tech_stock test",
+                "If you see this, native notifications are working.",
+                channel="general",
+            ),
+            self._test_notification_done,
+            on_error=lambda exc: self.schedule_status.set(f"Notification failed: {exc}"),
         )
+
+    def _test_notification_done(self, result) -> None:
         if result.sent:
             self.schedule_status.set(f"Test notification sent via {result.backend}.")
         elif result.deduped:
@@ -3417,10 +3440,20 @@ class DesktopApp(tk.Tk):
         return self.api_key_options.get(self.api_key_choice.get()) or API_KEY_FIELDS[0]["env"]
 
     def refresh_api_key_manager(self) -> None:
-        rows = []
+        # api_key_inventory scans every discovered key file/keyring — off-thread.
         selected_env = self._selected_api_env_name()
+        self.api_key_manager_status.set("Loading API keys…")
+        on_success, on_error = self._guarded_callbacks(
+            "api_keys",
+            lambda inventory: self._render_api_key_manager(inventory, selected_env),
+            lambda exc: self.api_key_manager_status.set(f"Failed to load API keys: {exc}"),
+        )
+        self._run_in_background(api_key_inventory, on_success, on_error=on_error)
+
+    def _render_api_key_manager(self, inventory, selected_env: str) -> None:
+        rows = []
         selected_status = ""
-        for row in api_key_inventory():
+        for row in inventory:
             source = row.get("source_path")
             source_text = str(source) if source else ""
             rows.append([row["label"], "YES" if row["configured"] else "NO", row.get("masked") or "", source_text])
@@ -3912,7 +3945,14 @@ class DesktopApp(tk.Tk):
         if not path:
             messagebox.showwarning("No holdings CSV", "Choose a holdings CSV first.")
             return
-        preview = preview_holdings_csv(path)
+        self._set_status("Reading holdings CSV…")
+        self._run_in_background(
+            lambda: preview_holdings_csv(path),
+            self._show_holdings_preview,
+            on_error=lambda exc: messagebox.showerror("Preview failed", str(exc)),
+        )
+
+    def _show_holdings_preview(self, preview: dict) -> None:
         if not preview.get("ok"):
             messagebox.showerror("Preview failed", preview.get("error", "Could not preview holdings."))
             return
