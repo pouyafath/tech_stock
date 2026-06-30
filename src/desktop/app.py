@@ -1943,11 +1943,12 @@ class DesktopApp(tk.Tk):
     def refresh_learning_tab(self) -> None:
         """Fetch a fresh learning_view off the UI thread and re-render."""
         self.learning_status.set("Loading learning metrics…")
-        self._run_in_background(
-            learning_view,
-            self._latest_only("learning", self._render_learning_view),
-            on_error=lambda exc: self.learning_status.set(f"Failed to load learning view: {exc}"),
+        on_success, on_error = self._guarded_callbacks(
+            "learning",
+            self._render_learning_view,
+            lambda exc: self.learning_status.set(f"Failed to load learning view: {exc}"),
         )
+        self._run_in_background(learning_view, on_success, on_error=on_error)
 
     def _render_learning_view(self, view: dict) -> None:
         error_count = len(view.get("errors") or [])
@@ -2198,10 +2199,15 @@ class DesktopApp(tk.Tk):
         lookback_days = {"Last 30 days": 30, "Last 90 days": 90, "Last 365 days": 365}.get(lookback_label)
         fetch_spy = bool(self.performance_fetch_spy_var.get())
         self.performance_status.set("Computing performance metrics…")
+        on_success, on_error = self._guarded_callbacks(
+            "performance",
+            self._render_performance_view,
+            lambda exc: self.performance_status.set(f"Failed to compute performance: {exc}"),
+        )
         self._run_in_background(
             lambda: portfolio_performance_summary(lookback_days=lookback_days, fetch_spy=fetch_spy),
-            self._latest_only("performance", self._render_performance_view),
-            on_error=lambda exc: self.performance_status.set(f"Failed to compute performance: {exc}"),
+            on_success,
+            on_error=on_error,
         )
 
     def _render_performance_view(self, view: dict) -> None:
@@ -2351,11 +2357,12 @@ class DesktopApp(tk.Tk):
     def refresh_outcomes_tab(self) -> None:
         """Score recommendation outcomes off the UI thread, then render."""
         self.outcomes_status.set("Scoring recommendation outcomes…")
-        self._run_in_background(
-            outcomes_view,
-            self._latest_only("outcomes", self._render_outcomes_view),
-            on_error=lambda exc: self.outcomes_status.set(f"Failed to score outcomes: {exc}"),
+        on_success, on_error = self._guarded_callbacks(
+            "outcomes",
+            self._render_outcomes_view,
+            lambda exc: self.outcomes_status.set(f"Failed to score outcomes: {exc}"),
         )
+        self._run_in_background(outcomes_view, on_success, on_error=on_error)
 
     def _render_outcomes_view(self, view: dict) -> None:
         summary = view.get("summary") or {}
@@ -3154,11 +3161,12 @@ class DesktopApp(tk.Tk):
                 "bundle": diagnostics_support_bundle(limit=200),
             }
 
-        self._run_in_background(
-            _work,
-            self._latest_only("diagnostics", self._render_diagnostics_view),
-            on_error=lambda exc: self.diagnostics_status.set(f"Failed to load diagnostics: {exc}"),
+        on_success, on_error = self._guarded_callbacks(
+            "diagnostics",
+            self._render_diagnostics_view,
+            lambda exc: self.diagnostics_status.set(f"Failed to load diagnostics: {exc}"),
         )
+        self._run_in_background(_work, on_success, on_error=on_error)
 
     def _render_diagnostics_view(self, payload: dict) -> None:
         hours = payload["hours"]
@@ -4149,24 +4157,49 @@ class DesktopApp(tk.Tk):
         else:
             self._set_status(f"Couldn't finish that — {exc}", tone="error")
 
-    def _latest_only(self, key: str, on_success):
-        """Wrap ``on_success`` so only the most recently requested refresh for
-        ``key`` actually renders.
+    def _guarded_callbacks(self, key: str, on_success, on_error):
+        """Bump the per-key generation once and return ``(success, error)``
+        callbacks that BOTH apply only while this is the latest request for
+        ``key``.
 
         A tab can be re-triggered (combobox, checkbox, double-clicked Refresh)
-        faster than its background work finishes; without this guard an older,
-        slower result could land last and overwrite the newer one. Each call
-        bumps a per-key generation token and the returned wrapper renders only
-        while its token is still current.
+        faster than its work finishes; without this guard an older, slower
+        result could land last and overwrite the newer one. Guarding *both*
+        outcomes is essential: a stale request that fails after a newer one
+        succeeded must not clobber the fresh data with a "Failed…" status.
+
+        The success wrapper also catches a render that raises *on the UI thread*
+        and routes it to ``on_error`` — otherwise a malformed-data crash inside
+        the drain loop would be swallowed, leaving a success-looking status over
+        empty tables with no error shown.
         """
         generation = self._async_generation.get(key, 0) + 1
         self._async_generation[key] = generation
 
-        def _guarded(result) -> None:
-            if self._async_generation.get(key) == generation:
-                on_success(result)
+        def _is_current() -> bool:
+            return self._async_generation.get(key) == generation
 
-        return _guarded
+        def _report(exc: Exception) -> None:
+            if on_error is not None:
+                on_error(exc)
+            else:
+                self._set_status(f"Couldn't finish that — {exc}", tone="error")
+
+        def _success(result) -> None:
+            if not _is_current():
+                return
+            try:
+                on_success(result)
+            except Exception as exc:  # noqa: BLE001 — render failed on the UI thread
+                logger.exception("Render failed for %s tab", key)
+                _report(exc)
+
+        def _error(exc: Exception) -> None:
+            if not _is_current():
+                return
+            _report(exc)
+
+        return _success, _error
 
     def _on_close(self) -> None:
         """Stop the self-rescheduling ``after()`` loops before tearing the

@@ -32,10 +32,13 @@ Desktop UI production-readiness pass. All changes land on the canonical
   scans, support-bundle reads) that previously ran on the Tk thread and locked
   the UI for seconds. That work now runs on a daemon worker and renders back on
   the main thread through the existing progress queue, so the window stays
-  responsive. A per-tab "latest wins" guard drops stale results when a tab is
-  refreshed faster than its work finishes, and the progress-queue drain loop is
-  hardened so one failing handler can't stop it (it kept pumping report-run
-  completion too).
+  responsive. A per-tab "latest wins" guard drops stale results — on both the
+  success and the error path — when a tab is refreshed faster than its work
+  finishes, so an obsolete request can neither overwrite fresh data nor flash a
+  stale "Failed…" status over it. A render that hits malformed data is surfaced
+  on the tab's status line instead of being silently swallowed, and the
+  progress-queue drain loop is hardened so one failing handler can't stop it
+  (it also pumps report-run completion).
 
 ---
 

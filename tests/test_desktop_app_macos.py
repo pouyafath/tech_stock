@@ -356,7 +356,7 @@ def test_heavy_refresh_handlers_run_off_the_ui_thread():
         r_start = src.index(f"def {refresh}(self")
         r_body = src[r_start : src.index("\n    def ", r_start + 10)]
         assert "self._run_in_background(" in r_body, f"{refresh} must offload to a worker thread"
-        assert "self._latest_only(" in r_body, f"{refresh} must guard against stale renders"
+        assert "self._guarded_callbacks(" in r_body, f"{refresh} must guard against stale renders"
         assert render in r_body, f"{refresh} must hand off to {render}"
         assert slow_symbol in r_body, f"the slow call should be wired into {refresh}'s worker"
         # The expensive widget population (tree fills) must live in the render
@@ -394,9 +394,10 @@ def test_drain_loop_is_resilient_to_handler_errors():
     assert drain.index("finally:") < drain.index("self._drain_id = self.after(100")
 
 
-def test_latest_only_drops_stale_renders():
-    """A slow result that finishes after a newer refresh was requested must be
-    discarded, so the tab always shows the most recently requested data."""
+def test_guarded_callbacks_drop_stale_results_on_both_paths():
+    """Only the most recent request for a key may render OR report an error —
+    a stale success is dropped, and (the bug the review caught) a stale error
+    must not clobber a fresh successful render."""
     from types import SimpleNamespace
 
     from src.desktop_app import DesktopApp
@@ -404,19 +405,49 @@ def test_latest_only_drops_stale_renders():
     host = SimpleNamespace(_async_generation={})
     applied: list = []
 
-    guard_old = DesktopApp._latest_only(host, "perf", lambda r: applied.append(("old", r)))
-    guard_new = DesktopApp._latest_only(host, "perf", lambda r: applied.append(("new", r)))
+    ok_old, err_old = DesktopApp._guarded_callbacks(
+        host, "perf", lambda r: applied.append(("ok_old", r)), lambda e: applied.append(("err_old", e))
+    )
+    ok_new, err_new = DesktopApp._guarded_callbacks(
+        host, "perf", lambda r: applied.append(("ok_new", r)), lambda e: applied.append(("err_new", e))
+    )
 
-    # The stale (older) worker finishes last — it must be dropped.
-    guard_old("stale")
-    # The newest worker renders.
-    guard_new("fresh")
-    assert applied == [("new", "fresh")]
+    # Stale success dropped; fresh success renders.
+    ok_old("stale")
+    ok_new("fresh")
+    assert applied == [("ok_new", "fresh")]
 
-    # A different key tracks its own generation independently.
-    guard_other = DesktopApp._latest_only(host, "diagnostics", lambda r: applied.append(("other", r)))
-    guard_other("ok")
+    # A stale error (older worker fails after the newer one already rendered)
+    # must NOT fire; the fresh error path still works.
+    applied.clear()
+    err_old(RuntimeError("stale"))
+    assert applied == []
+    err_new(RuntimeError("boom"))
+    assert applied and applied[0][0] == "err_new"
+
+    # Independent keys keep separate generations.
+    applied.clear()
+    ok_other, _ = DesktopApp._guarded_callbacks(host, "diagnostics", lambda r: applied.append(("other", r)), None)
+    ok_other("ok")
     assert ("other", "ok") in applied
+
+
+def test_guarded_callbacks_route_render_errors_to_on_error():
+    """A render that raises on the UI thread must be surfaced via on_error, not
+    swallowed — otherwise the tab shows a success status over empty tables."""
+    from types import SimpleNamespace
+
+    from src.desktop_app import DesktopApp
+
+    host = SimpleNamespace(_async_generation={})
+    reported: list = []
+
+    def _render_that_raises(_result):
+        raise KeyError("sharpe")
+
+    on_success, _on_error = DesktopApp._guarded_callbacks(host, "perf", _render_that_raises, lambda exc: reported.append(repr(exc)))
+    on_success({"some": "data"})
+    assert reported and "sharpe" in reported[0]
 
 
 if __name__ == "__main__":
