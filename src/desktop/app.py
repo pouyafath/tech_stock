@@ -562,6 +562,7 @@ class DesktopApp(tk.Tk):
         self.latest_update_info: Any = None
         self.search_state: dict[str, dict[str, Any]] = {}
         self._warmed_tabs: set[str] = set()
+        self._async_generation: dict[str, int] = {}
         self._report_elapsed_id: str | None = None
         self._report_start_time: float | None = None
         self._drain_id: str | None = None
@@ -1940,13 +1941,15 @@ class DesktopApp(tk.Tk):
         self.learning_drift_text.configure(state="disabled")
 
     def refresh_learning_tab(self) -> None:
-        """Fetch a fresh learning_view and re-render every panel."""
-        try:
-            view = learning_view()
-        except Exception as exc:  # noqa: BLE001
-            self.learning_status.set(f"Failed to load learning view: {exc}")
-            return
+        """Fetch a fresh learning_view off the UI thread and re-render."""
+        self.learning_status.set("Loading learning metrics…")
+        self._run_in_background(
+            learning_view,
+            self._latest_only("learning", self._render_learning_view),
+            on_error=lambda exc: self.learning_status.set(f"Failed to load learning view: {exc}"),
+        )
 
+    def _render_learning_view(self, view: dict) -> None:
         error_count = len(view.get("errors") or [])
         self.learning_status.set(
             f"Loaded {len(view.get('thesis_verdicts') or [])} thesis · "
@@ -2186,17 +2189,22 @@ class DesktopApp(tk.Tk):
         self.performance_dist_tree.pack(fill="both", expand=True)
 
     def refresh_performance_tab(self) -> None:
-        """Recompute and re-render the Performance tab."""
+        """Recompute and re-render the Performance tab without freezing the UI.
+
+        ``portfolio_performance_summary`` rebuilds the time series and (when
+        enabled) fetches SPY over the network, so it runs off the Tk thread.
+        """
         lookback_label = self.performance_lookback_var.get()
         lookback_days = {"Last 30 days": 30, "Last 90 days": 90, "Last 365 days": 365}.get(lookback_label)
         fetch_spy = bool(self.performance_fetch_spy_var.get())
+        self.performance_status.set("Computing performance metrics…")
+        self._run_in_background(
+            lambda: portfolio_performance_summary(lookback_days=lookback_days, fetch_spy=fetch_spy),
+            self._latest_only("performance", self._render_performance_view),
+            on_error=lambda exc: self.performance_status.set(f"Failed to compute performance: {exc}"),
+        )
 
-        try:
-            view = portfolio_performance_summary(lookback_days=lookback_days, fetch_spy=fetch_spy)
-        except Exception as exc:  # noqa: BLE001
-            self.performance_status.set(f"Failed to compute performance: {exc}")
-            return
-
+    def _render_performance_view(self, view: dict) -> None:
         if not view.get("ready"):
             self.performance_status.set(view.get("reason") or "Not enough snapshots yet.")
             for var in self.performance_metric_vars.values():
@@ -2341,12 +2349,15 @@ class DesktopApp(tk.Tk):
         )
 
     def refresh_outcomes_tab(self) -> None:
-        try:
-            view = outcomes_view()
-        except Exception as exc:  # noqa: BLE001
-            self.outcomes_status.set(f"Failed to score outcomes: {exc}")
-            return
+        """Score recommendation outcomes off the UI thread, then render."""
+        self.outcomes_status.set("Scoring recommendation outcomes…")
+        self._run_in_background(
+            outcomes_view,
+            self._latest_only("outcomes", self._render_outcomes_view),
+            on_error=lambda exc: self.outcomes_status.set(f"Failed to score outcomes: {exc}"),
+        )
 
+    def _render_outcomes_view(self, view: dict) -> None:
         summary = view.get("summary") or {}
         overall = summary.get("overall") or {}
         self.outcomes_status.set(
@@ -3123,17 +3134,35 @@ class DesktopApp(tk.Tk):
         self.diagnostics_status.set(f"App self-test: {view.get('status')} · {view.get('next_action') or ''}")
 
     def refresh_diagnostics_tab(self) -> None:
-        """Fetch a fresh diagnostics_view and re-render every panel."""
+        """Collect diagnostics + the support-bundle preview off the UI thread.
+
+        ``diagnostics_view`` aggregates the event log and ``support_bundle_*``
+        scan disk, so all three slow calls run on a worker thread and the panels
+        render together once they return.
+        """
         try:
             hours = int(self.diagnostics_window_var.get() or "24")
         except ValueError:
             hours = 24
-        try:
-            view = diagnostics_view(hours=hours)
-        except Exception as exc:  # noqa: BLE001
-            self.diagnostics_status.set(f"Failed to load diagnostics: {exc}")
-            return
+        self.diagnostics_status.set("Collecting diagnostics…")
 
+        def _work() -> dict:
+            return {
+                "hours": hours,
+                "view": diagnostics_view(hours=hours),
+                "preview": support_bundle_preview(include_demo_smoke=False),
+                "bundle": diagnostics_support_bundle(limit=200),
+            }
+
+        self._run_in_background(
+            _work,
+            self._latest_only("diagnostics", self._render_diagnostics_view),
+            on_error=lambda exc: self.diagnostics_status.set(f"Failed to load diagnostics: {exc}"),
+        )
+
+    def _render_diagnostics_view(self, payload: dict) -> None:
+        hours = payload["hours"]
+        view = payload["view"]
         sources = view.get("sources") or {}
         ok = sum(1 for b in sources.values() if b.get("health") == "ok")
         degraded = sum(1 for b in sources.values() if b.get("health") == "degraded")
@@ -3198,8 +3227,8 @@ class DesktopApp(tk.Tk):
             )
         self._replace_tree_rows(self.diagnostics_errors_tree, error_rows)
 
-        # — Support bundle —
-        preview = support_bundle_preview(include_demo_smoke=False)
+        # — Support bundle (preview + redacted text both fetched off-thread) —
+        preview = payload["preview"]
         preview_rows = []
         for item in preview.get("files") or []:
             preview_rows.append([item.get("path") or "", "YES", item.get("description") or ""])
@@ -3207,7 +3236,7 @@ class DesktopApp(tk.Tk):
         if excluded:
             preview_rows.append(["Excluded", "NO", excluded])
         self._replace_tree_rows(self.diagnostics_support_preview_tree, preview_rows)
-        bundle = diagnostics_support_bundle(limit=200)
+        bundle = payload["bundle"]
         self.diagnostics_bundle_text.configure(state="normal")
         self.diagnostics_bundle_text.delete("1.0", "end")
         self.diagnostics_bundle_text.insert("1.0", bundle or "(no events yet)")
@@ -4059,25 +4088,85 @@ class DesktopApp(tk.Tk):
     def _drain_progress_queue(self) -> None:
         if self._closing:
             return
+        # Each item is dispatched under its own guard and the reschedule lives in
+        # a finally block: one handler raising (e.g. a render hitting malformed
+        # data) must not kill the drain loop, which also pumps report-run
+        # completion and background refreshes.
         try:
             while True:
-                kind, payload = self.progress_queue.get_nowait()
-                if kind == "line":
-                    self.console_text.insert("end", str(payload) + "\n")
-                    self.console_text.see("end")
-                elif kind == "done":
-                    self._report_run_done(payload)
-                elif kind == "health_done":
-                    self._connectivity_done(payload)
-                elif kind == "buy_signals_done":
-                    self._buy_signals_done(payload)
-                elif kind == "update_check_done":
-                    self._update_check_done(payload)
-                elif kind == "update_apply_done":
-                    self._update_apply_done(payload)
-        except queue.Empty:
-            pass
-        self._drain_id = self.after(100, self._drain_progress_queue)
+                try:
+                    kind, payload = self.progress_queue.get_nowait()
+                except queue.Empty:
+                    break
+                try:
+                    if kind == "line":
+                        self.console_text.insert("end", str(payload) + "\n")
+                        self.console_text.see("end")
+                    elif kind == "done":
+                        self._report_run_done(payload)
+                    elif kind == "health_done":
+                        self._connectivity_done(payload)
+                    elif kind == "buy_signals_done":
+                        self._buy_signals_done(payload)
+                    elif kind == "update_check_done":
+                        self._update_check_done(payload)
+                    elif kind == "update_apply_done":
+                        self._update_apply_done(payload)
+                    elif kind == "callback":
+                        payload()
+                except Exception:  # noqa: BLE001 — one bad handler must not stop the pump
+                    logger.exception("Progress handler for %r failed", kind)
+        finally:
+            if not self._closing:
+                self._drain_id = self.after(100, self._drain_progress_queue)
+
+    def _run_in_background(self, work, on_success, *, on_error=None) -> None:
+        """Run ``work()`` (slow, blocking I/O) off the Tk thread, then hand its
+        result to ``on_success(result)`` back on the main thread.
+
+        This keeps the event loop responsive so the window never freezes while
+        a tab fetches market data or scans logs. Results are marshalled through
+        ``progress_queue`` — the single-consumer queue the drain loop already
+        pumps — so Tk widgets are only ever touched from the main thread, the
+        one place Tkinter permits it. Failures route to ``on_error(exc)`` (also
+        main-thread); without one the global status line shows the error.
+        """
+
+        def _worker() -> None:
+            try:
+                result = work()
+            except Exception as exc:  # noqa: BLE001 — surfaced to the UI and logged
+                logger.debug("Background task failed", exc_info=True)
+                self.progress_queue.put(("callback", lambda e=exc: self._handle_async_error(e, on_error)))
+                return
+            self.progress_queue.put(("callback", lambda r=result: on_success(r)))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _handle_async_error(self, exc: Exception, on_error) -> None:
+        if on_error is not None:
+            on_error(exc)
+        else:
+            self._set_status(f"Couldn't finish that — {exc}", tone="error")
+
+    def _latest_only(self, key: str, on_success):
+        """Wrap ``on_success`` so only the most recently requested refresh for
+        ``key`` actually renders.
+
+        A tab can be re-triggered (combobox, checkbox, double-clicked Refresh)
+        faster than its background work finishes; without this guard an older,
+        slower result could land last and overwrite the newer one. Each call
+        bumps a per-key generation token and the returned wrapper renders only
+        while its token is still current.
+        """
+        generation = self._async_generation.get(key, 0) + 1
+        self._async_generation[key] = generation
+
+        def _guarded(result) -> None:
+            if self._async_generation.get(key) == generation:
+                on_success(result)
+
+        return _guarded
 
     def _on_close(self) -> None:
         """Stop the self-rescheduling ``after()`` loops before tearing the

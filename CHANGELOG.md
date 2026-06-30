@@ -27,6 +27,15 @@ Desktop UI production-readiness pass. All changes land on the canonical
   off-screen trap. Stored in `config/window_state.json` (git-ignored).
 - **More visible table selection** — selected rows use the stronger border
   tone for clearer contrast against the striped background.
+- **Tabs no longer freeze the window while loading.** The Performance,
+  Learning, Outcomes, and Diagnostics tabs do network/disk I/O (SPY fetch, log
+  scans, support-bundle reads) that previously ran on the Tk thread and locked
+  the UI for seconds. That work now runs on a daemon worker and renders back on
+  the main thread through the existing progress queue, so the window stays
+  responsive. A per-tab "latest wins" guard drops stale results when a tab is
+  refreshed faster than its work finishes, and the progress-queue drain loop is
+  hardened so one failing handler can't stop it (it kept pumping report-run
+  completion too).
 
 ---
 

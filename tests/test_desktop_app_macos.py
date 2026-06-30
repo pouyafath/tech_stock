@@ -341,6 +341,84 @@ def test_window_size_is_persisted_on_close_and_restored_on_init():
     assert "self._save_window_size()" in close_body
 
 
+def test_heavy_refresh_handlers_run_off_the_ui_thread():
+    """The Performance / Learning / Outcomes / Diagnostics tabs do network and
+    disk I/O. Each must hand the slow call to a worker and render from the
+    result, never blocking the Tk event loop (which freezes the window)."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    specs = [
+        ("refresh_performance_tab", "_render_performance_view", "portfolio_performance_summary"),
+        ("refresh_learning_tab", "_render_learning_view", "learning_view"),
+        ("refresh_outcomes_tab", "_render_outcomes_view", "outcomes_view"),
+        ("refresh_diagnostics_tab", "_render_diagnostics_view", "diagnostics_view"),
+    ]
+    for refresh, render, slow_symbol in specs:
+        r_start = src.index(f"def {refresh}(self")
+        r_body = src[r_start : src.index("\n    def ", r_start + 10)]
+        assert "self._run_in_background(" in r_body, f"{refresh} must offload to a worker thread"
+        assert "self._latest_only(" in r_body, f"{refresh} must guard against stale renders"
+        assert render in r_body, f"{refresh} must hand off to {render}"
+        assert slow_symbol in r_body, f"the slow call should be wired into {refresh}'s worker"
+        # The expensive widget population (tree fills) must live in the render
+        # half, not the front — proving the work really moved off the UI thread.
+        assert "_replace_tree_rows(" not in r_body, f"{refresh} should not render tables synchronously"
+        assert f"def {render}(self" in src, f"{render} should exist"
+        rd_start = src.index(f"def {render}(self")
+        rd_body = src[rd_start : src.index("\n    def ", rd_start + 10)]
+        assert "_replace_tree_rows(" in rd_body, f"{render} should populate the tables"
+
+
+def test_background_helper_marshals_results_through_the_queue():
+    """Worker threads must never touch Tk directly — results come back through
+    the single progress queue the drain loop already pumps on the UI thread."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    helper = src[src.index("def _run_in_background(self") : src.index("def _handle_async_error(self")]
+    assert "threading.Thread(" in helper and "daemon=True" in helper
+    assert 'self.progress_queue.put(("callback"' in helper
+
+    drain = src[src.index("def _drain_progress_queue(self") : src.index("def _run_in_background(self")]
+    assert 'kind == "callback"' in drain
+    assert "payload()" in drain
+
+
+def test_drain_loop_is_resilient_to_handler_errors():
+    """A single failing progress handler must not kill the drain loop — the
+    reschedule lives in a finally and each item is dispatched under a guard, so
+    report-run completion and background refreshes keep pumping."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    drain = src[src.index("def _drain_progress_queue(self") : src.index("def _run_in_background(self")]
+    assert "finally:" in drain
+    assert "logger.exception" in drain
+    # The reschedule must sit inside the finally (after the dispatch loop) so it
+    # still runs when a handler raised.
+    assert drain.index("finally:") < drain.index("self._drain_id = self.after(100")
+
+
+def test_latest_only_drops_stale_renders():
+    """A slow result that finishes after a newer refresh was requested must be
+    discarded, so the tab always shows the most recently requested data."""
+    from types import SimpleNamespace
+
+    from src.desktop_app import DesktopApp
+
+    host = SimpleNamespace(_async_generation={})
+    applied: list = []
+
+    guard_old = DesktopApp._latest_only(host, "perf", lambda r: applied.append(("old", r)))
+    guard_new = DesktopApp._latest_only(host, "perf", lambda r: applied.append(("new", r)))
+
+    # The stale (older) worker finishes last — it must be dropped.
+    guard_old("stale")
+    # The newest worker renders.
+    guard_new("fresh")
+    assert applied == [("new", "fresh")]
+
+    # A different key tracks its own generation independently.
+    guard_other = DesktopApp._latest_only(host, "diagnostics", lambda r: applied.append(("other", r)))
+    guard_other("ok")
+    assert ("other", "ok") in applied
+
+
 if __name__ == "__main__":
     import pytest
 
