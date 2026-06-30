@@ -391,6 +391,37 @@ def test_remaining_blocking_handlers_are_async():
     assert "def _render_api_key_manager(self" in src
 
 
+def test_run_flow_enforces_monthly_spend_cap():
+    """Before spending ~90s and Claude $, the Run flow gates on the monthly cap,
+    and an explicit override is scoped to that single run."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    run_start = src.index("def start_report_run(self")
+    run_body = src[run_start : src.index("\n    def ", run_start + 10)]
+    assert "self._budget_precheck()" in run_body
+
+    pre_start = src.index("def _budget_precheck(self")
+    pre_body = src[pre_start : src.index("\n    def ", pre_start + 10)]
+    assert "check_budget" in pre_body
+    assert "hard_block" in pre_body
+    assert 'os.environ["ALLOW_OVERAGE"] = "1"' in pre_body
+
+    # The per-run override is cleared when the run finishes.
+    done_start = src.index("def _report_run_done(self")
+    done_body = src[done_start : src.index("\n    def ", done_start + 10)]
+    assert "_clear_desktop_overage" in done_body
+    clear_start = src.index("def _clear_desktop_overage(self")
+    clear_body = src[clear_start : src.index("\n    def ", clear_start + 10)]
+    assert 'os.environ.pop("ALLOW_OVERAGE"' in clear_body
+
+
+def test_new_installs_seed_a_monthly_spend_cap():
+    """New installs default to a non-zero monthly Claude cap; existing users keep
+    whatever they already saved (this only seeds the onboarding field)."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    assert 'self._budget_claude_var = tk.StringVar(value="25")' in src
+    assert '("monthly_budget_usd", self._budget_claude_var, 25)' in src
+
+
 def test_background_helper_marshals_results_through_the_queue():
     """Worker threads must never touch Tk directly — results come back through
     the single progress queue the drain loop already pumps on the UI thread."""

@@ -241,7 +241,9 @@ class _OnboardingWizard(tk.Toplevel):
         self.grab_set()
 
         self._api_key_var = tk.StringVar()
-        self._budget_claude_var = tk.StringVar(value="10")
+        # New installs get a sensible monthly Claude spend cap; existing users
+        # keep whatever they already saved (this only seeds the onboarding field).
+        self._budget_claude_var = tk.StringVar(value="25")
         self._budget_usd_var = tk.StringVar(value="0")
         self._budget_cad_var = tk.StringVar(value="3000")
         self._csv_path_var = tk.StringVar()
@@ -483,7 +485,7 @@ class _OnboardingWizard(tk.Toplevel):
                 # budget_cad was saved, silently dropping the Claude spend cap
                 # (monthly_budget_usd) and the USD trade budget the analyst reads.
                 for key, var, fallback in (
-                    ("monthly_budget_usd", self._budget_claude_var, 10),
+                    ("monthly_budget_usd", self._budget_claude_var, 25),
                     ("budget_usd", self._budget_usd_var, 0),
                     ("budget_cad", self._budget_cad_var, 3000),
                 ):
@@ -4010,11 +4012,13 @@ class DesktopApp(tk.Tk):
                 ]
             )
         self._replace_tree_rows(self.run_preflight_tree, rows)
+        budget_note = self._budget_summary_line()
+        budget_suffix = f" {budget_note}" if budget_note else ""
         if checklist.get("can_run"):
             if checklist.get("warning_count"):
-                self.run_status.set(f"Checklist passed with {checklist['warning_count']} warning(s).")
+                self.run_status.set(f"Checklist passed with {checklist['warning_count']} warning(s).{budget_suffix}")
             else:
-                self.run_status.set("Checklist passed. Ready to generate a report.")
+                self.run_status.set(f"Checklist passed. Ready to generate a report.{budget_suffix}")
         else:
             self.run_status.set(f"Checklist blocked: {checklist.get('next_action')}")
         return checklist
@@ -4063,6 +4067,60 @@ class DesktopApp(tk.Tk):
                 else:
                     self.activities_var.set("")
 
+    def _budget_summary_line(self) -> str:
+        """Short month-to-date vs cap line for the Run tab; '' when no cap set."""
+        try:
+            from src.cost_tracker import check_budget
+
+            check = check_budget()
+            if check.budget_usd <= 0:
+                return ""
+            remaining = max(0.0, check.budget_usd - check.month_to_date_usd)
+            return f"Budget: ${check.month_to_date_usd:.2f} of ${check.budget_usd:.2f} this month (${remaining:.2f} left)."
+        except Exception:
+            logger.debug("Could not compute budget summary", exc_info=True)
+            return ""
+
+    def _budget_precheck(self) -> bool:
+        """Surface the monthly spend cap before a run. Returns False to abort.
+
+        On an explicit override the ``ALLOW_OVERAGE`` env is set for this run (so
+        the pipeline's own cap check passes) and cleared again when the run
+        finishes. A missing cap (budget == 0) is a silent pass.
+        """
+        try:
+            from src.claude_analyst import typical_run_cost
+            from src.cost_tracker import check_budget
+
+            estimate = typical_run_cost(self.model_var.get())
+            check = check_budget(expected_cost_usd=estimate)
+        except Exception:
+            logger.debug("Budget pre-check failed; allowing run", exc_info=True)
+            return True
+
+        if check.hard_block:
+            proceed = messagebox.askyesno(
+                "Monthly spend cap reached",
+                f"{check.message}\n\nRun anyway and override the cap for this report?",
+            )
+            if not proceed:
+                self.run_status.set("Run cancelled — monthly spend cap reached.")
+                return False
+            os.environ["ALLOW_OVERAGE"] = "1"
+            self._desktop_overage = True
+        elif check.soft_warn:
+            message = check.message or "You're close to your monthly spend cap."
+            if not messagebox.askyesno("Approaching spend cap", f"{message}\n\nGenerate this report anyway?"):
+                self.run_status.set("Run cancelled.")
+                return False
+        return True
+
+    def _clear_desktop_overage(self) -> None:
+        """Drop the per-run ALLOW_OVERAGE override the desktop may have set."""
+        if getattr(self, "_desktop_overage", False):
+            os.environ.pop("ALLOW_OVERAGE", None)
+            self._desktop_overage = False
+
     def start_report_run(self) -> None:
         try:
             budget_usd = float(self.budget_usd_var.get() or 0)
@@ -4081,6 +4139,10 @@ class DesktopApp(tk.Tk):
             )
             if not messagebox.askyesno("Pre-run warnings", f"{warning_lines}\n\nRun anyway?"):
                 return
+
+        # Monthly Claude spend-cap gate — surface before we spend ~90s and money.
+        if not self._budget_precheck():
+            return
 
         self.run_button.configure(state="disabled")
         self.console_text.delete("1.0", "end")
@@ -4260,6 +4322,7 @@ class DesktopApp(tk.Tk):
         self.destroy()
 
     def _report_run_done(self, result: Any) -> None:
+        self._clear_desktop_overage()
         self._stop_progress()
         self.run_button.configure(state="normal")
         if not result.ok:

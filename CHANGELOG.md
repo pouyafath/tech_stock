@@ -25,6 +25,11 @@ Desktop UI production-readiness pass. All changes land on the canonical
   size saved on a now-disconnected monitor can't reopen off-screen. Only the
   size is restored — never the position — to avoid the multi-monitor
   off-screen trap. Stored in `config/window_state.json` (git-ignored).
+- **Monthly spend-cap guardrail.** New installs now seed a $25/month Claude
+  spend cap (existing users keep whatever they saved — no surprise blocks). The
+  Run tab surfaces month-to-date spend vs. the cap, and a run that would exceed
+  it now prompts before spending ~90s and money; choosing to override is scoped
+  to that single run (the `ALLOW_OVERAGE` flag is cleared when it finishes).
 - **More visible table selection** — selected rows use the stronger border
   tone for clearer contrast against the striped background.
 - **Tabs no longer freeze the window while loading.** The Performance,
