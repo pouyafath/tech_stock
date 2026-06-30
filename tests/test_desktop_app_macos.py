@@ -468,7 +468,14 @@ def test_guarded_callbacks_drop_stale_results_on_both_paths():
 
     from src.desktop_app import DesktopApp
 
-    host = SimpleNamespace(_async_generation={})
+    # _guarded_callbacks also toggles the tab's Refresh button via these, so the
+    # stand-in self must carry them.
+    host = SimpleNamespace(
+        _async_generation={},
+        _refresh_buttons={},
+        _set_button_state=DesktopApp._set_button_state,
+        _set_status=lambda *_a, **_k: None,
+    )
     applied: list = []
 
     ok_old, err_old = DesktopApp._guarded_callbacks(
@@ -505,7 +512,14 @@ def test_guarded_callbacks_route_render_errors_to_on_error():
 
     from src.desktop_app import DesktopApp
 
-    host = SimpleNamespace(_async_generation={})
+    # _guarded_callbacks also toggles the tab's Refresh button via these, so the
+    # stand-in self must carry them.
+    host = SimpleNamespace(
+        _async_generation={},
+        _refresh_buttons={},
+        _set_button_state=DesktopApp._set_button_state,
+        _set_status=lambda *_a, **_k: None,
+    )
     reported: list = []
 
     def _render_that_raises(_result):
