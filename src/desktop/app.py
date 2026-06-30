@@ -243,7 +243,9 @@ class _OnboardingWizard(tk.Toplevel):
         self.grab_set()
 
         self._api_key_var = tk.StringVar()
-        self._budget_claude_var = tk.StringVar(value="10")
+        # New installs get a sensible monthly Claude spend cap; existing users
+        # keep whatever they already saved (this only seeds the onboarding field).
+        self._budget_claude_var = tk.StringVar(value="25")
         self._budget_usd_var = tk.StringVar(value="0")
         self._budget_cad_var = tk.StringVar(value="3000")
         self._csv_path_var = tk.StringVar()
@@ -479,12 +481,21 @@ class _OnboardingWizard(tk.Toplevel):
             try:
                 import json
 
-                settings_path = Path(__file__).resolve().parents[1] / "config" / "settings.json"
+                settings_path = ROOT / "config" / "settings.json"
                 settings = json.loads(settings_path.read_text(encoding="utf-8")) if settings_path.exists() else {}
-                try:
-                    settings["budget_cad"] = float(self._budget_cad_var.get() or 3000)
-                except ValueError:
-                    pass
+                # Persist all three fields the wizard collects. Previously only
+                # budget_cad was saved, silently dropping the Claude spend cap
+                # (monthly_budget_usd) and the USD trade budget the analyst reads.
+                for key, var, fallback in (
+                    ("monthly_budget_usd", self._budget_claude_var, 25),
+                    ("budget_usd", self._budget_usd_var, 0),
+                    ("budget_cad", self._budget_cad_var, 3000),
+                ):
+                    try:
+                        settings[key] = float(var.get() or fallback)
+                    except ValueError:
+                        settings[key] = float(fallback)
+                settings_path.parent.mkdir(parents=True, exist_ok=True)
                 settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
             except Exception:
                 logger.debug("Failed to save budget settings", exc_info=True)
@@ -524,6 +535,8 @@ class DesktopApp(tk.Tk):
         self.title("tech_stock")
         self.geometry("1280x880")
         self.minsize(1024, 720)
+        self._set_window_icon()
+        self._restore_window_size()
 
         # Shared palette (Streamlit + Textual + Tkinter all read the same tokens)
         self.bg = PALETTE.bg
@@ -553,8 +566,12 @@ class DesktopApp(tk.Tk):
         self.latest_update_info: Any = None
         self.search_state: dict[str, dict[str, Any]] = {}
         self._warmed_tabs: set[str] = set()
+        self._async_generation: dict[str, int] = {}
+        self._refresh_buttons: dict[str, Any] = {}
         self._report_elapsed_id: str | None = None
         self._report_start_time: float | None = None
+        self._drain_id: str | None = None
+        self._closing = False
 
         self._configure_style()
         self._build_menu()
@@ -569,7 +586,8 @@ class DesktopApp(tk.Tk):
         self.bind_all(f"<{MOD_KEY}-n>", lambda _e: self._jump_to_tab(self.reports_tab, sub=self.run_subtab))
         self.bind_all(f"<{MOD_KEY}-l>", lambda _e: self.load_report(latest_report(), select_tab=True))
 
-        self.after(100, self._drain_progress_queue)
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self._drain_id = self.after(100, self._drain_progress_queue)
         self.after_idle(self._post_paint_warmup)
         self.after(800, self._maybe_show_onboarding)
 
@@ -669,7 +687,7 @@ class DesktopApp(tk.Tk):
         )
         style.map(
             "Treeview",
-            background=[("selected", self.border)],
+            background=[("selected", self.border_strong)],
             foreground=[("selected", self.text_strong)],
         )
         style.map("Treeview.Heading", background=[("active", self.card)])
@@ -759,7 +777,7 @@ class DesktopApp(tk.Tk):
             menubar.add_cascade(menu=app_menu)
             # Wire up the system Preferences shortcut (⌘,)
             self.createcommand("tk::mac::ShowPreferences", self._jump_to_settings)
-            self.createcommand("tk::mac::Quit", self.destroy)
+            self.createcommand("tk::mac::Quit", self._on_close)
 
         # — File menu —
         file_menu = tk.Menu(menubar, tearoff=0)
@@ -778,8 +796,8 @@ class DesktopApp(tk.Tk):
         file_menu.add_command(label="Reveal Latest Report", command=self._reveal_latest_report)
         if not IS_MACOS:
             file_menu.add_separator()
-            file_menu.add_command(label="Quit", accelerator="Ctrl+Q", command=self.destroy)
-            self.bind_all("<Control-q>", lambda _e: self.destroy())
+            file_menu.add_command(label="Quit", accelerator="Ctrl+Q", command=self._on_close)
+            self.bind_all("<Control-q>", lambda _e: self._on_close())
         menubar.add_cascade(label="File", menu=file_menu)
 
         # — View menu —
@@ -1203,6 +1221,85 @@ class DesktopApp(tk.Tk):
             return
         self._reveal_in_finder(report)
 
+    def _set_window_icon(self) -> None:
+        """Use the packaged app icon for the title bar / taskbar / dock when
+        running from source (PyInstaller builds already set this via the
+        bundle's .icns/.ico, but a plain `python src/desktop_app.py` run
+        otherwise shows Tk's generic feather icon)."""
+        icon_path = Path(__file__).resolve().parents[2] / "assets" / "icon.png"
+        if not icon_path.exists():
+            return
+        try:
+            self._icon_image = tk.PhotoImage(file=str(icon_path))
+            self.iconphoto(True, self._icon_image)
+        except Exception:
+            logger.debug("Failed to set window icon from %s", icon_path, exc_info=True)
+
+    @staticmethod
+    def _sanitize_window_size(
+        size: str | None,
+        screen_w: int,
+        screen_h: int,
+        *,
+        min_w: int = 1024,
+        min_h: int = 720,
+    ) -> str | None:
+        """Validate a saved ``"WIDTHxHEIGHT"`` string and clamp it onto the
+        current screen.
+
+        Restoring only the *size* (never the position) sidesteps the classic
+        multi-monitor bug where a window saved on a now-disconnected display
+        reopens off-screen and becomes unreachable. Returns ``None`` for an
+        unparseable value so the caller keeps the default geometry.
+        """
+        if not size:
+            return None
+        match = re.match(r"^\s*(\d+)x(\d+)", str(size))
+        if not match:
+            return None
+        width = max(min_w, min(int(match.group(1)), max(min_w, screen_w)))
+        height = max(min_h, min(int(match.group(2)), max(min_h, screen_h)))
+        return f"{width}x{height}"
+
+    @property
+    def _window_state_path(self) -> Path:
+        return ROOT / "config" / "window_state.json"
+
+    def _restore_window_size(self) -> None:
+        """Reopen at the size the user last left the window."""
+        import json
+
+        try:
+            path = self._window_state_path
+            if not path.exists():
+                return
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            logger.debug("Could not read saved window size", exc_info=True)
+            return
+        size = self._sanitize_window_size(data.get("size"), self.winfo_screenwidth(), self.winfo_screenheight())
+        if not size:
+            return
+        try:
+            self.geometry(size)
+        except tk.TclError:
+            logger.debug("Could not apply saved window size %r", size, exc_info=True)
+
+    def _save_window_size(self) -> None:
+        """Persist the current window size so the next launch matches it."""
+        import json
+
+        try:
+            width = self.winfo_width()
+            height = self.winfo_height()
+            if width <= 1 or height <= 1:  # window never realized — nothing useful to save
+                return
+            path = self._window_state_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"size": f"{width}x{height}"}, indent=2) + "\n", encoding="utf-8")
+        except Exception:
+            logger.debug("Could not persist window size", exc_info=True)
+
     def _reveal_in_finder(self, path: Path) -> None:
         import subprocess
 
@@ -1217,7 +1314,8 @@ class DesktopApp(tk.Tk):
             else:
                 subprocess.Popen(["xdg-open", str(path.parent if path.is_file() else path)])
         except Exception:
-            pass
+            logger.debug("Failed to reveal %s in file manager", path, exc_info=True)
+            self._set_status(f"Couldn't open file manager — file is at {path}", tone="error")
 
     def _open_repo(self) -> None:
         import webbrowser
@@ -1271,7 +1369,65 @@ class DesktopApp(tk.Tk):
         scrollbar.pack(side="right", fill="y")
         content.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.bind("<Configure>", lambda event: canvas.itemconfigure(window, width=event.width))
+        self._bind_mousewheel(canvas, content)
         return content
+
+    @staticmethod
+    def _wheel_scroll_steps(delta: int, num: int | None) -> int:
+        """Translate a wheel event into a signed number of scroll units.
+
+        Tk reports wheel input three different ways: Linux fires
+        ``<Button-4>``/``<Button-5>`` (no delta), Windows sends ``delta`` in
+        multiples of 120, and macOS sends small ``±1``/``±2`` deltas. Positive
+        delta means "scroll up", which is a *negative* unit count for Tk.
+        """
+        if num == 4:
+            return -1
+        if num == 5:
+            return 1
+        if not delta:
+            return 0
+        if abs(delta) >= 120:  # Windows — multiples of 120
+            return int(-delta / 120)
+        return -1 if delta > 0 else 1  # macOS — small deltas
+
+    def _bind_mousewheel(self, canvas: tk.Canvas, content: tk.Widget) -> None:
+        """Let the mouse wheel / trackpad scroll ``canvas`` while the pointer
+        is over it.
+
+        The binding is activated on ``<Enter>`` and torn down on ``<Leave>`` so
+        only the hovered scroll region reacts — several scrollable panes and
+        Treeviews coexist in this window and must not fight over the wheel. The
+        ``NotifyInferior`` guard keeps the binding alive when the pointer merely
+        crosses onto a child widget inside the scroll region.
+        """
+
+        def _on_wheel(event: tk.Event) -> str:
+            first, last = canvas.yview()
+            if first <= 0.0 and last >= 1.0:
+                return ""  # nothing to scroll — let the event propagate
+            steps = self._wheel_scroll_steps(getattr(event, "delta", 0), getattr(event, "num", None))
+            if steps:
+                canvas.yview_scroll(steps, "units")
+            return "break"
+
+        def _activate(_event: tk.Event) -> None:
+            # Bind without "+" so the most-recently-entered scroll region owns
+            # the wheel and stale closures from other panes can't fire.
+            canvas.bind_all("<MouseWheel>", _on_wheel)
+            canvas.bind_all("<Button-4>", _on_wheel)
+            canvas.bind_all("<Button-5>", _on_wheel)
+
+        def _deactivate(event: tk.Event) -> None:
+            if getattr(event, "detail", "") == "NotifyInferior":
+                return  # moved onto a child, still inside the scroll region
+            canvas.unbind_all("<MouseWheel>")
+            canvas.unbind_all("<Button-4>")
+            canvas.unbind_all("<Button-5>")
+
+        for widget in (canvas, content):
+            widget.bind("<Enter>", _activate, add="+")
+            widget.bind("<Leave>", _deactivate, add="+")
 
     def _build_dashboard_tab(self) -> None:
         content = self._scrollable_frame(self.dashboard_tab)
@@ -1745,7 +1901,9 @@ class DesktopApp(tk.Tk):
         """
         toolbar = ttk.Frame(self.learning_tab)
         toolbar.pack(fill="x", padx=16, pady=(16, 8))
-        ttk.Button(toolbar, text="Refresh learning view", command=self.refresh_learning_tab).pack(side="left")
+        _learning_refresh = ttk.Button(toolbar, text="Refresh learning view", command=self.refresh_learning_tab)
+        _learning_refresh.pack(side="left")
+        self._refresh_buttons["learning"] = _learning_refresh
         self.learning_status = tk.StringVar(value="Open this tab to load the learning view.")
         ttk.Label(toolbar, textvariable=self.learning_status, style="Muted.TLabel").pack(side="left", padx=14)
 
@@ -1825,13 +1983,16 @@ class DesktopApp(tk.Tk):
         self.learning_drift_text.configure(state="disabled")
 
     def refresh_learning_tab(self) -> None:
-        """Fetch a fresh learning_view and re-render every panel."""
-        try:
-            view = learning_view()
-        except Exception as exc:  # noqa: BLE001
-            self.learning_status.set(f"Failed to load learning view: {exc}")
-            return
+        """Fetch a fresh learning_view off the UI thread and re-render."""
+        self.learning_status.set("Loading learning metrics…")
+        on_success, on_error = self._guarded_callbacks(
+            "learning",
+            self._render_learning_view,
+            lambda exc: self.learning_status.set(f"Failed to load learning view: {exc}"),
+        )
+        self._run_in_background(learning_view, on_success, on_error=on_error)
 
+    def _render_learning_view(self, view: dict) -> None:
         error_count = len(view.get("errors") or [])
         self.learning_status.set(
             f"Loaded {len(view.get('thesis_verdicts') or [])} thesis · "
@@ -1954,7 +2115,9 @@ class DesktopApp(tk.Tk):
         """
         toolbar = ttk.Frame(self.performance_tab)
         toolbar.pack(fill="x", padx=16, pady=(16, 8))
-        ttk.Button(toolbar, text="Refresh", command=self.refresh_performance_tab).pack(side="left")
+        _perf_refresh = ttk.Button(toolbar, text="Refresh", command=self.refresh_performance_tab)
+        _perf_refresh.pack(side="left")
+        self._refresh_buttons["performance"] = _perf_refresh
         self.performance_lookback_var = tk.StringVar(value="All time")
         ttk.Label(toolbar, text="Lookback", style="Muted.TLabel").pack(side="left", padx=(14, 4))
         lookback_box = ttk.Combobox(
@@ -2071,17 +2234,27 @@ class DesktopApp(tk.Tk):
         self.performance_dist_tree.pack(fill="both", expand=True)
 
     def refresh_performance_tab(self) -> None:
-        """Recompute and re-render the Performance tab."""
+        """Recompute and re-render the Performance tab without freezing the UI.
+
+        ``portfolio_performance_summary`` rebuilds the time series and (when
+        enabled) fetches SPY over the network, so it runs off the Tk thread.
+        """
         lookback_label = self.performance_lookback_var.get()
         lookback_days = {"Last 30 days": 30, "Last 90 days": 90, "Last 365 days": 365}.get(lookback_label)
         fetch_spy = bool(self.performance_fetch_spy_var.get())
+        self.performance_status.set("Computing performance metrics…")
+        on_success, on_error = self._guarded_callbacks(
+            "performance",
+            self._render_performance_view,
+            lambda exc: self.performance_status.set(f"Failed to compute performance: {exc}"),
+        )
+        self._run_in_background(
+            lambda: portfolio_performance_summary(lookback_days=lookback_days, fetch_spy=fetch_spy),
+            on_success,
+            on_error=on_error,
+        )
 
-        try:
-            view = portfolio_performance_summary(lookback_days=lookback_days, fetch_spy=fetch_spy)
-        except Exception as exc:  # noqa: BLE001
-            self.performance_status.set(f"Failed to compute performance: {exc}")
-            return
-
+    def _render_performance_view(self, view: dict) -> None:
         if not view.get("ready"):
             self.performance_status.set(view.get("reason") or "Not enough snapshots yet.")
             for var in self.performance_metric_vars.values():
@@ -2151,7 +2324,9 @@ class DesktopApp(tk.Tk):
     def _build_outcomes_tab(self) -> None:
         toolbar = ttk.Frame(self.outcomes_tab)
         toolbar.pack(fill="x", padx=16, pady=(16, 8))
-        ttk.Button(toolbar, text="Refresh", command=self.refresh_outcomes_tab).pack(side="left")
+        _outcomes_refresh = ttk.Button(toolbar, text="Refresh", command=self.refresh_outcomes_tab)
+        _outcomes_refresh.pack(side="left")
+        self._refresh_buttons["outcomes"] = _outcomes_refresh
         self.outcomes_status = tk.StringVar(value="Open this tab to score recommendation outcomes.")
         ttk.Label(toolbar, textvariable=self.outcomes_status, style="Muted.TLabel").pack(side="left", padx=14)
 
@@ -2236,12 +2411,16 @@ class DesktopApp(tk.Tk):
         )
 
     def refresh_outcomes_tab(self) -> None:
-        try:
-            view = outcomes_view()
-        except Exception as exc:  # noqa: BLE001
-            self.outcomes_status.set(f"Failed to score outcomes: {exc}")
-            return
+        """Score recommendation outcomes off the UI thread, then render."""
+        self.outcomes_status.set("Scoring recommendation outcomes…")
+        on_success, on_error = self._guarded_callbacks(
+            "outcomes",
+            self._render_outcomes_view,
+            lambda exc: self.outcomes_status.set(f"Failed to score outcomes: {exc}"),
+        )
+        self._run_in_background(outcomes_view, on_success, on_error=on_error)
 
+    def _render_outcomes_view(self, view: dict) -> None:
         summary = view.get("summary") or {}
         overall = summary.get("overall") or {}
         self.outcomes_status.set(
@@ -2390,7 +2569,7 @@ class DesktopApp(tk.Tk):
         """Form-based settings for common options."""
         import json
 
-        settings_path = Path(__file__).resolve().parents[1] / "config" / "settings.json"
+        settings_path = ROOT / "config" / "settings.json"
         try:
             settings = json.loads(settings_path.read_text(encoding="utf-8"))
         except Exception:
@@ -2505,16 +2684,36 @@ class DesktopApp(tk.Tk):
     def _save_preferences(self) -> None:
         import json
 
-        settings_path = Path(__file__).resolve().parents[1] / "config" / "settings.json"
+        settings_path = ROOT / "config" / "settings.json"
         try:
             settings = json.loads(settings_path.read_text(encoding="utf-8")) if settings_path.exists() else {}
         except Exception:
             settings = {}
 
-        try:
-            settings["budget_cad"] = float(self._pref_budget_cad.get() or 3000)
-        except ValueError:
-            pass
+        # Collect numeric-field parse errors so we can refuse to silently keep
+        # a stale value while telling the user "saved".
+        invalid: list[str] = []
+
+        def _num(raw: str, fallback: float, label: str) -> float:
+            try:
+                return float(str(raw).strip() or fallback)
+            except ValueError:
+                invalid.append(label)
+                return fallback
+
+        budget_cad = _num(self._pref_budget_cad.get(), 3000, "Investment budget (CAD)")
+        max_pos = _num(self._pref_max_pos.get(), 25, "Max position %")
+        min_return = _num(self._pref_min_return.get(), 0.5, "Min net expected return %")
+
+        if invalid:
+            joined = ", ".join(invalid)
+            self._pref_status.set(f"Not saved — these must be numbers: {joined}")
+            self._set_status(f"Preferences not saved — invalid: {joined}", tone="error")
+            return
+
+        settings["budget_cad"] = budget_cad
+        settings["max_position_pct"] = max_pos
+        settings["min_net_expected_return_pct"] = min_return
         settings["risk_tolerance"] = self._pref_risk.get()
         settings["account_type"] = self._pref_account.get()
 
@@ -2524,15 +2723,6 @@ class DesktopApp(tk.Tk):
         else:
             settings["claude_model"] = "claude-sonnet-4-6"
         settings["enable_two_pass_review"] = self._pref_two_pass.get()
-
-        try:
-            settings["max_position_pct"] = float(self._pref_max_pos.get() or 25)
-        except ValueError:
-            pass
-        try:
-            settings["min_net_expected_return_pct"] = float(self._pref_min_return.get() or 0.5)
-        except ValueError:
-            pass
 
         settings["enable_decision_journal"] = self._pref_journal.get()
         settings["enable_sentiment"] = self._pref_sentiment.get()
@@ -2789,6 +2979,17 @@ class DesktopApp(tk.Tk):
         self.schedule_preview_text.pack(fill="both", expand=True)
         self.schedule_preview_text.configure(state="disabled")
 
+    @staticmethod
+    def _coerce_time_field(value: str, *, lo: int, hi: int) -> int | None:
+        """Parse a Spinbox hour/minute value, returning None if it is not a
+        whole number in [lo, hi].  ttk.Spinbox lets the user type free text,
+        so a bare int() here used to crash Install/Preview with a ValueError."""
+        try:
+            parsed = int(str(value).strip())
+        except (ValueError, TypeError):
+            return None
+        return parsed if lo <= parsed <= hi else None
+
     def _selected_schedule_times(self) -> list:
         from src.scheduling import ScheduleTime
 
@@ -2796,10 +2997,16 @@ class DesktopApp(tk.Tk):
         for slot in self.schedule_slots:
             if not slot["enabled"].get():
                 continue
+            hour = self._coerce_time_field(slot["hour"].get(), lo=0, hi=23)
+            minute = self._coerce_time_field(slot["minute"].get(), lo=0, hi=59)
+            if hour is None or minute is None:
+                # Skip a slot with an out-of-range / non-numeric entry rather
+                # than crashing the whole Install/Preview action.
+                continue
             out.append(
                 ScheduleTime(
-                    hour=int(slot["hour"].get()),
-                    minute=int(slot["minute"].get()),
+                    hour=hour,
+                    minute=minute,
                     session_type=slot["session"],
                 )
             )
@@ -2843,7 +3050,15 @@ class DesktopApp(tk.Tk):
         if not times:
             messagebox.showwarning("No slots selected", "Enable at least one slot before installing.")
             return
-        result = install_schedule(times)
+        # install_schedule shells out to launchctl/schtasks — run it off the UI thread.
+        self.schedule_status.set("Installing schedule…")
+        self._run_in_background(
+            lambda: install_schedule(times),
+            self._schedule_install_done,
+            on_error=lambda exc: messagebox.showerror("Install failed", str(exc)),
+        )
+
+    def _schedule_install_done(self, result) -> None:
         if result.ok:
             messagebox.showinfo("Schedule installed", f"{result.message}\n\nBackend: {result.backend}\n{result.path}")
         else:
@@ -2853,7 +3068,14 @@ class DesktopApp(tk.Tk):
     def _uninstall_schedule_clicked(self) -> None:
         from src.scheduling import uninstall_schedule
 
-        result = uninstall_schedule()
+        self.schedule_status.set("Removing schedule…")
+        self._run_in_background(
+            uninstall_schedule,
+            self._schedule_uninstall_done,
+            on_error=lambda exc: messagebox.showerror("Uninstall failed", str(exc)),
+        )
+
+    def _schedule_uninstall_done(self, result) -> None:
         if result.ok:
             messagebox.showinfo("Schedule removed", result.message)
         else:
@@ -2863,11 +3085,19 @@ class DesktopApp(tk.Tk):
     def _send_test_notification(self) -> None:
         from src.notifications import send
 
-        result = send(
-            "tech_stock test",
-            "If you see this, native notifications are working.",
-            channel="general",
+        # The notification backend can shell out to osascript/notify-send.
+        self.schedule_status.set("Sending test notification…")
+        self._run_in_background(
+            lambda: send(
+                "tech_stock test",
+                "If you see this, native notifications are working.",
+                channel="general",
+            ),
+            self._test_notification_done,
+            on_error=lambda exc: self.schedule_status.set(f"Notification failed: {exc}"),
         )
+
+    def _test_notification_done(self, result) -> None:
         if result.sent:
             self.schedule_status.set(f"Test notification sent via {result.backend}.")
         elif result.deduped:
@@ -2885,7 +3115,9 @@ class DesktopApp(tk.Tk):
         """
         toolbar = ttk.Frame(self.diagnostics_tab)
         toolbar.pack(fill="x", padx=16, pady=(16, 8))
-        ttk.Button(toolbar, text="Refresh", command=self.refresh_diagnostics_tab).pack(side="left")
+        _diag_refresh = ttk.Button(toolbar, text="Refresh", command=self.refresh_diagnostics_tab)
+        _diag_refresh.pack(side="left")
+        self._refresh_buttons["diagnostics"] = _diag_refresh
         ttk.Button(toolbar, text="Run App Self-Test", command=self.refresh_app_self_test).pack(side="left", padx=(8, 0))
         self.diagnostics_window_var = tk.StringVar(value="24")
         ttk.Label(toolbar, text="Window", style="Muted.TLabel").pack(side="left", padx=(14, 4))
@@ -3064,17 +3296,36 @@ class DesktopApp(tk.Tk):
         self.diagnostics_status.set(f"App self-test: {view.get('status')} · {view.get('next_action') or ''}")
 
     def refresh_diagnostics_tab(self) -> None:
-        """Fetch a fresh diagnostics_view and re-render every panel."""
+        """Collect diagnostics + the support-bundle preview off the UI thread.
+
+        ``diagnostics_view`` aggregates the event log and ``support_bundle_*``
+        scan disk, so all three slow calls run on a worker thread and the panels
+        render together once they return.
+        """
         try:
             hours = int(self.diagnostics_window_var.get() or "24")
         except ValueError:
             hours = 24
-        try:
-            view = diagnostics_view(hours=hours)
-        except Exception as exc:  # noqa: BLE001
-            self.diagnostics_status.set(f"Failed to load diagnostics: {exc}")
-            return
+        self.diagnostics_status.set("Collecting diagnostics…")
 
+        def _work() -> dict:
+            return {
+                "hours": hours,
+                "view": diagnostics_view(hours=hours),
+                "preview": support_bundle_preview(include_demo_smoke=False),
+                "bundle": diagnostics_support_bundle(limit=200),
+            }
+
+        on_success, on_error = self._guarded_callbacks(
+            "diagnostics",
+            self._render_diagnostics_view,
+            lambda exc: self.diagnostics_status.set(f"Failed to load diagnostics: {exc}"),
+        )
+        self._run_in_background(_work, on_success, on_error=on_error)
+
+    def _render_diagnostics_view(self, payload: dict) -> None:
+        hours = payload["hours"]
+        view = payload["view"]
         sources = view.get("sources") or {}
         ok = sum(1 for b in sources.values() if b.get("health") == "ok")
         degraded = sum(1 for b in sources.values() if b.get("health") == "degraded")
@@ -3170,8 +3421,8 @@ class DesktopApp(tk.Tk):
             )
         self._replace_tree_rows(self.diagnostics_errors_tree, error_rows)
 
-        # — Support bundle —
-        preview = support_bundle_preview(include_demo_smoke=False)
+        # — Support bundle (preview + redacted text both fetched off-thread) —
+        preview = payload["preview"]
         preview_rows = []
         for item in preview.get("files") or []:
             preview_rows.append([item.get("path") or "", "YES", item.get("description") or ""])
@@ -3179,7 +3430,7 @@ class DesktopApp(tk.Tk):
         if excluded:
             preview_rows.append(["Excluded", "NO", excluded])
         self._replace_tree_rows(self.diagnostics_support_preview_tree, preview_rows)
-        bundle = diagnostics_support_bundle(limit=200)
+        bundle = payload["bundle"]
         self.diagnostics_bundle_text.configure(state="normal")
         self.diagnostics_bundle_text.delete("1.0", "end")
         self.diagnostics_bundle_text.insert("1.0", bundle or "(no events yet)")
@@ -3202,6 +3453,8 @@ class DesktopApp(tk.Tk):
         log_path = getattr(self, "_diagnostics_log_path", None)
         if log_path and log_path.exists():
             self._reveal_in_finder(log_path)
+        else:
+            self.diagnostics_status.set("No log folder yet — run a report first.")
 
     def _build_editor_tab(self) -> None:
         toolbar = ttk.Frame(self.editor_tab)
@@ -3350,10 +3603,20 @@ class DesktopApp(tk.Tk):
         return self.api_key_options.get(self.api_key_choice.get()) or API_KEY_FIELDS[0]["env"]
 
     def refresh_api_key_manager(self) -> None:
-        rows = []
+        # api_key_inventory scans every discovered key file/keyring — off-thread.
         selected_env = self._selected_api_env_name()
+        self.api_key_manager_status.set("Loading API keys…")
+        on_success, on_error = self._guarded_callbacks(
+            "api_keys",
+            lambda inventory: self._render_api_key_manager(inventory, selected_env),
+            lambda exc: self.api_key_manager_status.set(f"Failed to load API keys: {exc}"),
+        )
+        self._run_in_background(api_key_inventory, on_success, on_error=on_error)
+
+    def _render_api_key_manager(self, inventory, selected_env: str) -> None:
+        rows = []
         selected_status = ""
-        for row in api_key_inventory():
+        for row in inventory:
             source = row.get("source_path")
             source_text = str(source) if source else ""
             rows.append([row["label"], "YES" if row["configured"] else "NO", row.get("masked") or "", source_text])
@@ -3379,6 +3642,7 @@ class DesktopApp(tk.Tk):
             messagebox.showerror("Save failed", str(exc))
             return
         self.api_key_manager_status.set(f"Saved {env_name} to {path}")
+        self._set_status(f"{env_name} saved", tone="success")
         self.refresh_api_key_manager()
 
     def delete_selected_api_key(self) -> None:
@@ -3823,6 +4087,11 @@ class DesktopApp(tk.Tk):
         tree.tag_configure("TRADE READY", foreground=self.good)
         tree.tag_configure("REVIEW FIRST", foreground=self.warning)
         tree.tag_configure("BLOCKED", foreground=self.danger)
+        # Zebra striping for readability. These set *background* only, so they
+        # stack cleanly with the semantic *foreground* tags above (a SELL row
+        # stays red on its stripe). Selection still wins via style.map.
+        tree.tag_configure("oddrow", background=self.surface)
+        tree.tag_configure("evenrow", background=self.panel)
         tree.pack(fill="both", expand=True)
         return tree
 
@@ -3839,7 +4108,14 @@ class DesktopApp(tk.Tk):
         if not path:
             messagebox.showwarning("No holdings CSV", "Choose a holdings CSV first.")
             return
-        preview = preview_holdings_csv(path)
+        self._set_status("Reading holdings CSV…")
+        self._run_in_background(
+            lambda: preview_holdings_csv(path),
+            self._show_holdings_preview,
+            on_error=lambda exc: messagebox.showerror("Preview failed", str(exc)),
+        )
+
+    def _show_holdings_preview(self, preview: dict) -> None:
         if not preview.get("ok"):
             messagebox.showerror("Preview failed", preview.get("error", "Could not preview holdings."))
             return
@@ -3906,11 +4182,13 @@ class DesktopApp(tk.Tk):
                 ]
             )
         self._replace_tree_rows(self.run_preflight_tree, rows)
+        budget_note = self._budget_summary_line()
+        budget_suffix = f" {budget_note}" if budget_note else ""
         if checklist.get("can_run"):
             if checklist.get("warning_count"):
-                self.run_status.set(f"Checklist passed with {checklist['warning_count']} warning(s).")
+                self.run_status.set(f"Checklist passed with {checklist['warning_count']} warning(s).{budget_suffix}")
             else:
-                self.run_status.set("Checklist passed. Ready to generate a report.")
+                self.run_status.set(f"Checklist passed. Ready to generate a report.{budget_suffix}")
         else:
             self.run_status.set(f"Checklist blocked: {checklist.get('next_action')}")
         return checklist
@@ -3959,6 +4237,60 @@ class DesktopApp(tk.Tk):
                 else:
                     self.activities_var.set("")
 
+    def _budget_summary_line(self) -> str:
+        """Short month-to-date vs cap line for the Run tab; '' when no cap set."""
+        try:
+            from src.cost_tracker import check_budget
+
+            check = check_budget()
+            if check.budget_usd <= 0:
+                return ""
+            remaining = max(0.0, check.budget_usd - check.month_to_date_usd)
+            return f"Budget: ${check.month_to_date_usd:.2f} of ${check.budget_usd:.2f} this month (${remaining:.2f} left)."
+        except Exception:
+            logger.debug("Could not compute budget summary", exc_info=True)
+            return ""
+
+    def _budget_precheck(self) -> bool:
+        """Surface the monthly spend cap before a run. Returns False to abort.
+
+        On an explicit override the ``ALLOW_OVERAGE`` env is set for this run (so
+        the pipeline's own cap check passes) and cleared again when the run
+        finishes. A missing cap (budget == 0) is a silent pass.
+        """
+        try:
+            from src.claude_analyst import typical_run_cost
+            from src.cost_tracker import check_budget
+
+            estimate = typical_run_cost(self.model_var.get())
+            check = check_budget(expected_cost_usd=estimate)
+        except Exception:
+            logger.debug("Budget pre-check failed; allowing run", exc_info=True)
+            return True
+
+        if check.hard_block:
+            proceed = messagebox.askyesno(
+                "Monthly spend cap reached",
+                f"{check.message}\n\nRun anyway and override the cap for this report?",
+            )
+            if not proceed:
+                self.run_status.set("Run cancelled — monthly spend cap reached.")
+                return False
+            os.environ["ALLOW_OVERAGE"] = "1"
+            self._desktop_overage = True
+        elif check.soft_warn:
+            message = check.message or "You're close to your monthly spend cap."
+            if not messagebox.askyesno("Approaching spend cap", f"{message}\n\nGenerate this report anyway?"):
+                self.run_status.set("Run cancelled.")
+                return False
+        return True
+
+    def _clear_desktop_overage(self) -> None:
+        """Drop the per-run ALLOW_OVERAGE override the desktop may have set."""
+        if getattr(self, "_desktop_overage", False):
+            os.environ.pop("ALLOW_OVERAGE", None)
+            self._desktop_overage = False
+
     def start_report_run(self) -> None:
         try:
             budget_usd = float(self.budget_usd_var.get() or 0)
@@ -3977,6 +4309,10 @@ class DesktopApp(tk.Tk):
             )
             if not messagebox.askyesno("Pre-run warnings", f"{warning_lines}\n\nRun anyway?"):
                 return
+
+        # Monthly Claude spend-cap gate — surface before we spend ~90s and money.
+        if not self._budget_precheck():
+            return
 
         self.run_button.configure(state="disabled")
         self.console_text.delete("1.0", "end")
@@ -4012,7 +4348,7 @@ class DesktopApp(tk.Tk):
     def _tick_elapsed(self) -> None:
         import time as _time
 
-        if self._report_start_time is None:
+        if self._report_start_time is None or self._closing:
             return
         elapsed = int(_time.time() - self._report_start_time)
         self._report_elapsed_var.set(f"Elapsed: {elapsed}s")
@@ -4030,27 +4366,150 @@ class DesktopApp(tk.Tk):
             pass
 
     def _drain_progress_queue(self) -> None:
+        if self._closing:
+            return
+        # Each item is dispatched under its own guard and the reschedule lives in
+        # a finally block: one handler raising (e.g. a render hitting malformed
+        # data) must not kill the drain loop, which also pumps report-run
+        # completion and background refreshes.
         try:
             while True:
-                kind, payload = self.progress_queue.get_nowait()
-                if kind == "line":
-                    self.console_text.insert("end", str(payload) + "\n")
-                    self.console_text.see("end")
-                elif kind == "done":
-                    self._report_run_done(payload)
-                elif kind == "health_done":
-                    self._connectivity_done(payload)
-                elif kind == "buy_signals_done":
-                    self._buy_signals_done(payload)
-                elif kind == "update_check_done":
-                    self._update_check_done(payload)
-                elif kind == "update_apply_done":
-                    self._update_apply_done(payload)
-        except queue.Empty:
-            pass
-        self.after(100, self._drain_progress_queue)
+                try:
+                    kind, payload = self.progress_queue.get_nowait()
+                except queue.Empty:
+                    break
+                try:
+                    if kind == "line":
+                        self.console_text.insert("end", str(payload) + "\n")
+                        self.console_text.see("end")
+                    elif kind == "done":
+                        self._report_run_done(payload)
+                    elif kind == "health_done":
+                        self._connectivity_done(payload)
+                    elif kind == "buy_signals_done":
+                        self._buy_signals_done(payload)
+                    elif kind == "update_check_done":
+                        self._update_check_done(payload)
+                    elif kind == "update_apply_done":
+                        self._update_apply_done(payload)
+                    elif kind == "callback":
+                        payload()
+                except Exception:  # noqa: BLE001 — one bad handler must not stop the pump
+                    logger.exception("Progress handler for %r failed", kind)
+        finally:
+            if not self._closing:
+                self._drain_id = self.after(100, self._drain_progress_queue)
+
+    def _run_in_background(self, work, on_success, *, on_error=None) -> None:
+        """Run ``work()`` (slow, blocking I/O) off the Tk thread, then hand its
+        result to ``on_success(result)`` back on the main thread.
+
+        This keeps the event loop responsive so the window never freezes while
+        a tab fetches market data or scans logs. Results are marshalled through
+        ``progress_queue`` — the single-consumer queue the drain loop already
+        pumps — so Tk widgets are only ever touched from the main thread, the
+        one place Tkinter permits it. Failures route to ``on_error(exc)`` (also
+        main-thread); without one the global status line shows the error.
+        """
+
+        def _worker() -> None:
+            try:
+                result = work()
+            except Exception as exc:  # noqa: BLE001 — surfaced to the UI and logged
+                logger.debug("Background task failed", exc_info=True)
+                self.progress_queue.put(("callback", lambda e=exc: self._handle_async_error(e, on_error)))
+                return
+            self.progress_queue.put(("callback", lambda r=result: on_success(r)))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _handle_async_error(self, exc: Exception, on_error) -> None:
+        if on_error is not None:
+            on_error(exc)
+        else:
+            self._set_status(f"Couldn't finish that — {exc}", tone="error")
+
+    def _guarded_callbacks(self, key: str, on_success, on_error):
+        """Bump the per-key generation once and return ``(success, error)``
+        callbacks that BOTH apply only while this is the latest request for
+        ``key``.
+
+        A tab can be re-triggered (combobox, checkbox, double-clicked Refresh)
+        faster than its work finishes; without this guard an older, slower
+        result could land last and overwrite the newer one. Guarding *both*
+        outcomes is essential: a stale request that fails after a newer one
+        succeeded must not clobber the fresh data with a "Failed…" status.
+
+        The success wrapper also catches a render that raises *on the UI thread*
+        and routes it to ``on_error`` — otherwise a malformed-data crash inside
+        the drain loop would be swallowed, leaving a success-looking status over
+        empty tables with no error shown.
+        """
+        generation = self._async_generation.get(key, 0) + 1
+        self._async_generation[key] = generation
+
+        # Busy state: disable the tab's Refresh button while its work is in
+        # flight so rapid clicks don't pile up, and re-enable it when the latest
+        # request settles (stale requests leave it alone — the newer one owns it).
+        button = self._refresh_buttons.get(key)
+        self._set_button_state(button, "disabled")
+
+        def _is_current() -> bool:
+            return self._async_generation.get(key) == generation
+
+        def _report(exc: Exception) -> None:
+            if on_error is not None:
+                on_error(exc)
+            else:
+                self._set_status(f"Couldn't finish that — {exc}", tone="error")
+
+        def _success(result) -> None:
+            if not _is_current():
+                return
+            self._set_button_state(button, "normal")
+            try:
+                on_success(result)
+            except Exception as exc:  # noqa: BLE001 — render failed on the UI thread
+                logger.exception("Render failed for %s tab", key)
+                _report(exc)
+
+        def _error(exc: Exception) -> None:
+            if not _is_current():
+                return
+            self._set_button_state(button, "normal")
+            _report(exc)
+
+        return _success, _error
+
+    @staticmethod
+    def _set_button_state(button, state: str) -> None:
+        """Best-effort widget state toggle — a destroyed/None button is a no-op."""
+        if button is not None:
+            try:
+                button.configure(state=state)
+            except Exception:
+                pass
+
+    def _on_close(self) -> None:
+        """Stop the self-rescheduling ``after()`` loops before tearing the
+        window down so they can't fire against destroyed widgets (which would
+        spew TclError tracebacks to stderr on quit). Worker threads are daemons
+        and exit with the process; their late queue writes are harmless once
+        the drain loop has stopped."""
+        self._closing = True
+        self._save_window_size()
+        for after_id in (self._drain_id, self._report_elapsed_id):
+            if after_id:
+                try:
+                    self.after_cancel(after_id)
+                except Exception:
+                    pass
+        self._drain_id = None
+        self._report_elapsed_id = None
+        self.destroy()
 
     def _report_run_done(self, result: Any) -> None:
+        self._clear_desktop_overage()
         self._stop_progress()
         self.run_button.configure(state="normal")
         if not result.ok:
@@ -4616,11 +5075,12 @@ class DesktopApp(tk.Tk):
     def _replace_tree_rows(self, tree: ttk.Treeview, rows: list[list[Any]], *, tag_index: int | None = None) -> None:
         for item in tree.get_children():
             tree.delete(item)
-        for row in rows:
-            tags = ()
+        for offset, row in enumerate(rows):
+            tags: list[str] = []
             if tag_index is not None and tag_index < len(row):
-                tags = (str(row[tag_index]).upper(),)
-            tree.insert("", "end", values=row, tags=tags)
+                tags.append(str(row[tag_index]).upper())
+            tags.append("evenrow" if offset % 2 else "oddrow")
+            tree.insert("", "end", values=row, tags=tuple(tags))
 
     def _refresh_report_review(self, path: Path | None) -> None:
         if not hasattr(self, "report_review_tree"):
@@ -4770,8 +5230,13 @@ class DesktopApp(tk.Tk):
         selection = self.history_list.curselection()
         if not selection:
             return
-        path = self.history_paths[selection[0]]
-        row = (getattr(self, "history_rows", []) or [{}])[selection[0]]
+        index = selection[0]
+        # A selection can outlive a refresh that shortened the list, so guard
+        # the index before using it to avoid an IndexError.
+        if index >= len(self.history_paths):
+            return
+        path = self.history_paths[index]
+        row = (getattr(self, "history_rows", []) or [{}])[index if index < len(getattr(self, "history_rows", []) or [{}]) else 0]
         metadata = (
             f"## Report Metadata\n\n"
             f"- Holdings CSV: `{row.get('holdings_csv') or 'unknown'}`\n"

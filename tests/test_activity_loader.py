@@ -53,3 +53,53 @@ def test_activities_parser_detects_holdings_export(tmp_path):
 
     with pytest.raises(ValueError, match="Holdings CSV.*Activities CSV"):
         parse_activities_csv(csv_path, days=None)
+
+
+def test_get_recent_trades_summary():
+    from src.activity_loader import get_recent_trades_summary
+
+    activities = [
+        {"date": "2026-05-01", "type": "Trade", "sub_type": "BUY", "ticker": "NVDA", "quantity": 2},
+        {"date": "2026-05-15", "type": "Trade", "sub_type": "SELL", "ticker": "NVDA", "quantity": 1},
+        {"date": "2026-05-01", "type": "Dividend", "sub_type": "", "ticker": "MSFT", "quantity": 0},  # skipped
+        {"date": "2026-05-01", "type": "Trade", "sub_type": "BUY", "ticker": "", "quantity": 1},  # no ticker, skipped
+    ]
+    result = get_recent_trades_summary(activities)
+    assert "NVDA" in result
+    assert len(result["NVDA"]["buys"]) == 1
+    assert len(result["NVDA"]["sells"]) == 1
+    assert "MSFT" not in result
+
+
+def test_parse_activities_csv_no_header_error(tmp_path):
+    import pytest
+
+    from src.activity_loader import parse_activities_csv
+
+    csv_path = tmp_path / "empty.csv"
+    csv_path.write_text("")
+    with pytest.raises(ValueError, match="no header"):
+        parse_activities_csv(csv_path, days=None)
+
+
+def test_parse_activities_csv_filters_by_activity_type(tmp_path):
+    from src.activity_loader import parse_activities_csv
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    csv_path = tmp_path / "activities.csv"
+    csv_path.write_text(
+        "\n".join(
+            [
+                "transaction_date,settlement_date,account_id,account_type,activity_type,activity_sub_type,direction,symbol,name,currency,quantity,unit_price,commission,net_cash_amount",
+                f"{today},{today},1,TFSA,Dividend,DIV,LONG,MSFT,Microsoft,USD,0,0,0,50",
+                f"{today},{today},1,TFSA,Trade,BUY,LONG,NVDA,Nvidia,USD,1,100,0,-100",
+            ]
+        )
+    )
+    trades = parse_activities_csv(csv_path, days=30, activity_types=["Trade"])
+    assert all(a["type"] == "Trade" for a in trades)
+    assert any(a["ticker"] == "NVDA" for a in trades)
+
+    all_types = parse_activities_csv(csv_path, days=30, activity_types=None)
+    # activity_types=None → defaults to Trade only
+    assert all(a["type"] == "Trade" for a in all_types)

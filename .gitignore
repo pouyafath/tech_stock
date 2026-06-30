@@ -3,6 +3,9 @@
 venv/
 env/
 
+# Claude Code session-local state (machine/session-specific, not project data)
+.claude/scheduled_tasks.lock
+
 # Python
 __pycache__/
 *.py[cod]
@@ -43,6 +46,7 @@ Thumbs.db
 
 # Project-specific outputs
 reports/
+config/window_state.json
 data/recommendations_log/
 data/.cache/
 data/paper_portfolio.json

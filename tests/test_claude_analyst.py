@@ -212,3 +212,25 @@ def test_call_claude_pass2_fallback(tmp_path, monkeypatch):
 
     assert recommendation.get("pass2_fallback") is True
     assert recommendation.get("session_summary") == "Pass 1 output"
+
+
+def test_typical_run_cost_matches_pricing_keys():
+    """typical_run_cost must cover every model in MODEL_PRICING and fall back
+    to the default for unknown models — guards the budget/menu single source."""
+    from src.claude_analyst import (
+        _DEFAULT_RUN_COST_USD,
+        MODEL_PRICING,
+        TYPICAL_RUN_COST_USD,
+        typical_run_cost,
+    )
+
+    for model in MODEL_PRICING:
+        assert model in TYPICAL_RUN_COST_USD, f"missing run-cost estimate for {model}"
+        assert typical_run_cost(model) == TYPICAL_RUN_COST_USD[model]
+
+    # Opus costs more than Sonnet, Sonnet more than Haiku.
+    assert typical_run_cost("claude-opus-4-7") > typical_run_cost("claude-sonnet-4-6")
+    assert typical_run_cost("claude-sonnet-4-6") > typical_run_cost("claude-haiku-4-5")
+
+    # Unknown model → default estimate, never a crash.
+    assert typical_run_cost("some-future-model") == _DEFAULT_RUN_COST_USD

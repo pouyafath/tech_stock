@@ -68,6 +68,13 @@ def parse_holdings_csv(csv_path: str | Path) -> dict:
     if not csv_path.exists():
         raise FileNotFoundError(f"Holdings CSV not found: {csv_path}")
 
+    # Guard against a malformed/huge file OOM-ing the app. A real Wealthsimple
+    # holdings export is a few KB; 10 MB is already orders of magnitude larger.
+    MAX_CSV_BYTES = 10 * 1024 * 1024
+    size = csv_path.stat().st_size
+    if size > MAX_CSV_BYTES:
+        raise ValueError(f"Holdings CSV is too large ({size / 1_048_576:.1f} MB; limit is {MAX_CSV_BYTES // 1_048_576} MB).")
+
     holdings = []
     exported_at = ""
 

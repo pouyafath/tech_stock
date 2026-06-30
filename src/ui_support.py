@@ -1298,6 +1298,15 @@ def read_editable_json(label: str) -> str:
 def write_editable_json(label: str, content: str) -> Path:
     path = EDITABLE_JSON_FILES[label]
     parsed = json.loads(content)
+    # Back up the prior contents before clobbering — the Advanced Editor can
+    # overwrite the user's entire settings/watchlist/portfolio file, so keep a
+    # single-level ``.bak`` to recover from a bad edit.
+    if path.exists():
+        try:
+            backup = path.with_suffix(path.suffix + ".bak")
+            backup.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+        except OSError:
+            pass  # a failed backup must not block the save
     path.write_text(json.dumps(parsed, indent=2) + "\n", encoding="utf-8")
     return path
 

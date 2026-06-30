@@ -4,6 +4,123 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.39.0] — 2026-06-30
+
+Desktop UI production-readiness, merged on top of main's v1.38. Everything this
+branch added (the desktop work below plus the security/resilience hardening that
+follows) ships as 1.39.0. All desktop changes land on the canonical
+`src/desktop/app.py`; pure helpers have headless tests and the GUI is exercised
+by a real xvfb test suite.
+
+### Desktop app
+- **Mouse-wheel / trackpad scrolling** now works in the Home dashboard and
+  Preferences panes. Previously the only way to scroll was dragging the
+  scrollbar by hand. The binding activates on pointer-enter and tears down on
+  leave (with a `NotifyInferior` guard for child-widget crossings) so several
+  scrollable panes and Treeviews never fight over the wheel; wheel input is
+  normalized across Linux (`Button-4`/`5`), Windows (±120 deltas), and macOS
+  (small deltas).
+- **Zebra-striped data tables.** Every table alternates row backgrounds for
+  readability. The stripe tags set *background only*, so they stack cleanly
+  with the existing semantic *foreground* tags (BUY/SELL/severity).
+- **The window remembers its size** between launches. The saved size is
+  validated and clamped onto the current screen (and to the minimum), so a
+  size saved on a now-disconnected monitor can't reopen off-screen. Only the
+  size is restored — never the position — to avoid the multi-monitor
+  off-screen trap. Stored in `config/window_state.json` (git-ignored).
+- **Busy state on Refresh buttons.** Now that the Performance/Learning/Outcomes/
+  Diagnostics tabs load asynchronously, their Refresh button disables while work
+  is in flight and re-enables when the latest request settles, so rapid clicks
+  don't pile up redundant loads. A real GUI test guarantees the button never
+  gets stuck disabled.
+- **Monthly spend-cap guardrail.** New installs now seed a $25/month Claude
+  spend cap (existing users keep whatever they saved — no surprise blocks). The
+  Run tab surfaces month-to-date spend vs. the cap, and a run that would exceed
+  it now prompts before spending ~90s and money; choosing to override is scoped
+  to that single run (the `ALLOW_OVERAGE` flag is cleared when it finishes).
+- **More visible table selection** — selected rows use the stronger border
+  tone for clearer contrast against the striped background.
+- **Tabs no longer freeze the window while loading.** The Performance,
+  Learning, Outcomes, and Diagnostics tabs do network/disk I/O (SPY fetch, log
+  scans, support-bundle reads) that previously ran on the Tk thread and locked
+  the UI for seconds. That work now runs on a daemon worker and renders back on
+  the main thread through the existing progress queue, so the window stays
+  responsive. A per-tab "latest wins" guard drops stale results — on both the
+  success and the error path — when a tab is refreshed faster than its work
+  finishes, so an obsolete request can neither overwrite fresh data nor flash a
+  stale "Failed…" status over it. A render that hits malformed data is surfaced
+  on the tab's status line instead of being silently swallowed, and the
+  progress-queue drain loop is hardened so one failing handler can't stop it
+  (it also pumps report-run completion). The schedule install/uninstall (which
+  shell out to launchctl/schtasks), the test-notification send, the holdings-CSV
+  preview, and the API-key inventory scan run off the UI thread for the same
+  reason.
+- **Real headless GUI tests.** A new xvfb-backed test suite actually
+  instantiates `DesktopApp` and exercises construction, the background
+  worker → queue → main-thread render round-trip, an async refresh, and clean
+  shutdown — so desktop changes are verified by running the app, not just by
+  inspecting source. Skips cleanly where no display is available.
+
+---
+
+### Security, data-integrity & resilience hardening (also new in 1.39.0)
+
+Brought across from the parallel hardening/coverage line.
+
+### Security
+- **Auto-updater refuses to install unverified binaries.** When a release
+  asset can't be checksum-verified against `SHA256SUMS.txt`, the updater
+  reveals the download for manual verification instead of installing it.
+- **CSV formula injection neutralized** in exported recommendations
+  (`=`/`+`/`-`/`@`/tab/CR-leading cells escaped).
+- **Cache moved from pickle to JSON**, removing the deserialization
+  code-execution risk; legacy `.pkl` files are cleaned up.
+- **Zip-slip-safe** Windows update extraction.
+- **Workspace export scrubs pasted secrets** from text files and drops
+  variant-named key files (`.env.local`, `API_KEYS.backup.txt`, …).
+
+### Data integrity & resilience
+- **Bitcoin 7-day risk signal revived** — switched CoinGecko to
+  `/coins/markets` (the `/simple/price` endpoint never supported a 7d param).
+- **No cache poisoning on transient failures** — error/empty results from
+  market data, historical prices, FRED macro/FX, and Polygon are no longer
+  cached as fresh for the full TTL.
+- **yfinance retries actually fire** (`requests.RequestException` added to the
+  retry filter); **Twelve Data throttle is now thread-safe**.
+- **Annualized metrics no longer explode** on short/dense histories (bounded
+  annualisation factor).
+- **Holdings CSV size bound** (10 MB) guards against OOM on malformed input.
+
+### Tests & tooling
+- **API-client error-path coverage** raised across the six paid-data clients
+  (alpha_vantage/coingecko/finnhub/fred/polygon/twelve_data) from 15–39% to
+  81–94%.
+- **Single source of truth for per-run cost estimates** via
+  `claude_analyst.typical_run_cost()`, replacing duplicated `$0.22`/`$0.45`
+  magic numbers in `main.py`.
+- **Demo smoke test** in CI now actually fails the build if the no-network
+  demo path breaks (was a `grep ... || true` no-op).
+
+### Desktop app (applied to `src/desktop/app.py`)
+- **Window/taskbar icon** set on the live Tk window when run from source.
+- **"Reveal in file manager" surfaces failures** instead of silently no-oping.
+- **Schedule picker no longer crashes** on non-numeric/out-of-range Spinbox
+  input (slots are validated and skipped).
+- **Preferences refuse to claim "saved"** while silently dropping invalid
+  numeric fields — the offending fields are named.
+- **Onboarding persists all three budgets** (`monthly_budget_usd`,
+  `budget_usd`, `budget_cad`) — the spend cap was previously dropped.
+- **Report-history selection is bounds-checked**; **clean shutdown** cancels
+  repeating `after()` loops to avoid `TclError` on quit.
+- **Advanced Editor backs up config JSON** to `.bak` before overwriting.
+- **Fixed a config-path regression** from the `src/desktop/` move: Preferences
+  and the onboarding budget stage wrote to `src/config/settings.json`
+  (`parents[1]`) instead of the real repo-root `config/settings.json`, so
+  saved settings were never read back. All three sites now use the module
+  `ROOT`.
+
+---
+
 ## [1.38.0] — 2026-06-24
 
 ### Added

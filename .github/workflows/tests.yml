@@ -20,10 +20,24 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt pytest-cov
+      - name: Install xvfb (virtual display for headless GUI tests)
+        run: sudo apt-get update && sudo apt-get install -y xvfb
       - name: Run tests
         env:
           PYTHONPATH: ${{ github.workspace }}
-        run: pytest -q --cov=src --cov-report=term-missing --cov-fail-under=55
+        # xvfb-run provides a virtual X display so the desktop GUI tests can
+        # actually instantiate DesktopApp. Non-GUI tests are unaffected; the GUI
+        # tests skip themselves if the display is somehow unavailable.
+        run: xvfb-run -a pytest -q --cov=src --cov-report=term-missing --cov-fail-under=55
+      - name: Demo smoke test (bundled samples, no network)
+        # Validates sample data, view models, and markdown rendering with no
+        # network/Claude spend. Fails the build if the demo path breaks — the
+        # previous `... | grep ... || true` could never fail and also launched
+        # a blocking Streamlit server.
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          python -c "import sys; from src.preflight import run_demo_smoke_test; r = run_demo_smoke_test(); print(r); sys.exit(0 if r.get('ok') else 1)"
 
   lint-security:
     runs-on: ubuntu-latest

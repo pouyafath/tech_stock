@@ -172,6 +172,364 @@ def test_about_handler_reads_dynamic_version():
     assert "About tech_stock" in src
 
 
+def test_window_icon_is_set_on_init():
+    """A plain `python src/desktop_app.py` run must not fall back to Tk's
+    generic feather icon — the packaged app icon should be applied."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    init_start = src.index("def __init__(self)")
+    init_body = src[init_start : src.index("\n    def ", init_start + 10)]
+    assert "self._set_window_icon()" in init_body
+
+    icon_start = src.index("def _set_window_icon(self)")
+    icon_body = src[icon_start : src.index("\n    def ", icon_start + 10)]
+    assert "icon.png" in icon_body
+    assert "iconphoto" in icon_body
+    # src/desktop/app.py is two levels under the repo root.
+    assert "parents[2]" in icon_body
+
+
+def test_reveal_in_finder_surfaces_failures_instead_of_silently_failing():
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    fn_start = src.index("def _reveal_in_finder(self")
+    fn_body = src[fn_start : src.index("\n    def ", fn_start + 10)]
+    assert "except Exception:\n            pass" not in fn_body
+    assert "_set_status" in fn_body
+
+
+def test_coerce_time_field_rejects_bad_spinbox_input():
+    """Out-of-range / non-numeric schedule Spinbox values coerce to None
+    (slot skipped) instead of raising ValueError on Install/Preview."""
+    from src.desktop_app import DesktopApp
+
+    coerce = DesktopApp._coerce_time_field
+    assert coerce("0", lo=0, hi=23) == 0
+    assert coerce("23", lo=0, hi=23) == 23
+    assert coerce(" 9 ", lo=0, hi=23) == 9
+    assert coerce("59", lo=0, hi=59) == 59
+    assert coerce("24", lo=0, hi=23) is None
+    assert coerce("-1", lo=0, hi=23) is None
+    assert coerce("abc", lo=0, hi=23) is None
+    assert coerce("", lo=0, hi=23) is None
+    assert coerce("9.5", lo=0, hi=23) is None
+
+
+def test_close_handler_stops_after_loops():
+    """The window must register a close handler that cancels its repeating
+    after() loops so they don't fire against destroyed widgets on quit."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    assert 'self.protocol("WM_DELETE_WINDOW", self._on_close)' in src
+    close_start = src.index("def _on_close(self)")
+    close_body = src[close_start : src.index("\n    def ", close_start + 10)]
+    assert "self._closing = True" in close_body
+    assert "after_cancel" in close_body
+    assert "self.destroy()" in close_body
+    drain_start = src.index("def _drain_progress_queue(self)")
+    drain_body = src[drain_start : src.index("\n    def ", drain_start + 10)]
+    assert "if self._closing:" in drain_body
+
+
+def test_history_selection_is_bounds_checked():
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    fn_start = src.index("def _history_selected(self")
+    fn_body = src[fn_start : src.index("\n    def ", fn_start + 10)]
+    assert "len(self.history_paths)" in fn_body
+
+
+def test_preferences_reject_invalid_numbers():
+    """Saving Preferences with a non-numeric field must not claim success."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    fn_start = src.index("def _save_preferences(self")
+    fn_body = src[fn_start : src.index("\n    def ", fn_start + 10)]
+    assert "must be numbers" in fn_body
+
+
+def test_onboarding_budgets_persist_all_three_fields():
+    """The wizard's budget stage saves the spend cap and both trade budgets."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    primary_start = src.index("def _primary(self)")
+    primary_body = src[primary_start : src.index("\n    def ", primary_start + 10)]
+    budgets_start = primary_body.index('elif self._current == "budgets":')
+    budgets_body = primary_body[budgets_start : primary_body.index("elif self._current ==", budgets_start + 10)]
+    assert "monthly_budget_usd" in budgets_body
+    assert "budget_usd" in budgets_body
+    assert "budget_cad" in budgets_body
+
+
+def test_settings_paths_resolve_to_repo_root_config():
+    """src/desktop/app.py is two levels deep, so config paths must use the
+    module ROOT (repo-root/config), not parents[1] (which is src/config)."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    assert 'parents[1] / "config"' not in src
+
+
+def test_scrollable_frames_support_mousewheel():
+    """Both scrollable panes must react to the wheel/trackpad — dragging the
+    scrollbar by hand is not an acceptable production UX."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    sf_start = src.index("def _scrollable_frame(self")
+    sf_body = src[sf_start : src.index("\n    @staticmethod", sf_start)]
+    assert "self._bind_mousewheel(canvas, content)" in sf_body
+
+    bind_start = src.index("def _bind_mousewheel(self")
+    bind_body = src[bind_start : src.index("\n    def ", bind_start + 10)]
+    # All three platform wheel events must be wired.
+    for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+        assert seq in bind_body, f"missing wheel binding for {seq}"
+    # Crossing onto a child widget must not tear the binding down.
+    assert "NotifyInferior" in bind_body
+
+
+def test_wheel_scroll_steps_handles_every_platform():
+    """Linux (Button-4/5), Windows (±120 deltas), macOS (small deltas)."""
+    from src.desktop_app import DesktopApp
+
+    steps = DesktopApp._wheel_scroll_steps
+    # Linux buttons
+    assert steps(0, 4) == -1
+    assert steps(0, 5) == 1
+    # Windows multiples of 120 (positive delta = scroll up = negative units)
+    assert steps(120, None) == -1
+    assert steps(-120, None) == 1
+    assert steps(240, None) == -2
+    # macOS small deltas
+    assert steps(1, None) == -1
+    assert steps(-3, None) == 1
+    # No movement
+    assert steps(0, None) == 0
+
+
+def test_tree_rows_are_zebra_striped():
+    """Data tables alternate row backgrounds; the stripe tags are background-
+    only so they stack with the semantic foreground tags (BUY/SELL/etc.)."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+
+    make_start = src.index("def _make_tree(self")
+    make_body = src[make_start : src.index("\n    def ", make_start + 10)]
+    assert 'tree.tag_configure("oddrow"' in make_body
+    assert 'tree.tag_configure("evenrow"' in make_body
+
+    fill_start = src.index("def _replace_tree_rows(self")
+    fill_body = src[fill_start : src.index("\n    def ", fill_start + 10)]
+    assert '"evenrow" if offset % 2 else "oddrow"' in fill_body
+
+
+def test_sanitize_window_size_clamps_to_screen():
+    """A restored size must fit on the current screen and respect the minimum."""
+    from src.desktop_app import DesktopApp
+
+    clamp = DesktopApp._sanitize_window_size
+    # Normal case passes through.
+    assert clamp("1400x900", 1920, 1080) == "1400x900"
+    # Too big for the screen → clamped down to the screen.
+    assert clamp("4000x3000", 1920, 1080) == "1920x1080"
+    # Below the minimum → bumped up to the floor.
+    assert clamp("400x300", 1920, 1080) == "1024x720"
+    # Junk / missing → None so the default geometry is kept.
+    assert clamp("not-a-size", 1920, 1080) is None
+    assert clamp(None, 1920, 1080) is None
+
+
+def test_window_size_is_persisted_on_close_and_restored_on_init():
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    # Restore is attempted during construction.
+    init_start = src.index("def __init__(self)")
+    init_body = src[init_start : src.index("\n    def ", init_start + 10)]
+    assert "self._restore_window_size()" in init_body
+    # And the current size is saved before the window is torn down.
+    close_start = src.index("def _on_close(self)")
+    close_body = src[close_start : src.index("\n    def ", close_start + 10)]
+    assert "self._save_window_size()" in close_body
+
+
+def test_heavy_refresh_handlers_run_off_the_ui_thread():
+    """The Performance / Learning / Outcomes / Diagnostics tabs do network and
+    disk I/O. Each must hand the slow call to a worker and render from the
+    result, never blocking the Tk event loop (which freezes the window)."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    specs = [
+        ("refresh_performance_tab", "_render_performance_view", "portfolio_performance_summary"),
+        ("refresh_learning_tab", "_render_learning_view", "learning_view"),
+        ("refresh_outcomes_tab", "_render_outcomes_view", "outcomes_view"),
+        ("refresh_diagnostics_tab", "_render_diagnostics_view", "diagnostics_view"),
+    ]
+    for refresh, render, slow_symbol in specs:
+        r_start = src.index(f"def {refresh}(self")
+        r_body = src[r_start : src.index("\n    def ", r_start + 10)]
+        assert "self._run_in_background(" in r_body, f"{refresh} must offload to a worker thread"
+        assert "self._guarded_callbacks(" in r_body, f"{refresh} must guard against stale renders"
+        assert render in r_body, f"{refresh} must hand off to {render}"
+        assert slow_symbol in r_body, f"the slow call should be wired into {refresh}'s worker"
+        # The expensive widget population (tree fills) must live in the render
+        # half, not the front — proving the work really moved off the UI thread.
+        assert "_replace_tree_rows(" not in r_body, f"{refresh} should not render tables synchronously"
+        assert f"def {render}(self" in src, f"{render} should exist"
+        rd_start = src.index(f"def {render}(self")
+        rd_body = src[rd_start : src.index("\n    def ", rd_start + 10)]
+        assert "_replace_tree_rows(" in rd_body, f"{render} should populate the tables"
+
+
+def test_remaining_blocking_handlers_are_async():
+    """Subprocess- and disk-bound handlers (schedule install/uninstall, test
+    notification, holdings preview, API-key inventory) must offload to a worker
+    so a slow launchctl/notify/keyring call can't freeze the window."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    for handler in (
+        "_install_schedule_clicked",
+        "_uninstall_schedule_clicked",
+        "_send_test_notification",
+        "preview_holdings",
+        "refresh_api_key_manager",
+    ):
+        start = src.index(f"def {handler}(self")
+        body = src[start : src.index("\n    def ", start + 10)]
+        assert "self._run_in_background(" in body, f"{handler} must offload to a worker thread"
+    # The API-key refresh is re-triggerable (tab warm + after save/delete), so it
+    # also uses the latest-wins guard and renders from a dedicated method.
+    akm_start = src.index("def refresh_api_key_manager(self")
+    akm_body = src[akm_start : src.index("\n    def ", akm_start + 10)]
+    assert "self._guarded_callbacks(" in akm_body
+    assert "def _render_api_key_manager(self" in src
+
+
+def test_refresh_buttons_show_busy_state_during_async_loads():
+    """Each async tab disables its Refresh button while work is in flight and
+    re-enables it on completion (both success and error paths)."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    guard = src[src.index("def _guarded_callbacks(self") : src.index("def _set_button_state(")]
+    assert 'self._set_button_state(button, "disabled")' in guard
+    # Re-enabled on both the success and error completion paths.
+    assert guard.count('self._set_button_state(button, "normal")') >= 2
+    for key in ("performance", "learning", "outcomes", "diagnostics"):
+        assert f'self._refresh_buttons["{key}"]' in src, f"no Refresh button registered for {key}"
+
+
+def test_run_flow_enforces_monthly_spend_cap():
+    """Before spending ~90s and Claude $, the Run flow gates on the monthly cap,
+    and an explicit override is scoped to that single run."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    run_start = src.index("def start_report_run(self")
+    run_body = src[run_start : src.index("\n    def ", run_start + 10)]
+    assert "self._budget_precheck()" in run_body
+
+    pre_start = src.index("def _budget_precheck(self")
+    pre_body = src[pre_start : src.index("\n    def ", pre_start + 10)]
+    assert "check_budget" in pre_body
+    assert "hard_block" in pre_body
+    assert 'os.environ["ALLOW_OVERAGE"] = "1"' in pre_body
+
+    # The per-run override is cleared when the run finishes.
+    done_start = src.index("def _report_run_done(self")
+    done_body = src[done_start : src.index("\n    def ", done_start + 10)]
+    assert "_clear_desktop_overage" in done_body
+    clear_start = src.index("def _clear_desktop_overage(self")
+    clear_body = src[clear_start : src.index("\n    def ", clear_start + 10)]
+    assert 'os.environ.pop("ALLOW_OVERAGE"' in clear_body
+
+
+def test_new_installs_seed_a_monthly_spend_cap():
+    """New installs default to a non-zero monthly Claude cap; existing users keep
+    whatever they already saved (this only seeds the onboarding field)."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    assert 'self._budget_claude_var = tk.StringVar(value="25")' in src
+    assert '("monthly_budget_usd", self._budget_claude_var, 25)' in src
+
+
+def test_background_helper_marshals_results_through_the_queue():
+    """Worker threads must never touch Tk directly — results come back through
+    the single progress queue the drain loop already pumps on the UI thread."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    helper = src[src.index("def _run_in_background(self") : src.index("def _handle_async_error(self")]
+    assert "threading.Thread(" in helper and "daemon=True" in helper
+    assert 'self.progress_queue.put(("callback"' in helper
+
+    drain = src[src.index("def _drain_progress_queue(self") : src.index("def _run_in_background(self")]
+    assert 'kind == "callback"' in drain
+    assert "payload()" in drain
+
+
+def test_drain_loop_is_resilient_to_handler_errors():
+    """A single failing progress handler must not kill the drain loop — the
+    reschedule lives in a finally and each item is dispatched under a guard, so
+    report-run completion and background refreshes keep pumping."""
+    src = DESKTOP_IMPL.read_text(encoding="utf-8")
+    drain = src[src.index("def _drain_progress_queue(self") : src.index("def _run_in_background(self")]
+    assert "finally:" in drain
+    assert "logger.exception" in drain
+    # The reschedule must sit inside the finally (after the dispatch loop) so it
+    # still runs when a handler raised.
+    assert drain.index("finally:") < drain.index("self._drain_id = self.after(100")
+
+
+def test_guarded_callbacks_drop_stale_results_on_both_paths():
+    """Only the most recent request for a key may render OR report an error —
+    a stale success is dropped, and (the bug the review caught) a stale error
+    must not clobber a fresh successful render."""
+    from types import SimpleNamespace
+
+    from src.desktop_app import DesktopApp
+
+    # _guarded_callbacks also toggles the tab's Refresh button via these, so the
+    # stand-in self must carry them.
+    host = SimpleNamespace(
+        _async_generation={},
+        _refresh_buttons={},
+        _set_button_state=DesktopApp._set_button_state,
+        _set_status=lambda *_a, **_k: None,
+    )
+    applied: list = []
+
+    ok_old, err_old = DesktopApp._guarded_callbacks(
+        host, "perf", lambda r: applied.append(("ok_old", r)), lambda e: applied.append(("err_old", e))
+    )
+    ok_new, err_new = DesktopApp._guarded_callbacks(
+        host, "perf", lambda r: applied.append(("ok_new", r)), lambda e: applied.append(("err_new", e))
+    )
+
+    # Stale success dropped; fresh success renders.
+    ok_old("stale")
+    ok_new("fresh")
+    assert applied == [("ok_new", "fresh")]
+
+    # A stale error (older worker fails after the newer one already rendered)
+    # must NOT fire; the fresh error path still works.
+    applied.clear()
+    err_old(RuntimeError("stale"))
+    assert applied == []
+    err_new(RuntimeError("boom"))
+    assert applied and applied[0][0] == "err_new"
+
+    # Independent keys keep separate generations.
+    applied.clear()
+    ok_other, _ = DesktopApp._guarded_callbacks(host, "diagnostics", lambda r: applied.append(("other", r)), None)
+    ok_other("ok")
+    assert ("other", "ok") in applied
+
+
+def test_guarded_callbacks_route_render_errors_to_on_error():
+    """A render that raises on the UI thread must be surfaced via on_error, not
+    swallowed — otherwise the tab shows a success status over empty tables."""
+    from types import SimpleNamespace
+
+    from src.desktop_app import DesktopApp
+
+    # _guarded_callbacks also toggles the tab's Refresh button via these, so the
+    # stand-in self must carry them.
+    host = SimpleNamespace(
+        _async_generation={},
+        _refresh_buttons={},
+        _set_button_state=DesktopApp._set_button_state,
+        _set_status=lambda *_a, **_k: None,
+    )
+    reported: list = []
+
+    def _render_that_raises(_result):
+        raise KeyError("sharpe")
+
+    on_success, _on_error = DesktopApp._guarded_callbacks(host, "perf", _render_that_raises, lambda exc: reported.append(repr(exc)))
+    on_success({"some": "data"})
+    assert reported and "sharpe" in reported[0]
+
+
 if __name__ == "__main__":
     import pytest
 

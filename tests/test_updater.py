@@ -157,6 +157,35 @@ def test_apply_update_reports_checksum_result(tmp_path, monkeypatch):
     assert opened == [["open", str(asset)]]
 
 
+def test_apply_update_refuses_install_when_checksum_unverified(tmp_path, monkeypatch):
+    """A None checksum result (no SHA256SUMS entry) must NOT auto-install the asset."""
+    asset = tmp_path / "tech_stock.dmg"
+    asset.write_bytes(b"asset")
+    opened = []
+    info = updater.UpdateInfo(
+        current_version="1.0.0",
+        latest_version="9.9.9",
+        available=True,
+        asset_name="tech_stock.dmg",
+        asset_url="https://example.test/tech_stock.dmg",
+        checksum_url=None,
+    )
+
+    monkeypatch.setattr(updater, "is_source_checkout", lambda: False)
+    monkeypatch.setattr(updater, "download_asset", lambda update_info: asset)
+    monkeypatch.setattr(updater, "verify_asset_checksum", lambda path, update_info: None)
+    monkeypatch.setattr(updater.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(updater.subprocess, "Popen", lambda args, **kwargs: opened.append(args))
+
+    result = updater.apply_update(info, restart=True)
+
+    assert result.ok is False
+    assert result.checksum_verified is None
+    assert result.error == "checksum not verified"
+    # Must only reveal the download (open -R), never mount/execute it.
+    assert opened == [["open", "-R", str(asset)]]
+
+
 # ── Update-check cache (throttling) ─────────────────────────────────────
 
 
@@ -275,3 +304,37 @@ def test_check_for_update_cache_expires_after_ttl(tmp_path, monkeypatch):
     updater.check_for_update(current_version="1.0.0", use_cache=True, cache_ttl_seconds=0)
 
     assert call_counter["n"] == 2
+
+
+def test_user_workspace_uses_env_var(monkeypatch, tmp_path):
+    monkeypatch.setenv("TECH_STOCK_HOME", str(tmp_path))
+    result = updater.user_workspace()
+    assert result == tmp_path
+
+
+def test_normalize_version_various():
+    assert updater.normalize_version(None) == (0,)
+    assert updater.normalize_version("") == (0,)
+    assert updater.normalize_version("v1.28.0") == (1, 28, 0)
+    assert updater.normalize_version("1.0.0-beta") == (1, 0, 0)
+
+
+def test_is_source_checkout_returns_bool():
+    # Just verify it doesn't crash and returns a bool
+    result = updater.is_source_checkout()
+    assert isinstance(result, bool)
+
+
+def test_ssl_context_returns_context():
+    import ssl
+
+    ctx = updater.ssl_context()
+    assert isinstance(ctx, ssl.SSLContext)
+
+
+def test_update_dir_and_log_path(monkeypatch, tmp_path):
+    monkeypatch.setenv("TECH_STOCK_HOME", str(tmp_path))
+    update_dir = updater.update_dir()
+    log_path = updater.update_log_path()
+    assert update_dir.exists()
+    assert log_path.parent.exists()

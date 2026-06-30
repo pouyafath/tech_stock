@@ -165,3 +165,71 @@ def test_parse_launchd_times_round_trip():
 
 def test_parse_launchd_times_returns_empty_on_garbage():
     assert scheduling._parse_launchd_times("not xml") == []
+
+
+# ── Cron backend tests (Linux) ─────────────────────────────────────────────
+
+
+@pytest.fixture
+def isolated_cron(monkeypatch, tmp_path):
+    """Redirect cron paths and mock crontab binary."""
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(scheduling.shutil, "which", lambda binary: "/usr/bin/crontab" if binary == "crontab" else None)
+    monkeypatch.setattr(scheduling, "_cron_artefact_path", lambda: tmp_path / f"{LABEL}.cron")
+    current_crontab = {"lines": []}
+
+    def fake_read_crontab():
+        return list(current_crontab["lines"])
+
+    def fake_write_crontab(lines):
+        current_crontab["lines"] = list(lines)
+
+    monkeypatch.setattr(scheduling, "_read_crontab", fake_read_crontab)
+    monkeypatch.setattr(scheduling, "_write_crontab", fake_write_crontab)
+    return current_crontab
+
+
+def test_install_cron_adds_lines(isolated_cron):
+    times = [ScheduleTime(7, 0, "morning"), ScheduleTime(14, 0, "afternoon")]
+    result = install_schedule(times)
+    assert result.ok
+    assert result.backend == "cron"
+    assert len(isolated_cron["lines"]) == 2
+
+
+def test_uninstall_cron_removes_lines(isolated_cron):
+    times = [ScheduleTime(7, 0, "morning")]
+    install_schedule(times)
+    result = uninstall_schedule()
+    assert result.ok
+    assert isolated_cron["lines"] == []
+
+
+def test_current_cron_shows_installed_times(isolated_cron):
+    times = [ScheduleTime(9, 30, "morning")]
+    install_schedule(times)
+    current = current_schedule()
+    assert current.installed
+    assert len(current.times) == 1
+    assert current.times[0].hour == 9
+    assert current.times[0].minute == 30
+
+
+def test_current_cron_empty_when_no_lines(isolated_cron):
+    current = current_schedule()
+    assert not current.installed
+    assert current.times == []
+
+
+def test_preview_schedule_cron_on_linux(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    backend, body = preview_schedule([ScheduleTime(7, 0, "morning")])
+    assert backend == "cron"
+    assert "7" in body
+
+
+def test_preview_schedule_windows(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
+    backend, body = preview_schedule([ScheduleTime(7, 0, "morning")])
+    assert backend == "task_scheduler"
+    assert "Task" in body
