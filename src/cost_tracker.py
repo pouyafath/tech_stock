@@ -289,6 +289,21 @@ def is_overage_allowed() -> bool:
     return os.environ.get("ALLOW_OVERAGE") == "1"
 
 
+def spend_status_line() -> str:
+    """One-line month-to-date Claude spend vs. cap, for CLI/UI surfaces.
+
+    Shows spend regardless of whether a cap is set; when uncapped it nudges the
+    user toward configuring one so the guardrail isn't opt-in-by-silence.
+    """
+    mtd = spend_summary(lookback_days=30).month_to_date_usd
+    budget = _budget_from_settings()
+    if budget <= 0:
+        return f"Month-to-date Claude spend: ${mtd:.2f} — no monthly cap set (add monthly_budget_usd to settings.json to enable one)"
+    remaining = max(0.0, budget - mtd)
+    pct = (mtd / budget * 100.0) if budget else 0.0
+    return f"Month-to-date Claude spend: ${mtd:.2f} of ${budget:.2f} cap ({pct:.0f}% used, ${remaining:.2f} left)"
+
+
 def clear_cost_log() -> bool:
     """Delete the cost log.  Used by the Privacy → Delete-all-data action and tests."""
     try:
@@ -308,5 +323,6 @@ __all__ = [
     "spend_summary",
     "check_budget",
     "is_overage_allowed",
+    "spend_status_line",
     "clear_cost_log",
 ]

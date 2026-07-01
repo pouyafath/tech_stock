@@ -177,3 +177,31 @@ def test_daily_series_groups_by_date(monkeypatch, _isolate_cost_log):
     bucket = summary.daily_series[0]
     assert bucket["runs"] == 2
     assert bucket["cost_usd"] == pytest.approx(0.25, abs=0.01)
+
+
+# ── spend_status_line (observability surface) ──────────────────────────────
+
+
+def test_spend_status_line_uncapped(monkeypatch):
+    from types import SimpleNamespace
+
+    from src import cost_tracker
+
+    monkeypatch.setattr(cost_tracker, "spend_summary", lambda **_kw: SimpleNamespace(month_to_date_usd=8.0))
+    monkeypatch.setattr(cost_tracker, "_budget_from_settings", lambda: 0.0)
+    line = cost_tracker.spend_status_line()
+    assert "$8.00" in line
+    assert "no monthly cap set" in line
+
+
+def test_spend_status_line_capped_shows_pct_and_remaining(monkeypatch):
+    from types import SimpleNamespace
+
+    from src import cost_tracker
+
+    monkeypatch.setattr(cost_tracker, "spend_summary", lambda **_kw: SimpleNamespace(month_to_date_usd=15.0))
+    monkeypatch.setattr(cost_tracker, "_budget_from_settings", lambda: 25.0)
+    line = cost_tracker.spend_status_line()
+    assert "$15.00 of $25.00 cap" in line
+    assert "60% used" in line
+    assert "$10.00 left" in line
