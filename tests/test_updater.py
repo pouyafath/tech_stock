@@ -338,3 +338,83 @@ def test_update_dir_and_log_path(monkeypatch, tmp_path):
     log_path = updater.update_log_path()
     assert update_dir.exists()
     assert log_path.parent.exists()
+
+
+# ── zip-slip protection + checksum edge cases ──────────────────────────────
+
+
+def _make_zip(path, entries):
+    import zipfile
+
+    with zipfile.ZipFile(path, "w") as zf:
+        for name, data in entries.items():
+            zf.writestr(name, data)
+    return path
+
+
+def test_safe_extract_zip_extracts_normal_archive(tmp_path):
+    zip_path = _make_zip(tmp_path / "ok.zip", {"a.txt": "hello", "sub/b.txt": "world"})
+    dest = tmp_path / "out"
+    updater._safe_extract_zip(zip_path, dest)
+    assert (dest / "a.txt").read_text() == "hello"
+    assert (dest / "sub" / "b.txt").read_text() == "world"
+
+
+def test_safe_extract_zip_rejects_zip_slip(tmp_path):
+    # An entry that would escape the destination directory must be refused.
+    zip_path = _make_zip(tmp_path / "evil.zip", {"../escape.txt": "pwned"})
+    dest = tmp_path / "out"
+    try:
+        updater._safe_extract_zip(zip_path, dest)
+    except RuntimeError as exc:
+        assert "zip-slip" in str(exc)
+    else:
+        raise AssertionError("expected zip-slip to be rejected")
+    # And nothing was written outside the destination.
+    assert not (tmp_path / "escape.txt").exists()
+
+
+def test_verify_asset_checksum_none_when_no_checksum_url():
+    info = updater.UpdateInfo(current_version="1.0.0", asset_name="tech_stock.dmg", checksum_url=None)
+    assert updater.verify_asset_checksum(Path("/nonexistent"), info) is None
+
+
+def test_verify_asset_checksum_none_when_asset_absent_from_sums(tmp_path, monkeypatch):
+    asset = tmp_path / "tech_stock.dmg"
+    asset.write_bytes(b"asset")
+    info = updater.UpdateInfo(
+        current_version="1.0.0",
+        asset_name="tech_stock.dmg",
+        checksum_url="https://example.test/SHA256SUMS.txt",
+    )
+
+    class Response(BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    # SHA file lists a *different* asset — no entry for ours → skip (None).
+    monkeypatch.setattr(
+        updater.urllib.request,
+        "urlopen",
+        lambda request, timeout=30.0, context=None: Response(b"abc123  some-other-file.zip\n"),
+    )
+    assert updater.verify_asset_checksum(asset, info) is None
+
+
+def test_update_info_serialize_roundtrip():
+    info = updater.UpdateInfo(
+        current_version="1.2.3",
+        latest_version="1.4.0",
+        available=True,
+        asset_name="tech_stock.dmg",
+        asset_url="https://example.test/a.dmg",
+        checksum_url="https://example.test/SHA256SUMS.txt",
+        asset_names=["tech_stock.dmg", "tech_stock.zip"],
+    )
+    restored = updater._deserialize_update_info(updater._serialize_update_info(info))
+    assert restored.latest_version == "1.4.0"
+    assert restored.available is True
+    assert restored.asset_names == ["tech_stock.dmg", "tech_stock.zip"]
