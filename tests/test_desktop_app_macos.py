@@ -49,10 +49,12 @@ def test_legacy_desktop_app_module_aliases_new_package():
 
 def test_platform_fonts_picks_sf_pro_on_macos(monkeypatch):
     """On macOS the ladder should use the SF Pro family — best system match."""
-    import src.desktop_app as dapp
+    # The font ladder now lives in src/desktop/theme; patch IS_MACOS there since
+    # platform_fonts() reads that module's global.
+    from src.desktop import theme
 
-    monkeypatch.setattr(dapp, "IS_MACOS", True)
-    fonts = dapp._platform_fonts()
+    monkeypatch.setattr(theme, "IS_MACOS", True)
+    fonts = theme.platform_fonts()
     assert "SF Pro" in fonts["title"][0]
     assert "SF Pro" in fonts["body"][0]
     assert "SF Mono" in fonts["mono"][0]
