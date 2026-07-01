@@ -447,6 +447,18 @@ def interactive_setup() -> dict:
     print(f"2. Investment budget for this session:")
     budget_cad = _prompt_positive_float("CAD", 1000)
 
+    # ── Monthly Claude spend cap (persisted; seeds a default for new users) ──
+    try:
+        from src.config import load_settings as _load_settings
+        from src.config import set_setting_if_absent
+
+        if not _load_settings().get("monthly_budget_usd"):
+            print(f"\n{C.BOLD}Monthly Claude spend cap{C.RESET} {C.DIM}(hard-blocks paid runs once reached this month){C.RESET}")
+            monthly_cap = _prompt_positive_float("USD/month", 25)
+            set_setting_if_absent("monthly_budget_usd", monthly_cap)
+    except Exception as exc:
+        print(f"   {C.DIM}Skipped monthly-cap setup: {exc}{C.RESET}")
+
     # ── Holdings CSV (required every time) ────────────────────────────────
     print(f"\n3. {C.BOLD}Holdings CSV{C.RESET}")
     today_str = datetime.now().strftime("%Y-%m-%d")
@@ -1049,7 +1061,11 @@ def _run_impl(
     # figure stays in sync with the model menu and the real pricing table.
     try:
         from src.claude_analyst import typical_run_cost
-        from src.cost_tracker import check_budget, is_overage_allowed
+        from src.cost_tracker import check_budget, is_overage_allowed, spend_status_line
+
+        # Always surface month-to-date spend so cost stays visible even when the
+        # run is comfortably under (or has no) cap.
+        print(f"{C.DIM}[tech_stock] 💰 {spend_status_line()}{C.RESET}")
 
         expected = typical_run_cost(display_model)
         budget = check_budget(expected_cost_usd=expected)

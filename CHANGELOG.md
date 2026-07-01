@@ -4,6 +4,25 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.40.0] — 2026-07-01
+
+### Tests & tooling
+- **CI coverage floor raised 55% → 70%.** Actual coverage sat ~76% while the
+  gate was 55%, so real regressions could land silently.
+- **Strengthened the weakest mockable modules** with error/pure-path tests:
+  `news_fetcher` 39→90%, `market_data` 49→73%, `enriched_data` 30→80%. Total
+  coverage now ~78%.
+
+### Spend cap / cost observability
+- **Month-to-date Claude spend is now surfaced on every CLI run** (spent vs.
+  cap, % used, remaining — or a nudge to set a cap when none is configured), so
+  the guardrail isn't opt-in-by-silence.
+- **Interactive CLI setup seeds a $25/month cap** for new users
+  (`set_setting_if_absent` never overwrites an existing value, so current users
+  and scheduled runs are unaffected).
+
+---
+
 ## [1.39.0] — 2026-06-30
 
 Desktop UI production-readiness, merged on top of main's v1.38. Everything this
