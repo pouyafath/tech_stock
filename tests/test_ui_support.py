@@ -343,3 +343,100 @@ def test_default_run_settings_reads_budget_and_model(monkeypatch, tmp_path):
     defaults = ui_support.default_run_settings()
 
     assert defaults == {"budget_usd": 500.0, "budget_cad": 3000.0, "model_choice": "opus"}
+
+
+# ── Pure helper coverage ───────────────────────────────────────────────────
+
+
+def test_resolve_model_maps_choices():
+    assert ui_support.resolve_model(None) == (None, None)
+    assert ui_support.resolve_model("") == (None, None)
+    assert ui_support.resolve_model("SONNET")[0] == "claude-sonnet-4-6"
+    assert ui_support.resolve_model("opus")[1] == "Opus 4.7"
+    assert ui_support.resolve_model("nope") == (None, None)
+
+
+def test_normalize_optional_path():
+    assert ui_support.normalize_optional_path(None) is None
+    assert ui_support.normalize_optional_path("   ") is None
+    p = ui_support.normalize_optional_path("~/x/y.csv")
+    assert p is not None and str(p).endswith("x/y.csv") and "~" not in str(p)
+
+
+def test_session_from_name():
+    assert ui_support._session_from_name("report_2026-01-02_morning.md") == "morning"
+    assert ui_support._session_from_name("report_2026-01-02_afternoon.md") == "afternoon"
+    assert ui_support._session_from_name("some_report.md") == ""
+
+
+def test_is_buy_signal_candidate():
+    assert ui_support.is_buy_signal_candidate({"action": "buy"}) is True
+    assert ui_support.is_buy_signal_candidate({"action": "ADD"}) is True
+    assert ui_support.is_buy_signal_candidate({"action": "HOLD", "hold_tier": "add_on_dip"}) is True
+    assert ui_support.is_buy_signal_candidate({"action": "HOLD"}) is False
+    assert ui_support.is_buy_signal_candidate({}) is False
+
+
+def test_target_upside_pct():
+    assert ui_support.target_upside_pct(110, 100) == 10.0
+    assert ui_support.target_upside_pct(90, 100) == -10.0
+    assert ui_support.target_upside_pct(None, 100) is None
+    assert ui_support.target_upside_pct(110, None) is None
+    assert ui_support.target_upside_pct(110, 0) is None  # zero price guarded
+
+
+def test_mask_secret():
+    assert ui_support.mask_secret(None) == ""
+    assert ui_support.mask_secret("") == ""
+    assert ui_support.mask_secret("shortkey") == "*" * 8  # <= 8 fully masked
+    assert ui_support.mask_secret("sk-abcdef123456") == "sk-a...3456"
+
+
+def test_filter_source_provenance_rows():
+    rows = [
+        {"status": "OK", "source": "finnhub", "ticker": "NVDA"},
+        {"status": "MISSING", "source": "polygon", "ticker": "AMD"},
+        {"status": "DEGRADED", "source": "fred", "ticker": "NVDA"},
+    ]
+    # PROBLEM keeps only MISSING/DEGRADED/PARTIAL.
+    problems = ui_support._filter_source_provenance_rows(rows, status_filter="problem", source_filter="all", ticker_filter="")
+    assert {r["status"] for r in problems} == {"MISSING", "DEGRADED"}
+    # Exact status filter.
+    ok = ui_support._filter_source_provenance_rows(rows, status_filter="OK", source_filter="all", ticker_filter="")
+    assert len(ok) == 1 and ok[0]["source"] == "finnhub"
+    # Source + ticker filters combine.
+    nvda = ui_support._filter_source_provenance_rows(rows, status_filter="all", source_filter="fred", ticker_filter="nvda")
+    assert len(nvda) == 1 and nvda[0]["source"] == "fred"
+
+
+def test_read_env_style_file(tmp_path):
+    from src import ui_support as u
+
+    assert u._read_env_style_file(tmp_path / "absent") == {}
+    p = tmp_path / "API_KEYS.txt"
+    p.write_text(
+        '# comment\n\nANTHROPIC_API_KEY="sk-abc"\nFINNHUB_KEY = plain \nBAD LINE NO EQUALS\n=leading\n',
+        encoding="utf-8",
+    )
+    values = u._read_env_style_file(p)
+    assert values["ANTHROPIC_API_KEY"] == "sk-abc"  # quotes stripped
+    assert values["FINNHUB_KEY"] == "plain"  # whitespace stripped
+    assert "BAD LINE NO EQUALS" not in values
+
+
+def test_write_env_style_file_updates_and_appends_and_preserves_comments(tmp_path):
+    from src import ui_support as u
+
+    p = tmp_path / "API_KEYS.txt"
+    p.write_text("# header\nANTHROPIC_API_KEY=old\n", encoding="utf-8")
+    # Update existing, add new.
+    u._write_env_style_file(p, {"ANTHROPIC_API_KEY": "new", "FINNHUB_KEY": "fk"})
+    out = p.read_text(encoding="utf-8")
+    assert "# header" in out  # comment preserved
+    assert "ANTHROPIC_API_KEY=new" in out
+    assert "ANTHROPIC_API_KEY=old" not in out
+    assert "FINNHUB_KEY=fk" in out
+
+    # An empty/None value drops the line (removal).
+    u._write_env_style_file(p, {"FINNHUB_KEY": None})
+    assert "FINNHUB_KEY" not in p.read_text(encoding="utf-8")
